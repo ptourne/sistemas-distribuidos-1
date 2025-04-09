@@ -98,6 +98,5 @@ func main() {
 		}
 	}
 
-	ch.queue
 
 }
