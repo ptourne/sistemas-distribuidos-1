@@ -31,7 +31,7 @@ func main() {
 	defer ch.Close()
 
 	err = ch.ExchangeDeclare(
-		"logs",   // name
+		"films",  // name
 		"fanout", // type
 		true,     // durable
 		false,    // auto-deleted
@@ -52,9 +52,9 @@ func main() {
 	failOnError(err, "Failed to declare a queue")
 
 	err = ch.QueueBind(
-		q.Name, // queue name
-		"",     // routing key
-		"logs", // exchange
+		q.Name,  // queue name
+		"",      // routing key
+		"films", // exchange
 		false,
 		nil,
 	)

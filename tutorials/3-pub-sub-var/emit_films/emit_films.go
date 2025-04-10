@@ -20,7 +20,7 @@ func main() {
 	defer ch.Close()
 
 	err = ch.ExchangeDeclare(
-		"logs",   // name
+		"films",  // name
 		"fanout", // type
 		true,     // durable
 		false,    // auto-deleted
@@ -83,10 +83,10 @@ func main() {
 			common.FailOnError(err, "Failed to encode film")
 
 			err = ch.PublishWithContext(ctx,
-				"logs", // exchange
-				"",     // routing key
-				false,  // mandatory
-				false,  // immediate
+				"films", // exchange
+				"",      // routing key
+				false,   // mandatory
+				false,   // immediate
 				amqp.Publishing{
 					ContentType: "text/plain",
 					Body:        buf.Bytes(),
@@ -97,6 +97,5 @@ func main() {
 			time.Sleep(1 * time.Second)
 		}
 	}
-
 
 }
