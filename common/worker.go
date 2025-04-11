@@ -5,4 +5,5 @@ type Row struct {
 	Strings  map[string]string   `json:"strings"`
 	Arrays   map[string][]string `json:"arrays"`
 	Booleans map[string]bool     `json:"booleans"`
+	Floats   map[string]float64  `json:"floats"`
 }
