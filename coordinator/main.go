@@ -37,7 +37,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	file, err := os.Open("datasets/movie_metadata.csv")
+	file, err := os.Open("../datasets/movies_metadata.csv")
 	unwrap(err, "Failed to open CSV file")
 	defer file.Close()
 
@@ -124,7 +124,7 @@ func Film(data []string) common.Row {
 		data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
 		data[16], data[17], data[18], data[19], data[20], data[21], data[22], data[23]
 
-	return common.Row{
+		return common.Row{
 		Strings: map[string]string{
 			"movieID":           id,
 			"title":             title,
@@ -198,7 +198,7 @@ func dictionaryToList(input string) []string {
 
 	err := json.Unmarshal([]byte(input), &items)
 	if err != nil {
-		log.Printf("failed to unmarshal input: %v", err)
+		log.Printf("failed to unmarshal input %s: %v", input, err)
 		return result
 	}
 
