@@ -1,4 +1,4 @@
-module github.com/ptourne/sistemas-distribuidos-1/tutorials
+module github.com/ptourne/sistemas-distribuidos-1/common
 
 go 1.24.1
 

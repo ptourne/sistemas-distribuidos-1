@@ -1,0 +1,19 @@
+name: analisis-peliculas
+services:
+  coordinator:
+    container_name: coordinator
+    build:
+      context: ./coordinator
+    entrypoint: /coordinator
+    networks:
+      - local_net
+    environment:
+      - NUMBER_OF_WORKERS=0
+
+networks:
+  local_net:
+    name: local_net
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.125.0/24

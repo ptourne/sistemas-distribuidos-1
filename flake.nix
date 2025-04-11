@@ -2,7 +2,7 @@
   description = "Nix shells for development";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/24.11";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   };
 
   outputs = { self, nixpkgs, ... } @ inputs:
