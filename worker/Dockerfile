@@ -8,21 +8,20 @@ FROM golang:1.24.1 AS builder
 LABEL intermediateStageToBeDeleted=true
 
 RUN mkdir -p /build/common
-RUN mkdir -p /build/coordinator
-WORKDIR /build/coordinator
+RUN mkdir -p /build/worker
+WORKDIR /build/worker
 
 COPY ./common /build/common
-COPY ./coordinator/go.mod ./coordinator/go.sum ./
+COPY ./worker/go.mod ./worker/go.sum ./
 RUN go mod download
 
-COPY ./coordinator .
+COPY ./worker .
 
 RUN go test -v ./...
 
 # CGO_ENABLED must be disabled to run go binary in Alpine
-RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/coordinator github.com/ptourne/sistemas-distribuidos-1/coordinator
-
+RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/worker github.com/ptourne/sistemas-distribuidos-1/worker
 
 FROM busybox:latest
-COPY --from=builder /build/bin/coordinator /coordinator
+COPY --from=builder /build/bin/worker /worker
 ENTRYPOINT ["/bin/sh"]

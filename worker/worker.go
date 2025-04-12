@@ -1,24 +1,40 @@
-package worker
+package main
 
 import (
 	"encoding/json"
 	"log"
 	"reflect"
+	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/filter"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type Worker struct {
-	Tasks []Task
+	Tasks []task.Task
 }
 
 func (w Worker) Run() {
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	logger := logger.NewConsoleLogger("worker1", logger.Debug)
+	var conn *amqp.Connection
+	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+	for range 5 {
+		if err == nil {
+			break
+		}
+		time.Sleep(5 * time.Second)
+		conn, err = amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+	}
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
+		return
 	}
 	defer conn.Close()
+	logger.Infof("Connected to RabbitMQ")
 	ch, err := conn.Channel()
 	if err != nil {
 		panic(err)
@@ -47,15 +63,17 @@ func (w Worker) Run() {
 		err = json.Unmarshal(blob, &row)
 		unwrap(err, "Failed to unmarshal JSON")
 		task := w.Tasks[i]
-		result := task.operation.Process(row)
+		//log.Printf("Received message from %s: %s", task.Input, row.Strings["title"])
+		result := task.Operation.Process(row)
 		if result == nil {
-			log.Println("Row filtered out")
+			log.Printf("Row filtered out: %v name: %v", row.Strings["title"], task.Name)
 			continue
 		}
+
 		buf, err := json.Marshal(result)
 		unwrap(err, "Failed to marshal JSON")
 		err = ch.Publish(
-			task.name, // exchange
+			task.Name, // exchange
 			"",        // routing key
 			false,     // mandatory
 			false,     // immediate
@@ -75,9 +93,9 @@ func unwrap(err error, msg string) {
 	}
 }
 
-func newFunction(task Task, ch *amqp.Channel) <-chan amqp.Delivery {
+func newFunction(task task.Task, ch *amqp.Channel) <-chan amqp.Delivery {
 	err := ch.ExchangeDeclare(
-		task.input, // name
+		task.Input, // name
 		"fanout",   // type
 		true,       // durable
 		false,      // auto-deleted
@@ -88,7 +106,7 @@ func newFunction(task Task, ch *amqp.Channel) <-chan amqp.Delivery {
 	unwrap(err, "Failed to declare an exchange")
 
 	inputQueue, err := ch.QueueDeclare(
-		task.name, // name
+		task.Name, // name
 		false,     // durable
 		false,     // delete when unused
 		false,     // exclusive
@@ -101,7 +119,7 @@ func newFunction(task Task, ch *amqp.Channel) <-chan amqp.Delivery {
 	err = ch.QueueBind(
 		inputQueue.Name, // queue name
 		"",              // routing key
-		task.input,      // exchange
+		task.Input,      // exchange
 		false,
 		nil,
 	)
@@ -119,7 +137,7 @@ func newFunction(task Task, ch *amqp.Channel) <-chan amqp.Delivery {
 	unwrap(err, "Failed to register a consumer")
 
 	err = ch.ExchangeDeclare(
-		task.name, // name
+		task.Name, // name
 		"fanout",  // type
 		true,      // durable
 		false,     // auto-deleted
@@ -133,12 +151,11 @@ func newFunction(task Task, ch *amqp.Channel) <-chan amqp.Delivery {
 
 func NewWorker() Worker {
 	return Worker{
-		Tasks: []Task{
-			Task{
-				input:     "movies_metadata",
-				name:      "filter_release_date_ge_2000_and_include_argentina",
-				operation: FilterReleaseDateGe2000AndIncludeAR{},
-			},
+		Tasks: []task.Task{
+			task.NewTask("movies_metadata", "movies_metadata_clean", clean.CleanMovies{}),
+			task.NewTask("movies_metadata_clean", "filter_release_date_ge_2000_and_include_ar", filter.FilterReleaseDateGe2000AndIncludeAR{}),
+			task.NewTask("filter_release_date_ge_2000_and_include_ar", "filter_release_date_l_2010_and_include_es", filter.FilterReleaseDateL2010AndIncludeES{}),
+			task.NewTask("movies_metadata_clean", "filter_one_production_country", filter.FilterProductionCountriesLen1{}),
 		},
 	}
 }

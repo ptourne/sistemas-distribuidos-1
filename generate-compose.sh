@@ -1,52 +1,96 @@
 #!/bin/bash
 
-if [ "$#" -ne 2 ]; then
+if [ "$#" -eq 0 ]||[ "$#" -gt 2 ]; then
     echo "Error: Incorrect number of arguments"
-    echo "Use: ./generar-compose.sh <file_name> <number_of_workers>"
+    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>"
+    exit 1
+elif [ "$#" -eq 1 ]; then
+    file_name=./docker-compose.yml
+    number_of_workers=$1
+elif [ "$#" -eq 2 ]; then
+    file_name=$1
+    number_of_workers=$2
+fi
+
+# Verify number_of_workers is a positive integer
+if ! [[ "$number_of_workers" =~ ^[0-9]+$ ]] || [ "$number_of_workers" -le -1 ]; then
+    echo "Error: Number of workers must be a positive integer"
     exit 1
 fi
-file_name=$1
-number_of_workers=$2
 
 compose_header() {
-    echo "name: analisis-peliculas"
-    echo "services:"
-    echo "  coordinator:"
-    echo "    container_name: coordinator"
-    echo "    build:"
-    echo "      context: ./coordinator"
-    echo "    entrypoint: /coordinator"
-    echo "    networks:"
-    echo "      - local_net"
-    echo "    environment:"
-    echo "      - NUMBER_OF_WORKERS=$number_of_workers"
-    echo ""
+    echo "name: analisis-peliculas
+services:"
+}
+
+compose_rabbitmq() {
+    echo "    rabbitmq:
+        container_name: rabbitmq
+        image: rabbitmq:4.0.8-management
+        ports:
+            - \"5672:5672\"
+            - \"15672:15672\"
+        networks:
+            - local_net
+        healthcheck:
+            test: rabbitmq-diagnostics -q ping
+            interval: 10s
+            timeout: 10s
+            retries: 10
+"
+}
+
+compose_coordinator() {
+    echo "    coordinator:
+        container_name: coordinator
+        build:
+            context: .
+            dockerfile: coordinator/Dockerfile
+        entrypoint: /coordinator
+        networks:
+            - local_net
+        environment:
+            - NUMBER_OF_WORKERS=$number_of_workers
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - ${PWD}/datasets:/datasets
+"
 }
 
 compose_workers() {
     local worker_id=$1
-    echo "  worker$worker_id:"
-    echo "    container_name: worker$worker_id"
-    echo "    image: worker:latest"
-    echo "    entrypoint: /worker"
-    echo "    networks:"
-    echo "      - local_net"
-    echo "    depends_on:"
-    echo "      - coordinator"
-    echo ""
+    echo "    worker$worker_id:
+        container_name: worker$worker_id
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            coordinator:
+                condition: service_healthy
+"
 }
 
 compose_network() {
-    echo "networks:"
-    echo "  local_net:"
-    echo "    name: local_net"
-    echo "    ipam:"
-    echo "      driver: default"
-    echo "      config:"
-    echo "        - subnet: 172.25.125.0/24"
+    echo "networks:
+    local_net:
+        name: local_net
+        ipam:
+            driver: default
+            config:
+                - subnet: 172.25.125.0/24
+"
 }
 
 compose_header > $file_name
+compose_rabbitmq >> $file_name
+compose_coordinator >> $file_name
 for i in $(seq 1 $number_of_workers); do
     compose_workers $i >> $file_name
 done

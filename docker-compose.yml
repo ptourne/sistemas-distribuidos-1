@@ -1,19 +1,54 @@
 name: analisis-peliculas
 services:
-  coordinator:
-    container_name: coordinator
-    build:
-      context: ./coordinator
-    entrypoint: /coordinator
-    networks:
-      - local_net
-    environment:
-      - NUMBER_OF_WORKERS=0
+    rabbitmq:
+        container_name: rabbitmq
+        image: rabbitmq:4.0.8-management
+        ports:
+            - "5672:5672"
+            - "15672:15672"
+        networks:
+            - local_net
+        healthcheck:
+            test: rabbitmq-diagnostics -q ping
+            interval: 10s
+            timeout: 10s
+            retries: 10
+
+    coordinator:
+        container_name: coordinator
+        build:
+            context: .
+            dockerfile: coordinator/Dockerfile
+        entrypoint: /coordinator
+        networks:
+            - local_net
+        environment:
+            - NUMBER_OF_WORKERS=1
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/datasets:/datasets
+
+    worker1:
+        container_name: worker1
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            # coordinator:
+            #     condition: service_healthy
 
 networks:
-  local_net:
-    name: local_net
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.25.125.0/24
+    local_net:
+        name: local_net
+        ipam:
+            driver: default
+            config:
+                - subnet: 172.25.125.0/24
+
