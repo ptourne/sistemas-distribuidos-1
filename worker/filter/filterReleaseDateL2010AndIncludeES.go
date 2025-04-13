@@ -26,7 +26,8 @@ func (f FilterReleaseDateL2010AndIncludeES) Process(row common.Row) *common.Row 
 	}
 	return &common.Row{
 		Strings: map[string]string{
-			"title": row.Strings["title"],
+			"title":   row.Strings["title"],
+			"movieID": row.Strings["movieID"],
 		},
 		Arrays: map[string][]string{
 			"genres": row.Arrays["genres"],

@@ -5,17 +5,19 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"io"
-	"log"
 	"os"
 	"time"
+
+	"slices"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+var log = logger.NewConsoleLogger("coordinator", logger.Debug)
+
 func main() {
-	log := logger.NewConsoleLogger("coordinator", logger.Debug)
 	var conn *amqp.Connection
 	log.Infof("Connecting to RabbitMQ")
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
@@ -39,6 +41,7 @@ func main() {
 	unwrap(err, "Failed to open a channel")
 	defer ch.Close()
 
+	output := outputChannel(err, ch, log)
 	err = ch.ExchangeDeclare(
 		"movies_metadata", // name
 		"fanout",          // type
@@ -105,8 +108,85 @@ func main() {
 	}
 	log.Debugf("CSV processing completed")
 
-	// filter_release_date_l_2010_and_include_es
+	expected_output := []common.Row{
+		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
+		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
+		{Strings: map[string]string{"title": "The City of No Limits"}, Arrays: map[string][]string{"genres": []string{"Thriller", "Drama"}}},
+		{Strings: map[string]string{"title": "Nicotina"}, Arrays: map[string][]string{"genres": []string{"Drama", "Action", "Comedy", "Thriller"}}},
+		{Strings: map[string]string{"title": "Lost Embrace"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "Whisky"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Holy Girl"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Aura"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Thriller"}}},
+		{Strings: map[string]string{"title": "Bombón: The Dog"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "Rolling Family"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy"}}},
+		{Strings: map[string]string{"title": "The Method"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller"}}},
+		{Strings: map[string]string{"title": "Every Stewardess Goes to Heaven"}, Arrays: map[string][]string{"genres": []string{"Drama", "Romance", "Foreign"}}},
+		{Strings: map[string]string{"title": "Tetro"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery"}}},
+		{Strings: map[string]string{"title": "The Secret in Their Eyes"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Mystery", "Romance"}}},
+		{Strings: map[string]string{"title": "Liverpool"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "The Headless Woman"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery", "Thriller"}}},
+		{Strings: map[string]string{"title": "The Last Summer of La Boyita"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "The Appeared"}, Arrays: map[string][]string{"genres": []string{"Horror", "Thriller", "Mystery"}}},
+		{Strings: map[string]string{"title": "The Fish Child"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller", "Romance", "Foreign"}}},
+		{Strings: map[string]string{"title": "Cleopatra"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy", "Foreign"}}},
+		{Strings: map[string]string{"title": "Roma"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "Conversations with Mother"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+	}
 
+	timer := time.NewTimer(time.Second * 10)
+	should_loop := true
+	for should_loop {
+		select {
+		case msg := <-output:
+			var receivedMovie common.Row
+			err := json.Unmarshal(msg.Body, &receivedMovie)
+			if err != nil {
+				log.Errorf("Failed to unmarshal film: %v", err)
+				continue
+			}
+			log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
+			log.Infof("Received film debug: %+v", receivedMovie)
+			expected_output = remove(expected_output, receivedMovie)
+			if len(expected_output) == 0 {
+				log.Infof("All expected films received")
+			}
+			timer.Reset(time.Second * 5)
+			break
+		case <-timer.C:
+			should_loop = false
+			break
+		}
+	}
+	if len(expected_output) > 0 {
+		log.Errorf("Not all expected films received. Missing %v", expected_output)
+	}
+}
+
+func remove(slice []common.Row, movie common.Row) []common.Row {
+	for i, v := range slice {
+		if v.Strings["title"] == movie.Strings["title"] && stringSlicesEqual(v.Arrays["genres"], movie.Arrays["genres"]) {
+			log.Infof("Film matched expected")
+			return slices.Delete(slice, i, i+1)
+		}
+	}
+	return slice
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, v := range a {
+		if v != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func outputChannel(err error, ch *amqp.Channel, log *logger.ConsoleLogger) <-chan amqp.Delivery {
 	err = ch.ExchangeDeclare(
 		"filter_release_date_l_2010_and_include_es", // name
 		"fanout", // type
@@ -149,15 +229,7 @@ func main() {
 	)
 	unwrap(err, "Failed to register a consumer")
 	log.Debugf("Reading results")
-	for msg := range msgs {
-		var film common.Row
-		err := json.Unmarshal(msg.Body, &film)
-		if err != nil {
-			log.Errorf("Failed to unmarshal film: %v", err)
-			continue
-		}
-		log.Infof("Received film: %v %v", film.Strings["title"], film.Arrays["genres"])
-	}
+	return msgs
 }
 
 // adult,belongs_to_collection,budget,genres,homepage,id,imdb_id,original_language,

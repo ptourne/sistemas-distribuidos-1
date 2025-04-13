@@ -67,19 +67,19 @@ func (w Worker) Run() {
 		unwrap(err, "Failed to unmarshal JSON")
 		task := w.Tasks[i]
 		//log.Infof("Received message from %s: %s", task.Input, row.Strings["title"])
-		result := task.Operation.Process(row)
+		result := task.Process(row)
 		if result == nil {
-			log.Infof("Row filtered out: %v name: %v", row.Strings["title"], task.Name)
+			log.Infof("Row filtered out: %v name: %v", row.Strings["title"], task.Name())
 			continue
 		}
 
 		buf, err := json.Marshal(result)
 		unwrap(err, "Failed to marshal JSON")
 		err = ch.Publish(
-			task.Name, // exchange
-			"",        // routing key
-			false,     // mandatory
-			false,     // immediate
+			task.Name(), // exchange
+			"",          // routing key
+			false,       // mandatory
+			false,       // immediate
 			amqp.Publishing{
 				ContentType: "text/json",
 				Body:        buf,
@@ -99,23 +99,23 @@ func unwrap(err error, msg string) {
 
 func newFunction(task task.Task, ch *amqp.Channel) <-chan amqp.Delivery {
 	err := ch.ExchangeDeclare(
-		task.Input, // name
-		"fanout",   // type
-		true,       // durable
-		false,      // auto-deleted
-		false,      // internal
-		false,      // no-wait
-		nil,        // arguments
+		task.Input(), // name
+		"fanout",     // type
+		true,         // durable
+		false,        // auto-deleted
+		false,        // internal
+		false,        // no-wait
+		nil,          // arguments
 	)
 	unwrap(err, "Failed to declare an exchange")
 
 	inputQueue, err := ch.QueueDeclare(
-		task.Name, // name
-		false,     // durable
-		false,     // delete when unused
-		false,     // exclusive
-		false,     // no-wait
-		nil,       // arguments
+		task.Name(), // name
+		false,       // durable
+		false,       // delete when unused
+		false,       // exclusive
+		false,       // no-wait
+		nil,         // arguments
 	)
 
 	unwrap(err, "Failed to declare a queue")
@@ -123,7 +123,7 @@ func newFunction(task task.Task, ch *amqp.Channel) <-chan amqp.Delivery {
 	err = ch.QueueBind(
 		inputQueue.Name, // queue name
 		"",              // routing key
-		task.Input,      // exchange
+		task.Input(),    // exchange
 		false,
 		nil,
 	)
@@ -141,13 +141,13 @@ func newFunction(task task.Task, ch *amqp.Channel) <-chan amqp.Delivery {
 	unwrap(err, "Failed to register a consumer")
 
 	err = ch.ExchangeDeclare(
-		task.Name, // name
-		"fanout",  // type
-		true,      // durable
-		false,     // auto-deleted
-		false,     // internal
-		false,     // no-wait
-		nil,       // arguments
+		task.Name(), // name
+		"fanout",    // type
+		true,        // durable
+		false,       // auto-deleted
+		false,       // internal
+		false,       // no-wait
+		nil,         // arguments
 	)
 	unwrap(err, "Failed to declare an exchange")
 	return msgs
@@ -159,7 +159,7 @@ func NewWorker() Worker {
 			task.NewTask("movies_metadata", "movies_metadata_clean", clean.CleanMovies{}),
 			task.NewTask("movies_metadata_clean", "filter_release_date_ge_2000_and_include_ar", filter.FilterReleaseDateGe2000AndIncludeAR{}),
 			task.NewTask("filter_release_date_ge_2000_and_include_ar", "filter_release_date_l_2010_and_include_es", filter.FilterReleaseDateL2010AndIncludeES{}),
-			task.NewTask("movies_metadata_clean", "filter_one_production_country", filter.FilterProductionCountriesLen1{}),
+			task.NewTask("movies_metadata_clean", "filter_one_production_country", filter.NewFilterProductionCountriesLen1()),
 		},
 	}
 }

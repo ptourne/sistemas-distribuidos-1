@@ -1,6 +1,10 @@
 package filter
 
-import "github.com/ptourne/sistemas-distribuidos-1/common"
+import (
+	"fmt"
+
+	"github.com/ptourne/sistemas-distribuidos-1/common"
+)
 
 type NumericOperator int
 
@@ -19,51 +23,91 @@ type NumericCondition struct {
 	Operator NumericOperator
 }
 
-// func (c NumericCondition) Passes(row common.Row) (bool, error) {
-// 	if val, ok := row.Arrays["production_countries"]; ok {
-// 		switch c.Operator {
-// 		case Equal:
-// 			return row.Numerics[c.Column] == c.Value
-// 		case NotEqual:
-// 			return row.Numerics[c.Column] != c.Value
-// 		case GreaterThan:
-// 			return row.Numerics[c.Column] > c.Value
-// 		case LessThan:
-// 			return row.Numerics[c.Column] < c.Value
-// 		case GreaterThanOrEqual:
-// 			return row.Numerics[c.Column] >= c.Value
-// 		case LessThanOrEqual:
-// 			return row.Numerics[c.Column] <= c.Value
-// 		default:
-// 			return false
-// 		}
-// 	}
-// }
+func (c NumericCondition) Passes(row common.Row) (bool, error) {
+	if val, ok := row.Numerics[c.Column]; ok {
+		switch c.Operator {
+		case Equal:
+			return val == c.Value, nil
+		case NotEqual:
+			return val != c.Value, nil
+		case GreaterThan:
+			return val > c.Value, nil
+		case LessThan:
+			return val < c.Value, nil
+		case GreaterThanOrEqual:
+			return val >= c.Value, nil
+		case LessThanOrEqual:
+			return val <= c.Value, nil
+		}
+	}
+	return false, &MissingFieldError{c.Column}
+}
 
 type Condition interface {
-	Passes(row common.Row) bool
+	Passes(row common.Row) (bool, error)
+}
+
+type Map interface {
+	Transform(input *common.Row, output *common.Row) error
 }
 
 type GenericFilter struct {
-	Conditions []Condition
+	Conditions        []Condition
+	KeptStringFields  []string
+	KeptNumericFields []string
+	KeptFloatFields   []string
+	KeptArrayFields   []string
+	Maps              []Map
 }
 
-// func (f GenericFilter) Process(row common.Row) *common.Row {
-// 	if val, ok := row.Arrays["production_countries"]; ok {
-// 		if !(len(val) == 1) {
-// 			return nil
-// 		}
-// 	} else {
-// 		return nil
-// 	}
-// 	return &common.Row{
-// 		Strings: map[string]string{
-// 			"movieID": row.Strings["movieID"],
-// 			"title":   row.Strings["title"],
-// 			"country": row.Arrays["production_countries"][0],
-// 		},
-// 		Numerics: map[string]uint{
-// 			"budget": row.Numerics["budget"],
-// 		},
-// 	}
-// }
+func (f GenericFilter) Process(row common.Row) *common.Row {
+	for _, condition := range f.Conditions {
+		passes, err := condition.Passes(row)
+		if err != nil {
+			log.Errorf("Error processing condition: %v", err)
+			return nil
+		}
+		if !passes {
+			f.Logf("Row %+v failed condition: %+v", row, condition)
+			return nil
+		}
+	}
+	res := &common.Row{
+		Strings:  make(map[string]string),
+		Numerics: make(map[string]uint),
+		Floats:   make(map[string]float64),
+		Arrays:   make(map[string][]string),
+	}
+	for _, field := range f.KeptStringFields {
+		if val, ok := row.Strings[field]; ok {
+			res.Strings[field] = val
+		}
+	}
+	for _, field := range f.KeptNumericFields {
+		if val, ok := row.Numerics[field]; ok {
+			res.Numerics[field] = val
+		}
+	}
+	for _, field := range f.KeptFloatFields {
+		if val, ok := row.Floats[field]; ok {
+			res.Floats[field] = val
+		}
+	}
+	for _, field := range f.KeptArrayFields {
+		if val, ok := row.Arrays[field]; ok {
+			res.Arrays[field] = val
+		}
+	}
+	for _, mapf := range f.Maps {
+		mapf.Transform(&row, res)
+	}
+	return res
+}
+
+func (f GenericFilter) Logf(format string, args ...any) {
+	log.Infof(format, args...)
+}
+
+func (f GenericFilter) String() string {
+	return fmt.Sprintf("GenericFilter{Conditions: %v}", f.Conditions)
+}

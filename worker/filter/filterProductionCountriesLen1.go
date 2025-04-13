@@ -6,26 +6,32 @@ import (
 
 type FilterProductionCountriesLen1 struct{}
 
-// func (f FilterProductionCountriesLen1) Process(row common.Row) (*common.Row, error) {
-func (f FilterProductionCountriesLen1) Process(row common.Row) *common.Row {
+// func (f FilterProductionCountriesLen1) Process(row common.Row) (*common.Row, error) { // TODO add error to interface
+type SingleProductionCountryCondition struct {
+}
+
+func (c SingleProductionCountryCondition) Passes(row common.Row) (bool, error) {
 	if val, ok := row.Arrays["production_countries"]; ok {
-		if !(len(val) == 1) {
-			return nil
-		}
-	} else {
-		// return MissingFieldError{
-		// 	Field: "production_countries",
-		// },
-		return nil
+		return len(val) == 1, nil
 	}
-	return &common.Row{
-		Strings: map[string]string{
-			"movieID": row.Strings["movieID"],
-			"title":   row.Strings["title"],
-			"country": row.Arrays["production_countries"][0],
-		},
-		Numerics: map[string]uint{
-			"budget": row.Numerics["budget"],
-		},
+	return false, &MissingFieldError{"production_countries"}
+}
+
+type MapProductionCountries struct {
+}
+
+func (m MapProductionCountries) Transform(input *common.Row, output *common.Row) error {
+	output.Strings["country"] = input.Arrays["production_countries"][0]
+	return nil
+}
+
+func NewFilterProductionCountriesLen1() GenericFilter {
+	return GenericFilter{
+		Conditions:        []Condition{SingleProductionCountryCondition{}},
+		KeptStringFields:  []string{"movieID", "title"},
+		KeptNumericFields: []string{"budget"},
+		KeptFloatFields:   []string{},
+		KeptArrayFields:   []string{},
+		Maps:              []Map{MapProductionCountries{}},
 	}
 }
