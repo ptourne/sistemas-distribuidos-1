@@ -72,8 +72,6 @@ compose_workers() {
         depends_on:
             rabbitmq:
                 condition: service_healthy
-            coordinator:
-                condition: service_healthy
 "
 }
 

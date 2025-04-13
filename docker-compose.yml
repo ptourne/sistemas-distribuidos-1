@@ -28,7 +28,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/datasets:/datasets
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/datasets:/datasets
 
     worker1:
         container_name: worker1
@@ -41,8 +41,6 @@ services:
         depends_on:
             rabbitmq:
                 condition: service_healthy
-            # coordinator:
-            #     condition: service_healthy
 
 networks:
     local_net:
