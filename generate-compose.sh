@@ -67,6 +67,8 @@ compose_workers() {
             context: .
             dockerfile: worker/Dockerfile
         entrypoint: /worker
+        environment:
+            - WORKER_ID=$worker_id
         networks:
             - local_net
         depends_on:
