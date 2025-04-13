@@ -19,8 +19,8 @@ const (
 
 type NumericCondition struct {
 	Column   string
-	Value    uint
 	Operator NumericOperator
+	Value    uint
 }
 
 func (c NumericCondition) Passes(row common.Row) (bool, error) {

@@ -4,7 +4,16 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 )
 
-type FilterProductionCountriesLen1 struct{}
+func NewFilterProductionCountriesLen1() GenericFilter {
+	return GenericFilter{
+		Conditions:        []Condition{SingleProductionCountryCondition{}},
+		KeptStringFields:  []string{"movieID", "title"},
+		KeptNumericFields: []string{"budget"},
+		KeptFloatFields:   []string{},
+		KeptArrayFields:   []string{},
+		Maps:              []Map{MapProductionCountries{}},
+	}
+}
 
 // func (f FilterProductionCountriesLen1) Process(row common.Row) (*common.Row, error) { // TODO add error to interface
 type SingleProductionCountryCondition struct {
@@ -23,15 +32,4 @@ type MapProductionCountries struct {
 func (m MapProductionCountries) Transform(input *common.Row, output *common.Row) error {
 	output.Strings["country"] = input.Arrays["production_countries"][0]
 	return nil
-}
-
-func NewFilterProductionCountriesLen1() GenericFilter {
-	return GenericFilter{
-		Conditions:        []Condition{SingleProductionCountryCondition{}},
-		KeptStringFields:  []string{"movieID", "title"},
-		KeptNumericFields: []string{"budget"},
-		KeptFloatFields:   []string{},
-		KeptArrayFields:   []string{},
-		Maps:              []Map{MapProductionCountries{}},
-	}
 }

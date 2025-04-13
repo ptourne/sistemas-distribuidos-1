@@ -1,36 +1,12 @@
 package filter
 
-import (
-	"slices"
-
-	"github.com/ptourne/sistemas-distribuidos-1/common"
-)
-
-type FilterReleaseDateL2010AndIncludeES struct{}
-
-func (f FilterReleaseDateL2010AndIncludeES) Process(row common.Row) *common.Row {
-	log.Debugf("MSG FROM FILTER ES: title: %v release_date: %v prod: %v", row.Strings["title"], row.Numerics["release_date"], row.Arrays["production_countries"])
-	if val, ok := row.Numerics["release_date"]; ok {
-		if !(val < 2010) {
-			return nil
-		}
-	} else {
-		return nil
-	}
-	if val, ok := row.Arrays["production_countries"]; ok {
-		if !slices.Contains(val, "ES") {
-			return nil
-		}
-	} else {
-		return nil
-	}
-	return &common.Row{
-		Strings: map[string]string{
-			"title":   row.Strings["title"],
-			"movieID": row.Strings["movieID"],
-		},
-		Arrays: map[string][]string{
-			"genres": row.Arrays["genres"],
-		},
+func NewFilterReleaseDateL2010AndIncludeES() GenericFilter {
+	return GenericFilter{
+		Conditions:        []Condition{NumericCondition{"release_date", LessThan, 2010}, ArrayIncludes{"production_countries", "ES"}},
+		KeptStringFields:  []string{"movieID", "title"},
+		KeptNumericFields: []string{},
+		KeptFloatFields:   []string{},
+		KeptArrayFields:   []string{"genres"},
+		Maps:              []Map{MapProductionCountriesa{}},
 	}
 }

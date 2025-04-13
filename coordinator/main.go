@@ -159,8 +159,16 @@ func main() {
 			break
 		}
 	}
+	timer.Stop()
 	if len(expected_output) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expected_output)
+	}
+	newTimer := time.NewTimer(time.Second * 5)
+	select {
+	case <-newTimer.C:
+		log.Infof("No extra films received")
+	case extraFilm := <-output:
+		log.Errorf("Extra film received: %+v", extraFilm)
 	}
 }
 

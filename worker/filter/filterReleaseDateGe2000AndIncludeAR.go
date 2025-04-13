@@ -6,38 +6,33 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 )
 
-type FilterReleaseDateGe2000AndIncludeAR struct{}
+func NewFilterReleaseDateGe2000AndIncludeAR() GenericFilter {
+	return GenericFilter{
+		Conditions:        []Condition{NumericCondition{"release_date", GreaterThanOrEqual, 2000}, ArrayIncludes{"production_countries", "AR"}},
+		KeptStringFields:  []string{"movieID", "title"},
+		KeptNumericFields: []string{"release_date"},
+		KeptFloatFields:   []string{},
+		KeptArrayFields:   []string{"production_countries", "genres"},
+		Maps:              []Map{MapProductionCountriesa{}},
+	}
+}
 
-func (f FilterReleaseDateGe2000AndIncludeAR) Process(row common.Row) *common.Row {
-	log.Debugf("MSG FROM FILTER ARG: title: %v release_date: %v prod: %v", row.Strings["title"], row.Numerics["release_date"], row.Arrays["production_countries"])
+type MapProductionCountriesa struct {
+}
 
-	if val, ok := row.Numerics["release_date"]; ok {
-		if !(val >= 2000) {
-			log.Debugf("Filter: release_date < 2000, title: %s", row.Strings["title"])
-			return nil
-		}
-	} else {
-		return nil
+func (m MapProductionCountriesa) Transform(input *common.Row, output *common.Row) error {
+	output.Strings["country"] = input.Arrays["production_countries"][0]
+	return nil
+}
+
+type ArrayIncludes struct {
+	Column   string
+	Expected string
+}
+
+func (c ArrayIncludes) Passes(row common.Row) (bool, error) {
+	if val, ok := row.Arrays[c.Column]; ok {
+		return slices.Contains(val, c.Expected), nil
 	}
-	if val, ok := row.Arrays["production_countries"]; ok {
-		if !slices.Contains(val, "AR") {
-			log.Debugf("Filter: production_countries does not contain AR, title: %s", row.Strings["title"])
-			return nil
-		}
-	} else {
-		return nil
-	}
-	return &common.Row{
-		Strings: map[string]string{
-			"movieID": row.Strings["movieID"],
-			"title":   row.Strings["title"],
-		},
-		Arrays: map[string][]string{
-			"production_countries": row.Arrays["production_countries"],
-			"genres":               row.Arrays["genres"],
-		},
-		Numerics: map[string]uint{
-			"release_date": row.Numerics["release_date"],
-		},
-	}
+	return false, nil
 }

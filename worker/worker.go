@@ -157,8 +157,8 @@ func NewWorker() Worker {
 	return Worker{
 		Tasks: []task.Task{
 			task.NewTask("movies_metadata", "movies_metadata_clean", clean.CleanMovies{}),
-			task.NewTask("movies_metadata_clean", "filter_release_date_ge_2000_and_include_ar", filter.FilterReleaseDateGe2000AndIncludeAR{}),
-			task.NewTask("filter_release_date_ge_2000_and_include_ar", "filter_release_date_l_2010_and_include_es", filter.FilterReleaseDateL2010AndIncludeES{}),
+			task.NewTask("movies_metadata_clean", "filter_release_date_ge_2000_and_include_ar", filter.NewFilterReleaseDateGe2000AndIncludeAR()),
+			task.NewTask("filter_release_date_ge_2000_and_include_ar", "filter_release_date_l_2010_and_include_es", filter.NewFilterReleaseDateL2010AndIncludeES()),
 			task.NewTask("movies_metadata_clean", "filter_one_production_country", filter.NewFilterProductionCountriesLen1()),
 		},
 	}
