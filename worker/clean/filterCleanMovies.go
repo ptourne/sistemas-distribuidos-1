@@ -2,13 +2,18 @@ package clean
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 )
+
+var WORKER_ID = os.Getenv("WORKER_ID")
+var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
 
 type CleanMovies struct{}
 
@@ -24,7 +29,7 @@ func (f CleanMovies) Process(row common.Row) *common.Row {
 		row.Strings["revenue"],
 	}
 
-	log.Printf("Clean: movieID: %s, title: %s, overview: %s, production_countries: %s, genres: %s, release_date: %s, budget: %s, revenue: %s",
+	log.Debugf("Clean: movieID: %s, title: %s, overview: %s, production_countries: %s, genres: %s, release_date: %s, budget: %s, revenue: %s",
 		row.Strings["movieID"],
 		row.Strings["title"],
 		row.Strings["overview"],
@@ -37,42 +42,42 @@ func (f CleanMovies) Process(row common.Row) *common.Row {
 
 	for _, field := range requiredFields {
 		if mustDropRow(field) {
-			log.Printf("warning: dropping row due to empty field: %s", field)
+			log.Debugf("warning: dropping row due to empty field: %s", field)
 			return nil
 		}
 	}
 
 	productionCountries, ok := dictionaryToListIso(row.Strings["production_countries"])
 	if !ok {
-		log.Printf("warning: could not parse production countries: %s", row.Strings["production_countries"])
+		log.Debugf("warning: could not parse production countries: %s", row.Strings["production_countries"])
 		return nil
 	}
 
 	genres, ok := dictionaryToListName(row.Strings["genres"])
 	if !ok {
-		log.Printf("warning: could not parse genres: %s", row.Strings["genres"])
+		log.Warnf("could not parse genres: %s", row.Strings["genres"])
 		return nil
 	}
 
 	releaseYear, ok := extractYear(row.Strings["release_date"])
 	if !ok {
-		log.Printf("warning: could not parse release date: %s", row.Strings["release_date"])
+		log.Warnf("could not parse release date: %s", row.Strings["release_date"])
 		return nil
 	}
 
 	budget, ok := parseFloat(row.Strings["budget"])
 	if !ok {
-		log.Printf("warning: could not parse budget: %s", row.Strings["budget"])
+		log.Warnf("could not parse budget: %s", row.Strings["budget"])
 		return nil
 	}
 
 	revenue, ok := parseFloat(row.Strings["revenue"])
 	if !ok {
-		log.Printf("warning: could not parse revenue: %s", row.Strings["revenue"])
+		log.Warnf("could not parse revenue: %s", row.Strings["revenue"])
 		return nil
 	}
 
-	log.Printf("Clean ALL: title: %s, production_countries: %v, release_date: %v", row.Strings["title"], productionCountries, releaseYear)
+	log.Debugf("Clean ALL: title: %s, production_countries: %v, release_date: %v", row.Strings["title"], productionCountries, releaseYear)
 
 	return &common.Row{
 		Strings: map[string]string{
@@ -104,7 +109,7 @@ func extractYear(dateStr string) (uint, bool) { // TODO: Handle empty strings
 	}
 	date, err := time.Parse(time.DateOnly, dateStr) // Formato Go: siempre 2006-01-02
 	if err != nil {
-		log.Printf("warning: could not parse date '%s': %v", dateStr, err)
+		log.Warnf("could not parse date '%s': %v", dateStr, err)
 		return 0, false
 	}
 
@@ -133,7 +138,7 @@ func dictionaryToListName(input string) ([]string, bool) {
 		var item NameItem
 		err := json.Unmarshal([]byte(cleaned), &item)
 		if err != nil {
-			log.Printf("failed to unmarshal input %s: %v", input, err)
+			log.Errorf("failed to unmarshal input %s: %v", input, err)
 			return result, false
 		}
 		return []string{item.Name}, true
@@ -159,7 +164,7 @@ func dictionaryToListIso(input string) ([]string, bool) {
 		var item NameCountry
 		err := json.Unmarshal([]byte(cleaned), &item)
 		if err != nil {
-			log.Printf("failed to unmarshal input %s: %v", input, err)
+			log.Errorf("failed to unmarshal input %s: %v", input, err)
 			return result, false
 		}
 		return []string{item.ISO}, true
@@ -177,7 +182,7 @@ func parseFloat(s string) (float64, bool) { // TODO: Handle empty strings
 	}
 	value, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		log.Printf("Failed to parse float: %s", err)
+		log.Errorf("Failed to parse float: %s", err)
 		return 0.0, false
 	}
 	return value, true

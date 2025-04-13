@@ -2,7 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
+	"os"
 	"reflect"
 	"time"
 
@@ -18,8 +19,10 @@ type Worker struct {
 	Tasks []task.Task
 }
 
+var WORKER_ID = os.Getenv("WORKER_ID")
+var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
+
 func (w Worker) Run() {
-	logger := logger.NewConsoleLogger("worker1", logger.Debug)
 	var conn *amqp.Connection
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	for range 5 {
@@ -34,7 +37,7 @@ func (w Worker) Run() {
 		return
 	}
 	defer conn.Close()
-	logger.Infof("Connected to RabbitMQ")
+	log.Infof("Connected to RabbitMQ")
 	ch, err := conn.Channel()
 	if err != nil {
 		panic(err)
@@ -63,10 +66,10 @@ func (w Worker) Run() {
 		err = json.Unmarshal(blob, &row)
 		unwrap(err, "Failed to unmarshal JSON")
 		task := w.Tasks[i]
-		//log.Printf("Received message from %s: %s", task.Input, row.Strings["title"])
+		//log.Infof("Received message from %s: %s", task.Input, row.Strings["title"])
 		result := task.Operation.Process(row)
 		if result == nil {
-			log.Printf("Row filtered out: %v name: %v", row.Strings["title"], task.Name)
+			log.Infof("Row filtered out: %v name: %v", row.Strings["title"], task.Name)
 			continue
 		}
 
@@ -89,7 +92,8 @@ func (w Worker) Run() {
 
 func unwrap(err error, msg string) {
 	if err != nil {
-		log.Panicf("%s: %s", msg, err)
+		log.Fatalf("%s: %s", msg, err)
+		panic(err)
 	}
 }
 

@@ -1,7 +1,6 @@
 package filter
 
 import (
-	"log"
 	"slices"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
@@ -10,11 +9,11 @@ import (
 type FilterReleaseDateGe2000AndIncludeAR struct{}
 
 func (f FilterReleaseDateGe2000AndIncludeAR) Process(row common.Row) *common.Row {
-	log.Printf("MSG FROM FILTER ARG: title: %v release_date: %v prod: %v", row.Strings["title"], row.Numerics["release_date"], row.Arrays["production_countries"])
+	log.Debugf("MSG FROM FILTER ARG: title: %v release_date: %v prod: %v", row.Strings["title"], row.Numerics["release_date"], row.Arrays["production_countries"])
 
 	if val, ok := row.Numerics["release_date"]; ok {
 		if !(val >= 2000) {
-			log.Println("Filter: release_date < 2000, title:", row.Strings["title"])
+			log.Debugf("Filter: release_date < 2000, title: %s", row.Strings["title"])
 			return nil
 		}
 	} else {
@@ -22,7 +21,7 @@ func (f FilterReleaseDateGe2000AndIncludeAR) Process(row common.Row) *common.Row
 	}
 	if val, ok := row.Arrays["production_countries"]; ok {
 		if !slices.Contains(val, "AR") {
-			log.Printf("Filter: production_countries does not contain AR, title: %s", row.Strings["title"])
+			log.Debugf("Filter: production_countries does not contain AR, title: %s", row.Strings["title"])
 			return nil
 		}
 	} else {

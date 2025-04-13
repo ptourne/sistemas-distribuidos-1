@@ -1,7 +1,10 @@
 package logger
 
 import (
-	"hash/fnv"
+	"crypto/sha1"
+	"io"
+	"math"
+	"os"
 	"time"
 
 	"github.com/fatih/color"
@@ -28,108 +31,127 @@ type Logger interface {
 	Tracef(format string, args ...interface{})
 }
 
-var TimeColor = color.New(color.BgWhite).Add(color.Faint)
-var DebugColor = color.New(color.BgGreen)
-var InfoColor = color.New(color.BgBlue)
-var WarnColor = color.New(color.BgYellow)
-var ErrorColor = color.New(color.BgRed)
-var FatalColor = color.New(color.BgRed).Add(color.Bold)
+var TimeColor = color.New(color.BgBlack).Add(color.FgWhite).Add(color.Faint)
+var DebugColorTag = color.New(color.BgBlack).Add(color.BgGreen)
+var DebugColorText = color.New(color.BgBlack).Add(color.FgGreen)
+var InfoColorTag = color.New(color.BgBlack).Add(color.BgBlue)
+var InfoColorText = color.New(color.BgBlack).Add(color.FgBlue)
+var WarnColorTag = color.New(color.BgBlack).Add(color.BgYellow)
+var WarnColorText = color.New(color.BgBlack).Add(color.FgYellow)
+var ErrorColorTag = color.New(color.BgBlack).Add(color.BgRed)
+var ErrorColorText = color.New(color.BgBlack).Add(color.FgRed)
+var FatalColorTag = color.New(color.BgBlack).Add(color.BgRed).Add(color.Bold)
+var FatalColorText = color.New(color.BgBlack).Add(color.FgRed).Add(color.Bold)
 
 type ConsoleLogger struct {
-	name  string
-	level LogLevel
-	color *color.Color
+	name      string
+	level     LogLevel
+	nameColor *color.Color
+	w         io.Writer
 }
 
 func NewConsoleLogger(name string, level LogLevel) *ConsoleLogger {
 	return &ConsoleLogger{
-		name:  name,
-		level: level,
-		color: getColor(name),
+		name:      name,
+		level:     level,
+		nameColor: getColor(name),
+		w:         os.Stderr,
 	}
 }
 
-func hash(s string) uint32 {
-	h := fnv.New32a()
-	h.Write([]byte(s))
-	return h.Sum32()
+func hash(input string) [20]byte {
+	hash := sha1.Sum([]byte(input))
+	return hash
 }
 
-func hslToRgb(h, s, l int) (r, g, b int) {
-	hf := float64(h) / 255.0
-	sf := float64(s) / 255.0
-	lf := float64(l) / 255.0
-	var rf, gf, bf float64
+func HSLToRGB(h, s, l float64) (ra, ga, ba int) {
+	h = h / 360.0
+	var r, g, b float64
 
 	if s == 0 {
-		rf = lf // achromatic
-		gf = lf
-		bf = lf
+		r, g, b = l, l, l // achromatic
 	} else {
 		var q float64
-		if lf < 0.5 {
-			q = lf * (1 + sf)
+		if l < 0.5 {
+			q = l * (1 + s)
 		} else {
-			q = lf + sf - lf*sf
+			q = l + s - l*s
 		}
-		var p = 2*lf - q
-		rf = hueToRgb(p, q, hf+1/3)
-		gf = hueToRgb(p, q, hf)
-		bf = hueToRgb(p, q, hf-1/3)
+		p := 2*l - q
+		r = hueToRGB(p, q, h+1.0/3.0)
+		g = hueToRGB(p, q, h)
+		b = hueToRGB(p, q, h-1.0/3.0)
 	}
 
-	return int(rf * 255), int(gf * 255), int(bf * 255)
+	return int(math.Round(r * 255)),
+		int(math.Round(g * 255)),
+		int(math.Round(b * 255))
 }
 
-func hueToRgb(p, q, t float64) float64 {
+func hueToRGB(p, q, t float64) float64 {
 	if t < 0 {
 		t += 1
 	}
 	if t > 1 {
 		t -= 1
 	}
-	if t < 1/6 {
+	if t < 1.0/6.0 {
 		return p + (q-p)*6*t
 	}
-	if t < 1/2 {
+	if t < 1.0/2.0 {
 		return q
 	}
-	if t < 2/3 {
-		return p + (q-p)*(2/3-t)*6
+	if t < 2.0/3.0 {
+		return p + (q-p)*(2.0/3.0-t)*6
 	}
 	return p
 }
 
 func getColor(name string) *color.Color {
 	hash := hash(name)
-	h := (hash & 0xFF0000) >> 16
-	s := (hash & 0x00FF00) >> 8
-	l := hash & 0x0000FF
-	s = uint32((float64(s)/255.0)*10 + 150)
-	s = uint32((float64(s)/255.0)*10 + 150)
-	r, g, b := hslToRgb(int(h), int(s), int(l))
+	hi := int8(hash[0])
+	si := int8(hash[1])
+	li := int8(hash[2])
+	h := (float64(hi) / 255.0) * 360
+	s := (float64(si)/255.0)/10 + 0.9
+	l := (float64(li)/255.0)/10 + 0.75
+	r, g, b := HSLToRGB(h, s, l)
 
-	return color.RGB(r, g, b)
+	return color.New(color.Underline).AddRGB(r, g, b)
 }
 
 func (l *ConsoleLogger) Logf(level LogLevel, format string, args ...interface{}) {
-	if l.level <= level {
-		now := time.Now()
-		TimeColor.Printf("%s ", now.Format("2006-01-02 15:04:05"))
-		l.color.Printf("%s ", l.name)
-		switch level {
-		case Debug:
-			DebugColor.Printf("DEBUG: ")
-		case Info:
-			InfoColor.Printf("INFO: ")
-		case Warn:
-			WarnColor.Printf("WARN: ")
-		case Error:
-			ErrorColor.Printf("ERROR: ")
-		case Fatal:
-			FatalColor.Printf("FATAL: ")
-		}
+	if l.level > level {
+		return
 	}
+	now := time.Now()
+	TimeColor.Fprintf(l.w, "%s ", now.Format("15:04:05.000000"))
+	l.nameColor.Fprintf(l.w, " %-*s ", 9, l.name)
+	switch level {
+	case Debug:
+		DebugColorTag.Fprintf(l.w, " DEBUG ")
+		DebugColorText.Fprint(l.w, " ")
+		DebugColorText.Fprintf(l.w, format, args...)
+	case Info:
+		InfoColorTag.Fprintf(l.w, " INFO  ")
+		InfoColorText.Fprint(l.w, " ")
+		InfoColorText.Fprintf(l.w, format, args...)
+	case Warn:
+		WarnColorTag.Fprintf(l.w, " WARN  ")
+		WarnColorText.Fprint(l.w, " ")
+		WarnColorText.Fprintf(l.w, format, args...)
+	case Error:
+		ErrorColorTag.Fprintf(l.w, " ERROR ")
+		ErrorColorText.Fprint(l.w, " ")
+		ErrorColorText.Fprintf(l.w, format, args...)
+	case Fatal:
+		FatalColorTag.Fprintf(l.w, " FATAL ")
+		FatalColorText.Fprint(l.w, " ")
+		FatalColorText.Fprintf(l.w, format, args...)
+	}
+
+	l.w.Write([]byte("\n"))
+
 }
 
 func (l *ConsoleLogger) Debugf(format string, args ...interface{}) {

@@ -15,14 +15,17 @@ import (
 )
 
 func main() {
-	logger := logger.NewConsoleLogger("worker1", logger.Debug)
+	log := logger.NewConsoleLogger("coordinator", logger.Debug)
 	var conn *amqp.Connection
+	log.Infof("Connecting to RabbitMQ")
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	for range 5 {
 		if err == nil {
 			break
 		}
+		log.Errorf("Failed to connect to RabbitMQ: %v", err)
 		time.Sleep(5 * time.Second)
+		log.Infof("Retrying connection...")
 		conn, err = amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	}
 	if err != nil {
@@ -30,20 +33,20 @@ func main() {
 		return
 	}
 	defer conn.Close()
-	logger.Infof("Connected to RabbitMQ")
+	log.Infof("Connected to RabbitMQ")
 
 	ch, err := conn.Channel()
 	unwrap(err, "Failed to open a channel")
 	defer ch.Close()
 
 	err = ch.ExchangeDeclare(
-		"films",  // name
-		"fanout", // type
-		true,     // durable
-		false,    // auto-deleted
-		false,    // internal
-		false,    // no-wait
-		nil,      // arguments
+		"movies_metadata", // name
+		"fanout",          // type
+		true,              // durable
+		false,             // auto-deleted
+		false,             // internal
+		false,             // no-wait
+		nil,               // arguments
 	)
 	unwrap(err, "Failed to declare an exchange")
 
@@ -57,18 +60,19 @@ func main() {
 	reader := csv.NewReader(file)
 	_, err = reader.Read()
 	unwrap(err, "Failed to read CSV header")
-	// i := 0
+	line := 0
+	log.Debugf("Starting CSV processing")
 	for {
-		// if i == 5200 {
-		// 	break
-		// }
-		// i++
+		line++
+		if line%1000 == 0 {
+			log.Infof("Processed %d lines", line)
+		}
 		data, err := reader.Read()
 		if err != nil {
 			if err == io.EOF {
 				break
 			}
-			log.Printf("Error reading CSV line: %v", err)
+			log.Errorf("Error reading CSV line: %v", err)
 			continue
 		}
 		if len(data) < 24 {
@@ -79,7 +83,7 @@ func main() {
 
 		buf, err := json.Marshal(film)
 		if err != nil {
-			log.Printf("Failed to encode film: %v", err)
+			log.Errorf("Failed to encode film: %v", err)
 			continue
 		}
 
@@ -96,9 +100,10 @@ func main() {
 			})
 		unwrap(err, "Failed to publish a message")
 
-		// log.Printf(" [x] Sent %s", film.Strings["title"])
+		// log.Debugf(" [x] Sent %s", film.Strings["title"])
 		// time.Sleep(1 * time.Second)
 	}
+	log.Debugf("CSV processing completed")
 
 	// filter_release_date_l_2010_and_include_es
 
@@ -143,14 +148,15 @@ func main() {
 		nil,             // args
 	)
 	unwrap(err, "Failed to register a consumer")
+	log.Debugf("Reading results")
 	for msg := range msgs {
 		var film common.Row
 		err := json.Unmarshal(msg.Body, &film)
 		if err != nil {
-			log.Printf("Failed to unmarshal film: %v", err)
+			log.Errorf("Failed to unmarshal film: %v", err)
 			continue
 		}
-		log.Printf("%v %v", film.Strings["title"], film.Arrays["genres"])
+		log.Infof("Received film: %v %v", film.Strings["title"], film.Arrays["genres"])
 	}
 }
 
