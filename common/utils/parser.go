@@ -2,13 +2,15 @@ package utils
 
 import (
 	"encoding/json"
+	"errors"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
 func MustDropRow(field string) bool {
-	return field == "" || field == "[]" || field == "null" // || field == "0" || field == "0.0"
+	return field == "" || field == "null" //  field == "[]" ||
 }
 
 func ExtractYear(dateStr string) (uint, bool) { // TODO: Handle empty strings
@@ -31,29 +33,52 @@ type NameCountry struct {
 	ISO string `json:"iso_3166_1"`
 }
 
-func DictionaryToListName(input string) ([]string, bool) {
+func DictionaryToListName(input string) ([]string, error) {
 	var result []string
 
-	if input == "" || input == "[]" {
-		return result, false
+	if input == "" { //  || input == "[]"
+		return result, errors.New("input is empty")
 	}
 
-	cleaned := strings.ReplaceAll(input, "'", "\"")
+	if input == "[]" {
+		return result, nil
+	}
+
+	// 'key' => "key"
+	reKey := regexp.MustCompile(`'([^']+)':`)
+	cleaned := reKey.ReplaceAllString(input, `"$1":`)
+
+	// 'value' => "value"
+	reVal := regexp.MustCompile(`: '([^']*)'([,}])`)
+	cleaned = reVal.ReplaceAllString(cleaned, `: "$1"$2`)
+	reDoubleQuotesInValues := regexp.MustCompile(`:\s*"[^"]*"[^,}]*"[,}]`)
+
+	// para: 'character': 'Roop Lal "Phillauri"',
+	cleaned = reDoubleQuotesInValues.ReplaceAllStringFunc(cleaned, func(match string) string {
+
+		value := match[3 : len(match)-2]
+		if strings.Contains(value, `"`) {
+			value = strings.ReplaceAll(value, `"`, `'`)
+		}
+
+		return `: "` + value + `"` + match[len(match)-1:]
+	})
+	cleaned = strings.ReplaceAll(cleaned, "None", "null")
 	var items []NameItem
 	err := json.Unmarshal([]byte(cleaned), &items)
 	if err != nil {
 		var item NameItem
 		err := json.Unmarshal([]byte(cleaned), &item)
 		if err != nil {
-			return result, false
+			return result, err
 		}
-		return []string{item.Name}, true
+		return []string{item.Name}, nil
 	}
 
 	for _, item := range items {
 		result = append(result, item.Name)
 	}
-	return result, true
+	return result, nil
 }
 
 func DictionaryToListIso(input string) ([]string, bool) {

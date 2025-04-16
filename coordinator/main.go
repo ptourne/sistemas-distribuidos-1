@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	"slices"
@@ -37,11 +38,116 @@ func main() {
 	defer conn.Close()
 	log.Infof("Connected to RabbitMQ")
 
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		processCredits(conn)
+	}()
+
+	go func() {
+		defer wg.Done()
+		processMovies(conn)
+	}()
+
+	wg.Wait()
+}
+
+func processCredits(conn *amqp.Connection) {
+	ch, err := conn.Channel()
+	unwrap(err, "Failed to open a channel (credits)")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare("credits", "fanout", true, false, false, false, nil)
+	unwrap(err, "Failed to declare exchange 'credits'")
+
+	output := outputChannel("clean_credits", err, ch, log) // TODO: cambiar por el res final
+
+	file, err := os.Open("/datasets/credits.csv")
+	unwrap(err, "Failed to open credits.csv")
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	_, err = reader.Read()
+	unwrap(err, "Failed to read CSV header")
+	credits_count := 0
+	for {
+		if credits_count%1000 == 0 {
+			log.Infof("Processed %d lines from credits", credits_count)
+		}
+		data, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil || len(data) < 3 {
+			log.Errorf("Invalid credits row: %v", err)
+			continue
+		}
+		credit := common.Row{
+			Strings: map[string]string{
+				"ID":   data[2],
+				"cast": data[0],
+			},
+		}
+		buf, err := json.Marshal(credit)
+		if err != nil {
+			log.Errorf("Marshal error: %v", err)
+			continue
+		}
+		err = ch.PublishWithContext(context.Background(), "credits", "", false, false, amqp.Publishing{
+			ContentType: "text/json",
+			Body:        buf,
+		})
+		if err != nil {
+			log.Errorf("Failed to publish credit: %v", err)
+		} else {
+			credits_count++
+		}
+	}
+
+	timer := time.NewTimer(time.Second * 10)
+	should_loop := true
+	credits_received := 0
+	for should_loop {
+		select {
+		case msg := <-output:
+			var receivedCredit common.Row // TODO: receivedActor, check results
+			err := json.Unmarshal(msg.Body, &receivedCredit)
+			if err != nil {
+				log.Errorf("Failed to unmarshal credit: %v", err)
+				continue
+			}
+			credits_received++
+			//log.Infof("Received credit: %s %v", receivedCredit.Strings["ID"], receivedCredit.Arrays["cast"]) // TODO: change => actorName, count
+			timer.Reset(time.Second * 5)
+			break
+		case <-timer.C:
+			should_loop = false
+			break
+		}
+	}
+	timer.Stop()
+	log.Infof("Processed %d credits, received %d credits", credits_count, credits_received) // Processed 45476 credits, received 45397 credits
+	if credits_received != 45397 {
+		log.Errorf("Not all credits received. Expected 45397, got %d", credits_received)
+	}
+	// TODO: check expected results
+	newTimer := time.NewTimer(time.Second * 5)
+	select {
+	case <-newTimer.C:
+		log.Infof("No extra credits received")
+	case extraCredit := <-output:
+		log.Errorf("Extra credit received: %+v", extraCredit)
+	}
+}
+
+func processMovies(conn *amqp.Connection) {
 	ch, err := conn.Channel()
 	unwrap(err, "Failed to open a channel")
 	defer ch.Close()
 
-	output := outputChannel(err, ch, log)
+	output := outputChannel("filter_release_date_l_2010_and_include_es", err, ch, log)
 	err = ch.ExchangeDeclare(
 		"movies_metadata", // name
 		"fanout",          // type
@@ -58,20 +164,17 @@ func main() {
 
 	file, err := os.Open("/datasets/movies_metadata.csv")
 	unwrap(err, "Failed to open CSV file")
-	if err != nil {
-		return
-	}
 	defer file.Close()
 
 	reader := csv.NewReader(file)
 	_, err = reader.Read()
 	unwrap(err, "Failed to read CSV header")
 	line := 0
-	log.Debugf("Starting CSV processing")
+	log.Debugf("Starting CSV processing (movies_metadata)")
 	for {
 		line++
 		if line%1000 == 0 {
-			log.Infof("Processed %d lines", line)
+			log.Infof("Processed %d lines from movies_metadata", line)
 		}
 		data, err := reader.Read()
 		if err != nil {
@@ -109,34 +212,9 @@ func main() {
 		// log.Debugf(" [x] Sent %s", film.Strings["title"])
 		// time.Sleep(1 * time.Second)
 	}
-	log.Debugf("CSV processing completed")
+	log.Debugf("CSV processing completed (movies_metadata)")
 
-	expected_output := []common.Row{
-		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
-		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
-		{Strings: map[string]string{"title": "The City of No Limits"}, Arrays: map[string][]string{"genres": []string{"Thriller", "Drama"}}},
-		{Strings: map[string]string{"title": "Nicotina"}, Arrays: map[string][]string{"genres": []string{"Drama", "Action", "Comedy", "Thriller"}}},
-		{Strings: map[string]string{"title": "Lost Embrace"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "Whisky"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "The Holy Girl"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "The Aura"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Thriller"}}},
-		{Strings: map[string]string{"title": "Bombón: The Dog"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "Rolling Family"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy"}}},
-		{Strings: map[string]string{"title": "The Method"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller"}}},
-		{Strings: map[string]string{"title": "Every Stewardess Goes to Heaven"}, Arrays: map[string][]string{"genres": []string{"Drama", "Romance", "Foreign"}}},
-		{Strings: map[string]string{"title": "Tetro"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery"}}},
-		{Strings: map[string]string{"title": "The Secret in Their Eyes"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Mystery", "Romance"}}},
-		{Strings: map[string]string{"title": "Liverpool"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "The Headless Woman"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery", "Thriller"}}},
-		{Strings: map[string]string{"title": "The Last Summer of La Boyita"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "The Appeared"}, Arrays: map[string][]string{"genres": []string{"Horror", "Thriller", "Mystery"}}},
-		{Strings: map[string]string{"title": "The Fish Child"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller", "Romance", "Foreign"}}},
-		{Strings: map[string]string{"title": "Cleopatra"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy", "Foreign"}}},
-		{Strings: map[string]string{"title": "Roma"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "Conversations with Mother"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-	}
+	expected_output := outputQueryOne()
 
 	timer := time.NewTimer(time.Second * 10)
 	should_loop := true
@@ -146,7 +224,7 @@ func main() {
 			var receivedMovie common.Row
 			err := json.Unmarshal(msg.Body, &receivedMovie)
 			if err != nil {
-				log.Errorf("Failed to unmarshal film: %v", err)
+				log.Errorf("Failed to unmarshal film %v: %v", receivedMovie, err)
 				continue
 			}
 			log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
@@ -175,6 +253,35 @@ func main() {
 	}
 }
 
+func outputQueryOne() []common.Row {
+	return []common.Row{
+		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
+		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
+		{Strings: map[string]string{"title": "The City of No Limits"}, Arrays: map[string][]string{"genres": []string{"Thriller", "Drama"}}},
+		{Strings: map[string]string{"title": "Nicotina"}, Arrays: map[string][]string{"genres": []string{"Drama", "Action", "Comedy", "Thriller"}}},
+		{Strings: map[string]string{"title": "Lost Embrace"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "Whisky"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Holy Girl"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Aura"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Thriller"}}},
+		{Strings: map[string]string{"title": "Bombón: The Dog"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "Rolling Family"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy"}}},
+		{Strings: map[string]string{"title": "The Method"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller"}}},
+		{Strings: map[string]string{"title": "Every Stewardess Goes to Heaven"}, Arrays: map[string][]string{"genres": []string{"Drama", "Romance", "Foreign"}}},
+		{Strings: map[string]string{"title": "Tetro"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery"}}},
+		{Strings: map[string]string{"title": "The Secret in Their Eyes"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Mystery", "Romance"}}},
+		{Strings: map[string]string{"title": "Liverpool"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "The Headless Woman"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery", "Thriller"}}},
+		{Strings: map[string]string{"title": "The Last Summer of La Boyita"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "The Appeared"}, Arrays: map[string][]string{"genres": []string{"Horror", "Thriller", "Mystery"}}},
+		{Strings: map[string]string{"title": "The Fish Child"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller", "Romance", "Foreign"}}},
+		{Strings: map[string]string{"title": "Cleopatra"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy", "Foreign"}}},
+		{Strings: map[string]string{"title": "Roma"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "Conversations with Mother"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+	}
+}
+
 func remove(slice []common.Row, movie common.Row) []common.Row {
 	for i, v := range slice {
 		if v.Strings["title"] == movie.Strings["title"] && stringSlicesEqual(v.Arrays["genres"], movie.Arrays["genres"]) {
@@ -197,9 +304,9 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
-func outputChannel(err error, ch *amqp.Channel, log *logger.ConsoleLogger) <-chan amqp.Delivery {
+func outputChannel(name string, err error, ch *amqp.Channel, log *logger.ConsoleLogger) <-chan amqp.Delivery {
 	err = ch.ExchangeDeclare(
-		"filter_release_date_l_2010_and_include_es", // name
+		name,     // name
 		"fanout", // type
 		true,     // durable
 		false,    // auto-deleted
@@ -207,7 +314,7 @@ func outputChannel(err error, ch *amqp.Channel, log *logger.ConsoleLogger) <-cha
 		false,    // no-wait
 		nil,      // arguments
 	)
-	unwrap(err, "Failed to declare exchange filter_release_date_l_2010_and_include_es")
+	unwrap(err, "Failed to declare exchange")
 
 	inputQueue, err := ch.QueueDeclare(
 		"",    // name
@@ -223,7 +330,7 @@ func outputChannel(err error, ch *amqp.Channel, log *logger.ConsoleLogger) <-cha
 	err = ch.QueueBind(
 		inputQueue.Name, // queue name
 		"",              // routing key
-		"filter_release_date_l_2010_and_include_es", // exchange
+		name,            // exchange
 		false,
 		nil,
 	)

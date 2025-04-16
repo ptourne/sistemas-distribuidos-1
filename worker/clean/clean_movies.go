@@ -56,8 +56,8 @@ func (f CleanMovies) Process(row common.Row) *common.Row {
 		return nil
 	}
 
-	genres, ok := utils.DictionaryToListName(row.Strings["genres"])
-	if !ok {
+	genres, err := utils.DictionaryToListName(row.Strings["genres"])
+	if err != nil {
 		log.Warnf("could not parse genres: %s", row.Strings["genres"])
 		return nil
 	}
