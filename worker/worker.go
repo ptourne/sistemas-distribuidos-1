@@ -176,8 +176,10 @@ func (t *SourceTask) Input() string {
 func NewWorker() Worker {
 	movies_metadata := NewSourceTask("movies_metadata")
 	credits := NewSourceTask("credits")
+	ratings := NewSourceTask("ratings")
 	movies_metadata_clean := clean.NewCleanMovies(movies_metadata)
 	credits_clean := clean.NewCleanCredits(credits)
+	ratings_clean := clean.NewCleanRatings(ratings)
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean)
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar)
 	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean)
@@ -185,6 +187,7 @@ func NewWorker() Worker {
 		Tasks: []task.Task{
 			movies_metadata_clean,
 			credits_clean,
+			ratings_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
 			filter_one_production_country,

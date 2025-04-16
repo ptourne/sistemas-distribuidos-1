@@ -39,17 +39,22 @@ func main() {
 	log.Infof("Connected to RabbitMQ")
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 
 	go func() {
 		defer wg.Done()
-		processCredits(conn)
+		processRatings(conn)
 	}()
 
-	go func() {
-		defer wg.Done()
-		processMovies(conn)
-	}()
+	// go func() {
+	// 	defer wg.Done()
+	// 	processCredits(conn)
+	// }()
+
+	// go func() {
+	// 	defer wg.Done()
+	// 	processMovies(conn)
+	// }()
 
 	wg.Wait()
 }
@@ -140,6 +145,114 @@ func processCredits(conn *amqp.Connection) {
 	case extraCredit := <-output:
 		log.Errorf("Extra credit received: %+v", extraCredit)
 	}
+}
+
+func processRatings(conn *amqp.Connection) {
+	ch, err := conn.Channel()
+	unwrap(err, "Failed to open a channel (ratings)")
+	defer ch.Close()
+
+	err = ch.ExchangeDeclare("ratings", "fanout", true, false, false, false, nil)
+	unwrap(err, "Failed to declare exchange 'ratings'")
+
+	output := outputChannel("clean_ratings", err, ch, log) // TODO: cambiar por el res final
+
+	file, err := os.Open("/datasets/ratings.csv")
+	unwrap(err, "Failed to open ratings.csv")
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	_, err = reader.Read()
+	unwrap(err, "Failed to read CSV header")
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		cleanRatings(reader, ch, log)
+	}()
+
+	go func() {
+		defer wg.Done()
+		receiveRatings(output, log)
+	}()
+	wg.Wait()
+}
+
+func receiveRatings(output <-chan amqp.Delivery, log *logger.ConsoleLogger) {
+	timer := time.NewTimer(time.Hour * 2) // ToDo: change
+	should_loop := true
+	ratings_received := 0
+	for should_loop {
+		select {
+		case msg := <-output:
+			var receivedRating common.Row // TODO: check results
+			err := json.Unmarshal(msg.Body, &receivedRating)
+			if err != nil {
+				log.Errorf("Failed to unmarshal rating: %v", err)
+				continue
+			}
+			ratings_received++
+			if ratings_received%100000 == 0 {
+				log.Infof("Received ratings: %d ", ratings_received)
+			}
+			if receivedRating.Floats["rating"] <= 0.0 {
+				log.Errorf("Invalid rating: %v", receivedRating.Floats["rating"])
+				continue
+			}
+			timer.Reset(time.Hour * 2) // TODO: change
+		case <-timer.C:
+			should_loop = false
+		}
+	}
+	timer.Stop()
+	log.Infof("Received %d ratings", ratings_received) //
+	// TODO: check expected results
+	newTimer := time.NewTimer(time.Second * 5)
+	select {
+	case <-newTimer.C:
+		log.Infof("No extra ratings received")
+	case extraCredit := <-output:
+		log.Errorf("Extra rating received: %+v", extraCredit)
+	}
+}
+
+func cleanRatings(reader *csv.Reader, ch *amqp.Channel, log *logger.ConsoleLogger) {
+	ratings_count := 0
+	for {
+		if ratings_count%100000 == 0 {
+			log.Infof("Processed %d lines from ratings", ratings_count)
+		}
+		data, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil || len(data) < 4 {
+			log.Errorf("Invalid ratings row: %v", err)
+			continue
+		}
+		rating := common.Row{
+			Strings: map[string]string{
+				"movieID": data[1],
+				"rating":  data[2],
+			},
+		}
+		buf, err := json.Marshal(rating)
+		if err != nil {
+			log.Errorf("Marshal error: %v", err)
+			continue
+		}
+		err = ch.PublishWithContext(context.Background(), "ratings", "", false, false, amqp.Publishing{
+			ContentType: "text/json",
+			Body:        buf,
+		})
+		if err != nil {
+			log.Errorf("Failed to publish ratings: %v", err)
+		} else {
+			ratings_count++
+		}
+	}
+	log.Infof("Processed %d ratings", ratings_count)
 }
 
 func processMovies(conn *amqp.Connection) {
