@@ -58,6 +58,9 @@ func main() {
 
 	file, err := os.Open("/datasets/movies_metadata.csv")
 	unwrap(err, "Failed to open CSV file")
+	if err != nil {
+		return
+	}
 	defer file.Close()
 
 	reader := csv.NewReader(file)
@@ -147,7 +150,7 @@ func main() {
 				continue
 			}
 			log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
-			log.Infof("Received film debug: %+v", receivedMovie)
+			// log.Infof("Received film debug: %+v", receivedMovie)
 			expected_output = remove(expected_output, receivedMovie)
 			if len(expected_output) == 0 {
 				log.Infof("All expected films received")
