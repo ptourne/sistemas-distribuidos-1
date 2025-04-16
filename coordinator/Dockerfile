@@ -23,6 +23,12 @@ RUN go test -v ./...
 RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/coordinator github.com/ptourne/sistemas-distribuidos-1/coordinator
 
 
-FROM busybox:latest
+# FROM busybox:latest
+FROM alpine:latest
+
+RUN apk add --no-cache unzip
 COPY --from=builder /build/bin/coordinator /coordinator
-ENTRYPOINT ["/bin/sh"]
+
+VOLUME /datasets
+
+# ENTRYPOINT ["/bin/sh"]

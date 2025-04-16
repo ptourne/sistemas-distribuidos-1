@@ -46,7 +46,7 @@ compose_coordinator() {
         build:
             context: .
             dockerfile: coordinator/Dockerfile
-        entrypoint: /coordinator
+        command: /bin/sh -c \"test -f /datasets/credits.csv || unzip /datasets/credits.zip -d /datasets && /coordinator\"
         networks:
             - local_net
         environment:
@@ -58,6 +58,7 @@ compose_coordinator() {
             - ${PWD}/datasets:/datasets
 "
 }
+# TODO: entrypoint: /coordinator en compose_coordinador() y el command en compose_client()
 
 compose_workers() {
     local worker_id=$1

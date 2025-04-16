@@ -19,7 +19,7 @@ services:
         build:
             context: .
             dockerfile: coordinator/Dockerfile
-        entrypoint: /coordinator
+        command: /bin/sh -c "test -f /datasets/credits.csv || unzip /datasets/credits.zip -d /datasets && /coordinator"
         networks:
             - local_net
         environment:
@@ -28,7 +28,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/datasets:/datasets
+            - /home/sofiagb/Documents/sd1/tp-movies/datasets:/datasets
 
     worker1:
         container_name: worker1
