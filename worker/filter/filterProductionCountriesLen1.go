@@ -2,10 +2,13 @@ package filter
 
 import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterProductionCountriesLen1() GenericFilter {
-	return GenericFilter{
+func NewFilterProductionCountriesLen1(input task.Task) task.Task {
+	return &GenericFilter{
+		name:              "filter_one_production_country",
+		input:             input,
 		Conditions:        []Condition{SingleProductionCountryCondition{}},
 		KeptStringFields:  []string{"movieID", "title"},
 		KeptNumericFields: []string{"budget"},

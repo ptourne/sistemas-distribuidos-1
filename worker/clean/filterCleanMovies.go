@@ -10,12 +10,25 @@ import (
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
 var WORKER_ID = os.Getenv("WORKER_ID")
 var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
 
-type CleanMovies struct{}
+type CleanMovies struct{ input task.Task }
+
+func NewCleanMovies(input task.Task) task.Task {
+	return &CleanMovies{input}
+}
+
+func (f CleanMovies) Input() string {
+	return f.input.Name()
+}
+
+func (f CleanMovies) Name() string {
+	return "clean_movies"
+}
 
 func (f CleanMovies) Process(row common.Row) *common.Row {
 	requiredFields := []string{

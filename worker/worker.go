@@ -153,13 +153,38 @@ func newFunction(task task.Task, ch *amqp.Channel) <-chan amqp.Delivery {
 	return msgs
 }
 
+type SourceTask struct {
+	name string
+}
+
+func NewSourceTask(name string) task.Task {
+	return &SourceTask{name}
+}
+
+func (t *SourceTask) Process(r common.Row) *common.Row {
+	return nil
+}
+
+func (t *SourceTask) Name() string {
+	return t.name
+}
+
+func (t *SourceTask) Input() string {
+	return ""
+}
+
 func NewWorker() Worker {
+	movies_metadata := NewSourceTask("movies_metadata")
+	movies_metadata_clean := clean.NewCleanMovies(movies_metadata)
+	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean)
+	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar)
+	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean)
 	return Worker{
 		Tasks: []task.Task{
-			task.NewTask("movies_metadata", "movies_metadata_clean", clean.CleanMovies{}),
-			task.NewTask("movies_metadata_clean", "filter_release_date_ge_2000_and_include_ar", filter.NewFilterReleaseDateGe2000AndIncludeAR()),
-			task.NewTask("filter_release_date_ge_2000_and_include_ar", "filter_release_date_l_2010_and_include_es", filter.NewFilterReleaseDateL2010AndIncludeES()),
-			task.NewTask("movies_metadata_clean", "filter_one_production_country", filter.NewFilterProductionCountriesLen1()),
+			movies_metadata_clean,
+			filter_release_date_ge_2000_and_include_ar,
+			filter_release_date_l_2010_and_include_es,
+			filter_one_production_country,
 		},
 	}
 }

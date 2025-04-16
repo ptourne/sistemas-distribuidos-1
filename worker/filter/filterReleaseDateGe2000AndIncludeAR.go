@@ -4,10 +4,13 @@ import (
 	"slices"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterReleaseDateGe2000AndIncludeAR() GenericFilter {
-	return GenericFilter{
+func NewFilterReleaseDateGe2000AndIncludeAR(input task.Task) task.Task {
+	return &GenericFilter{
+		name:              "filter_release_date_ge_2000_and_include_ar",
+		input:             input,
 		Conditions:        []Condition{NumericCondition{"release_date", GreaterThanOrEqual, 2000}, ArrayIncludes{"production_countries", "AR"}},
 		KeptStringFields:  []string{"movieID", "title"},
 		KeptNumericFields: []string{"release_date"},

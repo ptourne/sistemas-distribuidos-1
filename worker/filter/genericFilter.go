@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
 type NumericOperator int
@@ -52,12 +53,22 @@ type Map interface {
 }
 
 type GenericFilter struct {
+	name              string
+	input             task.Task
 	Conditions        []Condition
 	KeptStringFields  []string
 	KeptNumericFields []string
 	KeptFloatFields   []string
 	KeptArrayFields   []string
 	Maps              []Map
+}
+
+func (f *GenericFilter) Name() string {
+	return f.name
+}
+
+func (f *GenericFilter) Input() string {
+	return f.input.Name()
 }
 
 func (f GenericFilter) Process(row common.Row) *common.Row {
