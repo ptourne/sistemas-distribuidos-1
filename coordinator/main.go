@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/csv"
-	"encoding/json"
 	"io"
 	"os"
 	"time"
@@ -12,57 +11,33 @@ import (
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
-	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 )
 
 var log = logger.NewConsoleLogger("coordinator", logger.Debug)
 
 func main() {
-	var conn *amqp.Connection
-	log.Infof("Connecting to RabbitMQ")
-	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
-	for range 5 {
-		if err == nil {
-			break
-		}
-		log.Errorf("Failed to connect to RabbitMQ: %v", err)
-		time.Sleep(5 * time.Second)
-		log.Infof("Retrying connection...")
-		conn, err = amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+	middlewareChan, err1 := middleware.NewMiddlewareRabbitmq()
+	if err1 != nil {
+		unwrap(err1, "Failed to create middleware")
 	}
-	if err != nil {
-		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
-		return
-	}
-	defer conn.Close()
 	log.Infof("Connected to RabbitMQ")
 
-	ch, err := conn.Channel()
-	unwrap(err, "Failed to open a channel")
-	defer ch.Close()
+	defer middlewareChan.Conn.Close()
+	defer middlewareChan.Ch.Close()
 
-	output := outputChannel(err, ch, log)
-	err = ch.ExchangeDeclare(
-		"movies_metadata", // name
-		"fanout",          // type
-		true,              // durable
-		false,             // auto-deleted
-		false,             // internal
-		false,             // no-wait
-		nil,               // arguments
-	)
-	unwrap(err, "Failed to declare an exchange")
+	middlewareChan.CreateReadWriteQueue("filter_release_date_l_2010_and_include_es", "", "movies_metadata")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	file, err := os.Open("/datasets/movies_metadata.csv")
-	unwrap(err, "Failed to open CSV file")
+	file, err2 := os.Open("/datasets/movies_metadata.csv")
+	unwrap(err2, "Failed to open CSV file")
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	_, err = reader.Read()
-	unwrap(err, "Failed to read CSV header")
+	_, err3 := reader.Read()
+	unwrap(err3, "Failed to read CSV header")
 	line := 0
 	log.Debugf("Starting CSV processing")
 	for {
@@ -70,12 +45,12 @@ func main() {
 		if line%1000 == 0 {
 			log.Infof("Processed %d lines", line)
 		}
-		data, err := reader.Read()
-		if err != nil {
-			if err == io.EOF {
+		data, err4 := reader.Read()
+		if err4 != nil {
+			if err4 == io.EOF {
 				break
 			}
-			log.Errorf("Error reading CSV line: %v", err)
+			log.Errorf("Error reading CSV line: %v", err4)
 			continue
 		}
 		if len(data) < 24 {
@@ -84,27 +59,9 @@ func main() {
 
 		film := Film(data)
 
-		buf, err := json.Marshal(film)
-		if err != nil {
-			log.Errorf("Failed to encode film: %v", err)
-			continue
-		}
 
-		unwrap(err, "Failed to encode film")
+		middlewareChan.Write(&film, ctx)
 
-		err = ch.PublishWithContext(ctx,
-			"movies_metadata", // exchange
-			"",                // routing key
-			false,             // mandatory
-			false,             // immediate
-			amqp.Publishing{
-				ContentType: "text/json",
-				Body:        buf,
-			})
-		unwrap(err, "Failed to publish a message")
-
-		// log.Debugf(" [x] Sent %s", film.Strings["title"])
-		// time.Sleep(1 * time.Second)
 	}
 	log.Debugf("CSV processing completed")
 
@@ -138,38 +95,37 @@ func main() {
 	timer := time.NewTimer(time.Second * 10)
 	should_loop := true
 	for should_loop {
-		select {
-		case msg := <-output:
-			var receivedMovie common.Row
-			err := json.Unmarshal(msg.Body, &receivedMovie)
-			if err != nil {
-				log.Errorf("Failed to unmarshal film: %v", err)
+		receivedMovie, err5 := middlewareChan.Read(timer)
+		if err5 != nil {
+			if err5.Error() == "timeout reached while waiting for message" {
+				should_loop = true
+
+			}else {
+				log.Errorf("Failed to read message: %v", err5)
 				continue
 			}
-			log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
-			log.Infof("Received film debug: %+v", receivedMovie)
-			expected_output = remove(expected_output, receivedMovie)
-			if len(expected_output) == 0 {
-				log.Infof("All expected films received")
-			}
-			timer.Reset(time.Second * 5)
-			break
-		case <-timer.C:
-			should_loop = false
+		}
+		log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
+		log.Infof("Received film debug: %+v", receivedMovie)
+		expected_output = remove(expected_output, *receivedMovie)
+		if len(expected_output) == 0 {
+			log.Infof("All expected films received")
 			break
 		}
+		timer.Reset(time.Second * 5)
 	}
 	timer.Stop()
 	if len(expected_output) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expected_output)
 	}
 	newTimer := time.NewTimer(time.Second * 5)
-	select {
-	case <-newTimer.C:
+	extraFilm, err4 := middlewareChan.Read(newTimer)
+	if err4 != nil && err4.Error() == "timeout reached while waiting for message" {
 		log.Infof("No extra films received")
-	case extraFilm := <-output:
-		log.Errorf("Extra film received: %+v", extraFilm)
+	} else {
+		log.Errorf("Extra film received: %v", extraFilm)
 	}
+
 }
 
 func remove(slice []common.Row, movie common.Row) []common.Row {
@@ -192,52 +148,6 @@ func stringSlicesEqual(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-func outputChannel(err error, ch *amqp.Channel, log *logger.ConsoleLogger) <-chan amqp.Delivery {
-	err = ch.ExchangeDeclare(
-		"filter_release_date_l_2010_and_include_es", // name
-		"fanout", // type
-		true,     // durable
-		false,    // auto-deleted
-		false,    // internal
-		false,    // no-wait
-		nil,      // arguments
-	)
-	unwrap(err, "Failed to declare exchange filter_release_date_l_2010_and_include_es")
-
-	inputQueue, err := ch.QueueDeclare(
-		"",    // name
-		false, // durable
-		false, // delete when unused
-		false, // exclusive
-		false, // no-wait
-		nil,   // arguments
-	)
-
-	unwrap(err, "Failed to declare a queue")
-
-	err = ch.QueueBind(
-		inputQueue.Name, // queue name
-		"",              // routing key
-		"filter_release_date_l_2010_and_include_es", // exchange
-		false,
-		nil,
-	)
-	unwrap(err, "Failed to bind a queue")
-
-	msgs, err := ch.Consume(
-		inputQueue.Name, // queue
-		"",              // consumer
-		false,           // auto-ack
-		false,           // exclusive
-		false,           // no-local
-		false,           // no-wait
-		nil,             // args
-	)
-	unwrap(err, "Failed to register a consumer")
-	log.Debugf("Reading results")
-	return msgs
 }
 
 // adult,belongs_to_collection,budget,genres,homepage,id,imdb_id,original_language,

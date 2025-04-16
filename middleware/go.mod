@@ -1,4 +1,4 @@
-module github.com/ptourne/sistemas-distribuidos-1/cola
+module github.com/ptourne/sistemas-distribuidos-1/middleware
 
 go 1.24.1
 
