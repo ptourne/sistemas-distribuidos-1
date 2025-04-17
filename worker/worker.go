@@ -1,92 +1,76 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
-	"time"
+	"slices"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/filter"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
-	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+const MIDDLEWARE = "rabbitmq"
 
 type Worker struct {
 	Tasks []task.Task
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
+var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
 
 func (w Worker) Run() {
-	var conn *amqp.Connection
-	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
-	for range 5 {
-		if err == nil {
-			break
-		}
-		time.Sleep(5 * time.Second)
-		conn, err = amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
-	}
+	middlewareConnection, err := middleware.NewRabbitmq[common.Row]()
 	if err != nil {
-		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
-		return
+		unwrap(err, "Failed to create middleware")
 	}
-	defer conn.Close()
-	log.Infof("Connected to RabbitMQ")
-	ch, err := conn.Channel()
-	if err != nil {
-		panic(err)
-	}
-	defer ch.Close()
-
+	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+	defer middlewareConnection.Close()
 	cases := make([]reflect.SelectCase, len(w.Tasks))
 	for i, task := range w.Tasks {
-		inputChannel := newFunction(task, ch)
+		inputChannel, err := task.Connect(middlewareConnection)
+		if err != nil {
+			log.Fatalf("Failed to create channel for task %s: %s", task.Name(), err)
+		}
+
 		cases[i] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
 			Chan: reflect.ValueOf(inputChannel),
 		}
 	}
+
 	for {
+		if len(cases) == 0 {
+			log.Infof("All channels closed")
+			break
+		}
 		i, val, ok := reflect.Select(cases)
+		currentTask := w.Tasks[i]
 		if !ok {
-			panic("Channel closed")
-		}
-		delivery, ok := val.Interface().(amqp.Delivery)
-		if !ok {
-			panic("Failed to cast to amqp.Delivery")
-		}
-		blob := delivery.Body
-		var row common.Row
-		err = json.Unmarshal(blob, &row)
-		unwrap(err, "Failed to unmarshal JSON")
-		task := w.Tasks[i]
-		//log.Infof("Received message from %s: %s", task.Input, row.Strings["title"])
-		result := task.Process(row)
-		if result == nil {
-			log.Infof("Row filtered out: %v name: %v", row.Strings["title"], task.Name())
+			log.Infof("Channel closed: %s", currentTask.Name())
+			cases = slices.Delete(cases, i, i+1)
+			w.Tasks = slices.Delete(w.Tasks, i, i+1)
+			currentTask.Finish()
 			continue
 		}
-
-		buf, err := json.Marshal(result)
-		unwrap(err, "Failed to marshal JSON")
-		err = ch.Publish(
-			task.Name(), // exchange
-			"",          // routing key
-			false,       // mandatory
-			false,       // immediate
-			amqp.Publishing{
-				ContentType: "text/json",
-				Body:        buf,
-			})
-		unwrap(err, "Failed to publish a message")
-		err = delivery.Ack(false)
+		log.Debugf("Received message from channel %d", i)
+		envelope, ok := val.Interface().(middleware.Envelope[common.Row])
+		if !ok {
+			panic("Failed to cast to envelope")
+		}
+		row := envelope.Msg()
+		result := currentTask.ProcessAndSend(row)
+		if result == nil {
+			log.Debugf("Row filtered out: %v name: %v", row.Strings["title"], currentTask.Name())
+			continue
+		}
+		err = envelope.Ack(false)
 		unwrap(err, "Failed to ack message")
+		log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
 	}
 }
 
@@ -97,62 +81,6 @@ func unwrap(err error, msg string) {
 	}
 }
 
-func newFunction(task task.Task, ch *amqp.Channel) <-chan amqp.Delivery {
-	err := ch.ExchangeDeclare(
-		task.Input(), // name
-		"fanout",     // type
-		true,         // durable
-		false,        // auto-deleted
-		false,        // internal
-		false,        // no-wait
-		nil,          // arguments
-	)
-	unwrap(err, "Failed to declare an exchange")
-
-	inputQueue, err := ch.QueueDeclare(
-		task.Name(), // name
-		false,       // durable
-		false,       // delete when unused
-		false,       // exclusive
-		false,       // no-wait
-		nil,         // arguments
-	)
-
-	unwrap(err, "Failed to declare a queue")
-
-	err = ch.QueueBind(
-		inputQueue.Name, // queue name
-		"",              // routing key
-		task.Input(),    // exchange
-		false,
-		nil,
-	)
-	unwrap(err, "Failed to bind a queue")
-
-	msgs, err := ch.Consume(
-		inputQueue.Name, // queue
-		"",              // consumer
-		false,           // auto-ack
-		false,           // exclusive
-		false,           // no-local
-		false,           // no-wait
-		nil,             // args
-	)
-	unwrap(err, "Failed to register a consumer")
-
-	err = ch.ExchangeDeclare(
-		task.Name(), // name
-		"fanout",    // type
-		true,        // durable
-		false,       // auto-deleted
-		false,       // internal
-		false,       // no-wait
-		nil,         // arguments
-	)
-	unwrap(err, "Failed to declare an exchange")
-	return msgs
-}
-
 type SourceTask struct {
 	name string
 }
@@ -161,7 +89,7 @@ func NewSourceTask(name string) task.Task {
 	return &SourceTask{name}
 }
 
-func (t *SourceTask) Process(r common.Row) *common.Row {
+func (t *SourceTask) ProcessAndSend(r common.Row) error {
 	return nil
 }
 
@@ -171,6 +99,14 @@ func (t *SourceTask) Name() string {
 
 func (t *SourceTask) Input() string {
 	return ""
+}
+
+func (t *SourceTask) Finish() error {
+	return nil
+}
+
+func (t *SourceTask) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) (chan middleware.Envelope[common.Row], error) {
+	return nil, nil
 }
 
 func NewWorker() Worker {
