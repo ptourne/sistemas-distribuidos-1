@@ -50,46 +50,51 @@ func NewMiddlewareRabbitmq() (*MiddlewareRabbitmq, error) {
 	return &middleware, nil
 }
 
-func (m *MiddlewareRabbitmq) CreateReadWriteQueue(readExchangeName string, readQueueName string, writeExchangeName string) error{
-	if readExchangeName != "" {
-		inputQueue, err1 := m.createQueue(readExchangeName, readQueueName)
-		if err1 != nil {
-			return err1
-		}
-
-		msgs, err2 := m.Ch.Consume(
-			inputQueue.Name, // queue
-			"",              // consumer
-			false,           // auto-ack
-			false,           // exclusive
-			false,           // no-local
-			false,           // no-wait
-			nil,             // args
-		)
-		if err2 != nil {
-			return fmt.Errorf("failed to register a consumer %v", err2)
-		}
-		m.readChan = &msgs
+func (m *MiddlewareRabbitmq) CreateReadQueue(readExchangeName string, readQueueName string) error{
+	inputQueue, err1 := m.createQueue(readExchangeName, readQueueName)
+	if err1 != nil {
+		return err1
 	}
 
-	if writeExchangeName != "" {
-		err3 := m.Ch.ExchangeDeclare(
-			writeExchangeName, // name
-			"fanout",          // type
-			true,              // durable
-			false,             // auto-deleted
-			false,             // internal
-			false,             // no-wait
-			nil,               // arguments
-		)
-		if err3 != nil {
-			return fmt.Errorf("failed to declare exchange %v", err3)
-		}
-		m.writeExchangeName = writeExchangeName
+	msgs, err2 := m.Ch.Consume(
+		inputQueue.Name, // queue
+		"",              // consumer
+		false,           // auto-ack
+		false,           // exclusive
+		false,           // no-local
+		false,           // no-wait
+		nil,             // args
+	)
+	if err2 != nil {
+		return fmt.Errorf("failed to register a consumer %v", err2)
 	}
+	m.readChan = &msgs
+
+
 	return nil
 }
+
+func (m *MiddlewareRabbitmq) CreateWriteQueue(writeExchangeName string) error{
+	err3 := m.Ch.ExchangeDeclare(
+		writeExchangeName, // name
+		"fanout",          // type
+		true,              // durable
+		false,             // auto-deleted
+		false,             // internal
+		false,             // no-wait
+		nil,               // arguments
+	)
+	if err3 != nil {
+		return fmt.Errorf("failed to declare exchange %v", err3)
+	}
+	m.writeExchangeName = writeExchangeName
+	return nil
+}
+
 func (m *MiddlewareRabbitmq) Read(timeout *time.Timer) (*common.Row, error){
+	if m.readChan == nil {
+		return nil, fmt.Errorf("read channel is not initialized")
+	}
 	select {
 	case msg := <-*m.readChan:
 		var receivedMovie common.Row
@@ -105,6 +110,9 @@ func (m *MiddlewareRabbitmq) Read(timeout *time.Timer) (*common.Row, error){
 }
 
 func (m *MiddlewareRabbitmq) Write(row *common.Row, ctx context.Context) error {
+	if m.writeExchangeName == "" {
+		return fmt.Errorf("write exchange is not initialized")
+	}
 	buf, err1 := json.Marshal(*row)
 	if err1 != nil {
 		return fmt.Errorf("failed to marshal film: %v", err1)

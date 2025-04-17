@@ -26,7 +26,9 @@ func main() {
 	defer middlewareChan.Conn.Close()
 	defer middlewareChan.Ch.Close()
 
-	middlewareChan.CreateReadWriteQueue("filter_release_date_l_2010_and_include_es", "", "movies_metadata")
+	// middlewareChan.CreateReadWriteQueue("filter_release_date_l_2010_and_include_es", "", "movies_metadata")
+	middlewareChan.CreateReadQueue("filter_release_date_l_2010_and_include_es", "")
+	middlewareChan.CreateWriteQueue("movies_metadata")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
