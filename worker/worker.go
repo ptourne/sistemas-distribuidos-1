@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
@@ -12,7 +11,6 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/filter"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
-	amqp "github.com/rabbitmq/amqp091-go"
 )
 const MIDDLEWARE = "rabbitmq"
 
@@ -57,29 +55,28 @@ func (w Worker) Run() {
 			Chan: reflect.ValueOf(inputChannel),
 		}
 	}
+
 	for {
 		i, val, ok := reflect.Select(cases)
 		if !ok {
 			panic("Channel closed")
 		}
-		delivery, ok := val.Interface().(amqp.Delivery)
+		log.Infof("Received message from channel %d", i)
+		row, ok := val.Interface().(*common.Row)
 		if !ok {
 			panic("Failed to cast to amqp.Delivery")
 		}
-		blob := delivery.Body
-		var row common.Row
-		err1 := json.Unmarshal(blob, &row)
 		unwrap(err1, "Failed to unmarshal JSON")
 		task := w.Tasks[i]
-		result := task.Process(row)
+		result := task.Process(*row)
 		if result == nil {
 			log.Infof("Row filtered out: %v name: %v", row.Strings["title"], task.Name())
 			continue
 		}
 		err2 := middlewareChan.Write(task.Name(), result)
 		unwrap(err2, "Failed to publish a message")
-		err3 := delivery.Ack(false)
-		unwrap(err3, "Failed to ack message")
+		// err3 := delivery.Ack(false) TODOOOO!!!!
+		// unwrap(err3, "Failed to ack message")
 	}
 }
 

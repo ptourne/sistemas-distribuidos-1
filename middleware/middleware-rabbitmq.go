@@ -18,7 +18,7 @@ type MiddlewareRabbitmq struct {
 	readChannels map[string]*<-chan amqp.Delivery
 }
 
-var log = logger.NewConsoleLogger("coordinator", logger.Debug)
+var log = logger.NewConsoleLogger("middleee", logger.Debug)
 
 
 func NewMiddlewareRabbitmq() (*MiddlewareRabbitmq, error) {
@@ -48,6 +48,7 @@ func NewMiddlewareRabbitmq() (*MiddlewareRabbitmq, error) {
 }
 
 func (m *MiddlewareRabbitmq) Close() error {
+	log.Infof("CLOSING")
 	if m.Ch != nil {
 		m.Ch.Close()
 	}
@@ -98,8 +99,8 @@ func (m *MiddlewareRabbitmq) CreateWriteQueue(writeExchangeName string) error{
 
 func (m *MiddlewareRabbitmq) Read(readExchangeName string, readQueueName string, timeout *time.Timer) (*common.Row, error) {
 	nameQueue := readExchangeName + ":" + readQueueName
-	readChan := m.readChannels[nameQueue]
-	if readChan == nil {
+	readChan, ok := m.readChannels[nameQueue]
+	if !ok {
 		return nil, fmt.Errorf("read channel %s is not initialized", nameQueue)
 	}
 

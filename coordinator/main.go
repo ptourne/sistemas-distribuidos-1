@@ -100,7 +100,9 @@ func main() {
 		receivedMovie, err5 := middlewareChan.Read(nameReadQueue, "", timer)
 		if err5 != nil {
 			if err5.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
 				should_loop = false
+				continue
 			}else {
 				log.Errorf("Failed to read message: %v", err5)
 				continue
