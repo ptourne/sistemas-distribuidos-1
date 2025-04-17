@@ -43,27 +43,33 @@ func DictionaryToListName(input string) ([]string, error) {
 	if input == "[]" {
 		return result, nil
 	}
+	var cleaned string
 
-	// 'key' => "key"
-	reKey := regexp.MustCompile(`'([^']+)':`)
-	cleaned := reKey.ReplaceAllString(input, `"$1":`)
+	if strings.Contains(input, "cast_id") {
 
-	// 'value' => "value"
-	reVal := regexp.MustCompile(`: '([^']*)'([,}])`)
-	cleaned = reVal.ReplaceAllString(cleaned, `: "$1"$2`)
-	reDoubleQuotesInValues := regexp.MustCompile(`:\s*"[^"]*"[^,}]*"[,}]`)
+		// 'key' => "key"
+		reKey := regexp.MustCompile(`'([^']+)':`)
+		cleaned = reKey.ReplaceAllString(input, `"$1":`)
 
-	// para: 'character': 'Roop Lal "Phillauri"',
-	cleaned = reDoubleQuotesInValues.ReplaceAllStringFunc(cleaned, func(match string) string {
+		// 'value' => "value"
+		reVal := regexp.MustCompile(`: '([^']*)'([,}])`)
+		cleaned = reVal.ReplaceAllString(cleaned, `: "$1"$2`)
+		reDoubleQuotesInValues := regexp.MustCompile(`:\s*"[^"]*"[^,}]*"[,}]`)
 
-		value := match[3 : len(match)-2]
-		if strings.Contains(value, `"`) {
-			value = strings.ReplaceAll(value, `"`, `'`)
-		}
+		// para: 'character': 'Roop Lal "Phillauri"',
+		cleaned = reDoubleQuotesInValues.ReplaceAllStringFunc(cleaned, func(match string) string {
 
-		return `: "` + value + `"` + match[len(match)-1:]
-	})
-	cleaned = strings.ReplaceAll(cleaned, "None", "null")
+			value := match[3 : len(match)-2]
+			if strings.Contains(value, `"`) {
+				value = strings.ReplaceAll(value, `"`, `'`)
+			}
+
+			return `: "` + value + `"` + match[len(match)-1:]
+		})
+		cleaned = strings.ReplaceAll(cleaned, "None", "null")
+	} else {
+		cleaned = strings.ReplaceAll(input, "'", "\"")
+	}
 	var items []NameItem
 	err := json.Unmarshal([]byte(cleaned), &items)
 	if err != nil {
