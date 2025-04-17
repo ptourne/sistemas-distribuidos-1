@@ -15,10 +15,18 @@ import (
 type MiddlewareRabbitmq struct {
 	Conn *amqp.Connection
 	Ch    *amqp.Channel
-	readChannels map[string]*<-chan amqp.Delivery
 }
 
-var log = logger.NewConsoleLogger("middleee", logger.Debug)
+type ReceiverRabbitmq struct {
+	readChan *<-chan amqp.Delivery
+}
+
+type SenderRabbitmq struct {
+	exchangeName string
+	Ch *amqp.Channel
+}
+
+var log = logger.NewConsoleLogger("middleware rabbitmq", logger.Debug)
 
 
 func NewMiddlewareRabbitmq() (*MiddlewareRabbitmq, error) {
@@ -42,7 +50,6 @@ func NewMiddlewareRabbitmq() (*MiddlewareRabbitmq, error) {
 	middleware:= MiddlewareRabbitmq{
 		Conn: conn,
 		Ch:    ch,
-		readChannels: map[string]*<-chan amqp.Delivery{},
 	};
 	return &middleware, nil
 }
@@ -51,17 +58,19 @@ func (m *MiddlewareRabbitmq) Close() error {
 	log.Infof("CLOSING")
 	if m.Ch != nil {
 		m.Ch.Close()
+		m.Ch = nil
 	}
 	if m.Conn != nil {
 		m.Conn.Close()
+		m.Conn = nil
 	}
 	return nil
 }
 
-func (m *MiddlewareRabbitmq) CreateReadQueue(readExchangeName string, readQueueName string) error{
+func (m *MiddlewareRabbitmq) CreateReadQueue(readExchangeName string, readQueueName string) (Receiver, error){
 	inputQueue, err1 := m.createQueue(readExchangeName, readQueueName)
 	if err1 != nil {
-		return err1
+		return nil, err1
 	}
 
 	msgs, err2 := m.Ch.Consume(
@@ -74,14 +83,15 @@ func (m *MiddlewareRabbitmq) CreateReadQueue(readExchangeName string, readQueueN
 		nil,             // args
 	)
 	if err2 != nil {
-		return fmt.Errorf("failed to register a consumer %v", err2)
+		return nil, fmt.Errorf("failed to register a consumer %v", err2)
 	}
-	nameQueue := readExchangeName + ":" + readQueueName
-	m.readChannels[nameQueue] = &msgs
-	return nil
+	receiver := &ReceiverRabbitmq{
+		readChan: &msgs,
+	}
+	return receiver, nil
 }
 
-func (m *MiddlewareRabbitmq) CreateWriteQueue(writeExchangeName string) error{
+func (m *MiddlewareRabbitmq) CreateWriteQueue(writeExchangeName string) (Sender, error){
 	err3 := m.Ch.ExchangeDeclare(
 		writeExchangeName, // name
 		"fanout",          // type
@@ -92,16 +102,18 @@ func (m *MiddlewareRabbitmq) CreateWriteQueue(writeExchangeName string) error{
 		nil,               // arguments
 	)
 	if err3 != nil {
-		return fmt.Errorf("failed to declare exchange %v", err3)
+		return nil, fmt.Errorf("failed to declare exchange %v", err3)
 	}
-	return nil
+	sender := &SenderRabbitmq{
+		exchangeName: writeExchangeName,
+		Ch: m.Ch,
+	}
+	return sender, nil
 }
 
-func (m *MiddlewareRabbitmq) Read(readExchangeName string, readQueueName string, timeout *time.Timer) (*common.Row, error) {
-	nameQueue := readExchangeName + ":" + readQueueName
-	readChan, ok := m.readChannels[nameQueue]
-	if !ok {
-		return nil, fmt.Errorf("read channel %s is not initialized", nameQueue)
+func (r *ReceiverRabbitmq) Next(timeout *time.Timer) (*common.Row, error) {
+	if r.readChan == nil {
+		return nil, fmt.Errorf("read channel is not initialized")
 	}
 
 	processMsg := func(msg amqp.Delivery) (*common.Row, error) {
@@ -114,7 +126,7 @@ func (m *MiddlewareRabbitmq) Read(readExchangeName string, readQueueName string,
 	}
 
 	if timeout == nil {
-		msg, ok := <-*readChan
+		msg, ok := <-*r.readChan
 		if !ok {
 			return nil, fmt.Errorf("read channel was closed")
 		}
@@ -122,7 +134,7 @@ func (m *MiddlewareRabbitmq) Read(readExchangeName string, readQueueName string,
 	}
 
 	select {
-	case msg, ok := <-*readChan:
+	case msg, ok := <-*r.readChan:
 		if !ok {
 			return nil, fmt.Errorf("read channel was closed")
 		}
@@ -132,8 +144,8 @@ func (m *MiddlewareRabbitmq) Read(readExchangeName string, readQueueName string,
 	}
 }
 
-func (m *MiddlewareRabbitmq) Write(writeExchangeName string, row *common.Row) error {
-	if writeExchangeName == "" {
+func (s *SenderRabbitmq) Send(row *common.Row) error {
+	if s.exchangeName == "" {
 		return fmt.Errorf("write exchange is not initialized")
 	}
 	buf, err1 := json.Marshal(*row)
@@ -142,8 +154,8 @@ func (m *MiddlewareRabbitmq) Write(writeExchangeName string, row *common.Row) er
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	err2 := m.Ch.PublishWithContext(ctx,
-		writeExchangeName, // exchange
+	err2 := s.Ch.PublishWithContext(ctx,
+		s.exchangeName, // exchange
 		"",                // routing key
 		false,             // mandatory
 		false,             // immediate

@@ -30,14 +30,21 @@ func (w Worker) Run() {
 	defer middlewareChan.Close()
 
 	cases := make([]reflect.SelectCase, len(w.Tasks))
+	senders:= make([]middleware.Sender, len(w.Tasks))
 	for i, task := range w.Tasks {
-		middlewareChan.CreateReadQueue(task.Input(), task.Name())
-		middlewareChan.CreateWriteQueue(task.Name())
+		taskReceiver, err := middlewareChan.CreateReadQueue(task.Input(), task.Name())
+		if err != nil {
+			unwrap(err, "Failed to create read queue for task" + task.Name())
+		}
+		taskSender, err := middlewareChan.CreateWriteQueue(task.Name())
+		if err != nil {
+			unwrap(err, "Failed to create write queue for task" + task.Name())
+		}
 
 		inputChannel := make(chan *common.Row)
 		go func() {
 			for {
-				row, err := middlewareChan.Read(task.Input(), task.Name(), nil)  
+				row, err := taskReceiver.Next(nil)  
 				if err != nil {
 					if err.Error() == "read channel was closed"{
 						log.Infof("Channel closed: %v", task.Name())
@@ -54,6 +61,7 @@ func (w Worker) Run() {
 			Dir:  reflect.SelectRecv,
 			Chan: reflect.ValueOf(inputChannel),
 		}
+		senders[i] = taskSender
 	}
 
 	for {
@@ -68,12 +76,13 @@ func (w Worker) Run() {
 		}
 		unwrap(err1, "Failed to unmarshal JSON")
 		task := w.Tasks[i]
+		sender := senders[i]
 		result := task.Process(*row)
 		if result == nil {
 			log.Infof("Row filtered out: %v name: %v", row.Strings["title"], task.Name())
 			continue
 		}
-		err2 := middlewareChan.Write(task.Name(), result)
+		err2 := sender.Send(result)
 		unwrap(err2, "Failed to publish a message")
 		// err3 := delivery.Ack(false) TODOOOO!!!!
 		// unwrap(err3, "Failed to ack message")

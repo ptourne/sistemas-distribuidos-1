@@ -9,11 +9,19 @@ import (
 
 //ver de declare, tratr de devovler un struct, ghacer read/write
 type MiddlewareCola interface {
-	CreateReadQueue(readExchangeName string, readQueueName string) error
-	CreateWriteQueue(writeExchangeName string) error
-	Read(readExchangeName string, readQueueName string, timeout *time.Timer) (*common.Row, error)
-	Write(writeExchangeName string,row *common.Row) error
+	CreateReadQueue(readExchangeName string, readQueueName string) (Receiver, error)
+	CreateWriteQueue(writeExchangeName string) (Sender,error)
+	// Read(readExchangeName string, readQueueName string, timeout *time.Timer) (*common.Row, error)
+	// Write(writeExchangeName string,row *common.Row) error
 	Close() error 
+}
+
+type Receiver interface {
+	Next(timeout *time.Timer) (*common.Row, error)
+}
+
+type Sender interface {
+	Send(row *common.Row) error
 }
 
 func NewMiddleware(tipo string) (MiddlewareCola, error) {
@@ -23,3 +31,4 @@ func NewMiddleware(tipo string) (MiddlewareCola, error) {
 	// podrías tener más opciones
 	return nil, fmt.Errorf("tipo de middleware no soportado")
 }
+
