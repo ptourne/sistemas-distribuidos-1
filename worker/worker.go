@@ -63,15 +63,14 @@ func (w Worker) Run() {
 			panic("Failed to cast to envelope")
 		}
 		row := envelope.Msg()
-		task := w.Tasks[i]
-		result := task.ProcessAndSend(row)
+		result := currentTask.ProcessAndSend(row)
 		if result == nil {
-			log.Debugf("Row filtered out: %v name: %v", row.Strings["title"], task.Name())
+			log.Debugf("Row filtered out: %v name: %v", row.Strings["title"], currentTask.Name())
 			continue
 		}
 		err = envelope.Ack(false)
 		unwrap(err, "Failed to ack message")
-		log.Debugf("Row processed: %v name: %v", row.Strings["title"], task.Name())
+		log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
 	}
 }
 
