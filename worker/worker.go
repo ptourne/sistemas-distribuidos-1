@@ -28,7 +28,6 @@ func (w Worker) Run() {
 	}
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChan.Close()
-
 	cases := make([]reflect.SelectCase, len(w.Tasks))
 	senders:= make([]middleware.Sender[common.Row], len(w.Tasks))
 	for i, task := range w.Tasks {
@@ -42,10 +41,10 @@ func (w Worker) Run() {
 		}
 
 		//lint:ignore S1019 Ignorar reflect.Select en este archivo
-		inputChannel := make(chan *common.Row, 0)
+		inputChannel := make(chan middleware.Envelope[common.Row], 0)
 		go func() {
 			for {
-				row, err := taskReceiver.Next(nil)  
+				envelope, err := taskReceiver.Next(nil)  
 				if err != nil {
 					if err.Error() == "read channel was closed"{
 						log.Infof("Channel closed: %v", task.Name())
@@ -54,7 +53,7 @@ func (w Worker) Run() {
 					log.Errorf("Error reading from middleware: %v", err)
 					continue 
 				}
-				inputChannel <- row
+				inputChannel <- envelope
 			}
 		}()
 
@@ -71,22 +70,23 @@ func (w Worker) Run() {
 			panic("Channel closed")
 		}
 		log.Infof("Received message from channel %d", i)
-		row, ok := val.Interface().(*common.Row)
+		envelope, ok := val.Interface().(middleware.Envelope[common.Row])
 		if !ok {
-			panic("Failed to cast to amqp.Delivery")
+			panic("Failed to cast to envelope")
 		}
-		unwrap(err1, "Failed to unmarshal JSON")
+		row := envelope.Msg()
 		task := w.Tasks[i]
 		sender := senders[i]
-		result := task.Process(*row)
+		result := task.Process(row)
 		if result == nil {
 			log.Infof("Row filtered out: %v name: %v", row.Strings["title"], task.Name())
 			continue
 		}
 		err2 := sender.Send(result)
 		unwrap(err2, "Failed to publish a message")
-		// err3 := receiver.Ack() 
-		// unwrap(err3, "Failed to ack message")
+		err3 := envelope.Ack(false) 
+		unwrap(err3, "Failed to ack message")
+		log.Infof("Row processed: %v name: %v", row.Strings["title"], task.Name())
 	}
 }
 

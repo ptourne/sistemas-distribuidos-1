@@ -13,12 +13,18 @@ type MiddlewareCola[T any] interface {
 }
 
 type Receiver[T any] interface {
-	Next(timeout *time.Timer) (*T, error)
+	Next(timeout *time.Timer) (Envelope[T], error)
+}
+
+type Envelope[T any] interface {
+	Msg() T
+	Ack(multiple bool) error
 }
 
 type Sender[T any] interface {
 	Send(row *T) error
 }
+
 
 func NewMiddleware[T any](tipo string) (MiddlewareCola[T], error) {
 	if tipo == "rabbitmq" {

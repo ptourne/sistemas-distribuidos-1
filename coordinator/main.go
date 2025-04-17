@@ -100,36 +100,36 @@ func main() {
 		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 	}
 
-	timer := time.NewTimer(time.Second * 10)
-	should_loop := true
-	for should_loop {
-		receivedMovie, err5 := receiver.Next(timer)
+	timer := time.NewTimer(time.Second * 20)
+
+	for {
+		envelope, err5 := receiver.Next(timer)
 		if err5 != nil {
 			if err5.Error() == "timeout reached while waiting for message" {
 				log.Infof("Timeout reached while waiting for message")
-				should_loop = false
-				continue
+				break
 			}else {
 				log.Errorf("Failed to read message: %v", err5)
 				continue
 			}
 		}
+		receivedMovie := envelope.Msg()
 		log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
 		log.Infof("Received film debug: %+v", receivedMovie)
-		expected_output = remove(expected_output, *receivedMovie)
+		expected_output = remove(expected_output, receivedMovie)
 		if len(expected_output) == 0 {
 			log.Infof("All expected films received")
 			break
 		}
-		// err := receiver.Ack() 
-		// unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 5)
+		err := envelope.Ack(true) 
+		unwrap(err, "Failed to ack message")
+		timer.Reset(time.Second * 20)
 	}
 	timer.Stop()
 	if len(expected_output) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expected_output)
 	}
-	newTimer := time.NewTimer(time.Second * 5)
+	newTimer := time.NewTimer(time.Second * 60)
 	extraFilm, err4 := receiver.Next(newTimer)
 	if err4 != nil && err4.Error() == "timeout reached while waiting for message" {
 		log.Infof("No extra films received")
