@@ -44,6 +44,8 @@ func (w Worker) Run() {
 	}
 	defer ch.Close()
 
+	ch.Qos(1000, 0, false)
+
 	cases := make([]reflect.SelectCase, len(w.Tasks))
 	for i, task := range w.Tasks {
 		inputChannel := newFunction(task, ch)

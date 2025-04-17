@@ -19,18 +19,7 @@ import (
 var log = logger.NewConsoleLogger("coordinator", logger.Debug)
 
 func main() {
-	var conn *amqp.Connection
-	log.Infof("Connecting to RabbitMQ")
-	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
-	for range 5 {
-		if err == nil {
-			break
-		}
-		log.Errorf("Failed to connect to RabbitMQ: %v", err)
-		time.Sleep(5 * time.Second)
-		log.Infof("Retrying connection...")
-		conn, err = amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
-	}
+	conn, err := connectToRabbit()
 	if err != nil {
 		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
 		return
@@ -57,6 +46,20 @@ func main() {
 	// }()
 
 	wg.Wait()
+}
+
+func connectToRabbit() (*amqp.Connection, error) {
+	var conn *amqp.Connection
+	var err error
+	for range 5 {
+		conn, err = amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+		if err == nil {
+			break
+		}
+		log.Warnf("Failed to connect to RabbitMQ: %v", err)
+		time.Sleep(5 * time.Second)
+	}
+	return conn, err
 }
 
 func processCredits(conn *amqp.Connection) {
@@ -155,7 +158,10 @@ func processRatings(conn *amqp.Connection) {
 	err = ch.ExchangeDeclare("ratings", "fanout", true, false, false, false, nil)
 	unwrap(err, "Failed to declare exchange 'ratings'")
 
-	output := outputChannel("clean_ratings", err, ch, log) // TODO: cambiar por el res final
+	outputCh, err := conn.Channel()
+	unwrap(err, "Failed to open output channel")
+
+	output := outputChannel("clean_ratings", err, outputCh, log) // TODO: cambiar por el res final
 
 	file, err := os.Open("/datasets/ratings.csv")
 	unwrap(err, "Failed to open ratings.csv")
@@ -169,25 +175,54 @@ func processRatings(conn *amqp.Connection) {
 
 	go func() {
 		defer wg.Done()
-		cleanRatings(reader, ch, log)
+		cleanRatings(conn, reader, ch, log)
 	}()
 
 	go func() {
 		defer wg.Done()
-		receiveRatings(output, log)
+		receiveRatings(conn, output, log)
 	}()
 	wg.Wait()
 }
 
-func receiveRatings(output <-chan amqp.Delivery, log *logger.ConsoleLogger) {
-	timer := time.NewTimer(time.Hour * 2) // ToDo: change
+func receiveRatings(conn *amqp.Connection, output <-chan amqp.Delivery, log *logger.ConsoleLogger) {
+	timer := time.NewTimer(time.Hour * 1) // ToDo: change
 	should_loop := true
 	ratings_received := 0
+	connCloseChan := make(chan *amqp.Error)
+	conn.NotifyClose(connCloseChan)
+	closedConnection := false
+
+	go func() {
+		err := <-connCloseChan
+		closedConnection = err != nil
+		if closedConnection {
+			log.Warnf("Conexión cerrada por RabbitMQ (consumer): %s", err)
+		}
+	}()
+	var err error
 	for should_loop {
+		if closedConnection {
+			log.Warnf("Connection closed, trying to reconnect...")
+			conn, err = connectToRabbit()
+			if err != nil {
+				log.Errorf("Failed to reconnect to RabbitMQ (consumer): %v", err)
+				break
+			}
+			ch, err := conn.Channel()
+			if err != nil {
+				log.Errorf("Failed to re-open channel (consumer): %v", err)
+			} else {
+				output = outputChannel("clean_ratings", err, ch, log)
+				closedConnection = false
+			}
+
+		}
 		select {
 		case msg := <-output:
 			var receivedRating common.Row // TODO: check results
-			err := json.Unmarshal(msg.Body, &receivedRating)
+
+			err = json.Unmarshal(msg.Body, &receivedRating)
 			if err != nil {
 				log.Errorf("Failed to unmarshal rating: %v", err)
 				continue
@@ -200,7 +235,8 @@ func receiveRatings(output <-chan amqp.Delivery, log *logger.ConsoleLogger) {
 				log.Errorf("Invalid rating: %v", receivedRating.Floats["rating"])
 				continue
 			}
-			timer.Reset(time.Hour * 2) // TODO: change
+			msg.Ack(false)
+			timer.Reset(time.Hour * 1) // TODO: change
 		case <-timer.C:
 			should_loop = false
 		}
@@ -217,12 +253,45 @@ func receiveRatings(output <-chan amqp.Delivery, log *logger.ConsoleLogger) {
 	}
 }
 
-func cleanRatings(reader *csv.Reader, ch *amqp.Channel, log *logger.ConsoleLogger) {
+func cleanRatings(conn *amqp.Connection, reader *csv.Reader, ch *amqp.Channel, log *logger.ConsoleLogger) {
 	ratings_count := 0
+	err := ch.Qos(1000, 0, false)
+	unwrap(err, "Failed to set QoS")
+
+	blockedCh := make(chan amqp.Blocking)
+	conn.NotifyBlocked(blockedCh)
+
+	isBlocked := false
+	go func() {
+		for block := range blockedCh {
+			isBlocked = block.Active
+			if block.Active {
+				log.Warnf("Conexión bloqueada por RabbitMQ: %s", block.Reason)
+			} else {
+				log.Infof("Conexión desbloqueada por RabbitMQ")
+			}
+		}
+	}()
+
+	connCloseChan := make(chan *amqp.Error)
+	conn.NotifyClose(connCloseChan)
+	closedConnection := false
+
+	go func() {
+		err := <-connCloseChan
+		closedConnection = err != nil
+		if closedConnection {
+			log.Warnf("Conexión cerrada por RabbitMQ: %s", err)
+		}
+	}()
+
 	for {
 		if ratings_count%100000 == 0 {
 			log.Infof("Processed %d lines from ratings", ratings_count)
 		}
+		// if ratings_count%100000 == 0 {
+		// 	time.Sleep(1 * time.Second)
+		// }
 		data, err := reader.Read()
 		if err == io.EOF {
 			break
@@ -242,12 +311,48 @@ func cleanRatings(reader *csv.Reader, ch *amqp.Channel, log *logger.ConsoleLogge
 			log.Errorf("Marshal error: %v", err)
 			continue
 		}
-		err = ch.PublishWithContext(context.Background(), "ratings", "", false, false, amqp.Publishing{
-			ContentType: "text/json",
-			Body:        buf,
-		})
+		attempt := 0
+
+		for {
+			if isBlocked {
+				log.Warnf("RabbitMQ está bloqueado, esperando desbloqueo...")
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err = ch.PublishWithContext(ctx, "ratings", "", false, false, amqp.Publishing{
+				ContentType: "text/json",
+				Body:        buf,
+			})
+			cancel()
+
+			if err == nil {
+				break
+			}
+			if closedConnection {
+				log.Warnf("Connection closed, trying to reconnect...")
+				conn, err = connectToRabbit()
+				if err != nil {
+					log.Errorf("Failed to reconnect to RabbitMQ: %v", err)
+					break
+				}
+				ch2, err := conn.Channel()
+				if err != nil {
+					log.Errorf("Failed to re-open channel: %v", err)
+				} else {
+					ch = ch2
+					err := ch.Qos(1000, 0, false)
+					unwrap(err, "Failed to set QoS")
+					closedConnection = false
+				}
+
+			}
+
+			time.Sleep(time.Duration(500*(1<<attempt)) * time.Millisecond)
+			attempt++
+		}
 		if err != nil {
-			log.Errorf("Failed to publish ratings: %v", err)
+			log.Errorf("Failed to publish rating: %v", err)
 		} else {
 			ratings_count++
 		}

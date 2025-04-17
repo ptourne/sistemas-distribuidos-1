@@ -26,7 +26,7 @@ services:"
 compose_rabbitmq() {
     echo "    rabbitmq:
         container_name: rabbitmq
-        image: rabbitmq:4.0.8-management
+        image: rabbitmq:latest
         ports:
             - \"5672:5672\"
             - \"15672:15672\"
@@ -46,7 +46,7 @@ compose_coordinator() {
         build:
             context: .
             dockerfile: coordinator/Dockerfile
-        command: /bin/sh -c \"test -f /datasets/credits.csv || unzip /datasets/credits.zip -d /datasets && /coordinator\"
+        command: /bin/sh -c \"test -f /datasets/credits.csv || unzip /datasets/credits.zip; test -f /datasets/ratings.csv || unzip /datasets/ratings.zip -d /datasets && /coordinator\"
         networks:
             - local_net
         environment:
