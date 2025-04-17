@@ -4,12 +4,12 @@ import (
 	"time"
 )
 
-//ver de declare, tratr de devovler un struct, ghacer read/write
+// ver de declare, tratr de devovler un struct, ghacer read/write
 type MiddlewareCola[T any] interface {
-	CreateConsumerQueue(readExchangeName string, groupQueueName string) (Receiver[T], error)
-	CreateSubscriberQueue(readExchangeName string) (Receiver[T], error)
-	CreateWriteQueue(writeExchangeName string) (Sender[T],error)
-	Close() error 
+	ConsumeFrom(sourceName string, groupName string) (Receiver[T], error)
+	SuscribeTo(sourceName string) (Receiver[T], error)
+	CreateWriteQueue(writeExchangeName string) (Sender[T], error)
+	Close() error
 }
 
 type Receiver[T any] interface {
@@ -26,5 +26,3 @@ type Sender[T any] interface {
 	Send(row *T) error
 	Close() error
 }
-
-

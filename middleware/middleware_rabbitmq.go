@@ -11,13 +11,12 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-
 type MiddlewareRabbitmq[T any] struct {
 	Conn *amqp.Connection
 }
 
 type ReceiverRabbitmq[T any] struct {
-	Ch *amqp.Channel
+	Ch       *amqp.Channel
 	readChan *<-chan amqp.Delivery
 }
 
@@ -28,7 +27,7 @@ type EnvelopeRabbitmq[T any] struct {
 
 type SenderRabbitmq[T any] struct {
 	exchangeName string
-	Ch *amqp.Channel
+	Ch           *amqp.Channel
 }
 
 var log = logger.NewConsoleLogger("middleware rabbitmq", logger.Debug)
@@ -47,10 +46,10 @@ func NewRabbitmq[T any]() (MiddlewareCola[T], error) {
 	if err != nil {
 		return nil, err
 	}
-	
-	middleware:= MiddlewareRabbitmq[T]{
+
+	middleware := MiddlewareRabbitmq[T]{
 		Conn: conn,
-	};
+	}
 	return &middleware, nil
 }
 
@@ -81,24 +80,24 @@ func (s *SenderRabbitmq[T]) Close() error {
 	return nil
 }
 
-func (m *MiddlewareRabbitmq[T]) CreateSubscriberQueue(readExchangeName string) (Receiver[T], error){
-	if readExchangeName == "" {
+func (m *MiddlewareRabbitmq[T]) SuscribeTo(sourceName string) (Receiver[T], error) {
+	if sourceName == "" {
 		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
 	}
-	return m.CreateReadQueue(readExchangeName, "")
+	return m.createReadQueue(sourceName, "")
 }
 
-func (m *MiddlewareRabbitmq[T]) CreateConsumerQueue(readExchangeName string, groupQueueName string) (Receiver[T], error){
-	if readExchangeName == "" {
+func (m *MiddlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string) (Receiver[T], error) {
+	if sourceName == "" {
 		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
 	}
-	if groupQueueName == "" {
+	if groupName == "" {
 		return nil, fmt.Errorf("groupQueueName is empty, should be a valid name")
 	}
-	return m.CreateReadQueue(readExchangeName, groupQueueName)
+	return m.createReadQueue(sourceName, groupName)
 }
 
-func (m *MiddlewareRabbitmq[T]) CreateReadQueue(readExchangeName string, queueName string) (Receiver[T], error){
+func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueName string) (Receiver[T], error) {
 	inputQueue, ch, err1 := m.createQueue(readExchangeName, queueName)
 	if err1 != nil {
 		return nil, err1
@@ -112,18 +111,18 @@ func (m *MiddlewareRabbitmq[T]) CreateReadQueue(readExchangeName string, queueNa
 		false,           // no-wait
 		nil,             // args
 	)
-		
+
 	if err2 != nil {
 		return nil, fmt.Errorf("failed to register a consumer %v", err2)
 	}
 	receiver := &ReceiverRabbitmq[T]{
 		readChan: &msgs,
-		Ch: ch,
+		Ch:       ch,
 	}
 	return receiver, nil
 }
 
-func (m *MiddlewareRabbitmq[T]) CreateWriteQueue(writeExchangeName string) (Sender[T], error){
+func (m *MiddlewareRabbitmq[T]) CreateWriteQueue(writeExchangeName string) (Sender[T], error) {
 	ch, err2 := m.Conn.Channel()
 	if err2 != nil {
 		return nil, fmt.Errorf("failed to open a channel: %v", err2)
@@ -142,7 +141,7 @@ func (m *MiddlewareRabbitmq[T]) CreateWriteQueue(writeExchangeName string) (Send
 	}
 	sender := &SenderRabbitmq[T]{
 		exchangeName: writeExchangeName,
-		Ch: ch,
+		Ch:           ch,
 	}
 	return sender, nil
 }
@@ -195,7 +194,7 @@ func (r *EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to ack message: %v", err)
 	}
-	r.tag = nil 
+	r.tag = nil
 	return nil
 }
 
@@ -211,12 +210,12 @@ func (s *SenderRabbitmq[T]) Send(row *T) error {
 	defer cancel()
 	err2 := s.Ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
-		"",                // routing key
-		false,             // mandatory
-		false,             // immediate
+		"",             // routing key
+		false,          // mandatory
+		false,          // immediate
 		amqp.Publishing{
 			ContentType: "text/json",
-			Body: buf,
+			Body:        buf,
 		})
 	if err2 != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err2, s.exchangeName)
@@ -225,47 +224,46 @@ func (s *SenderRabbitmq[T]) Send(row *T) error {
 	return nil
 }
 
-
-func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName string) (*amqp.Queue, *amqp.Channel, error){
+func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName string) (*amqp.Queue, *amqp.Channel, error) {
 	ch, err2 := m.Conn.Channel()
 	if err2 != nil {
-		return nil,nil, fmt.Errorf("failed to open a channel: %v", err2)
+		return nil, nil, fmt.Errorf("failed to open a channel: %v", err2)
 	}
 	err1 := ch.ExchangeDeclare(
 		exchangeName, // name
-		"fanout", // type
-		true,     // durable
-		false,    // auto-deleted
-		false,    // internal
-		false,    // no-wait
-		nil,      // arguments
+		"fanout",     // type
+		true,         // durable
+		false,        // auto-deleted
+		false,        // internal
+		false,        // no-wait
+		nil,          // arguments
 	)
 	if err1 != nil {
-		return nil,nil, fmt.Errorf("failed to declare exchange %v", err1)
+		return nil, nil, fmt.Errorf("failed to declare exchange %v", err1)
 	}
 
 	queue, err2 := ch.QueueDeclare(
-		groupName,    // name
-		false, // durable
-		false, // delete when unused
-		false, // exclusive
-		false, // no-wait
-		nil,   // arguments
+		groupName, // name
+		false,     // durable
+		false,     // delete when unused
+		false,     // exclusive
+		false,     // no-wait
+		nil,       // arguments
 	)
-	
+
 	if err2 != nil {
-		return nil,nil, fmt.Errorf("failed to declare queue %v", err2)
+		return nil, nil, fmt.Errorf("failed to declare queue %v", err2)
 	}
 
 	err3 := ch.QueueBind(
-		queue.Name, // queue name
-		"",              // routing key
+		queue.Name,   // queue name
+		"",           // routing key
 		exchangeName, // exchange
 		false,
 		nil,
 	)
 	if err3 != nil {
-		return nil,nil, fmt.Errorf("failed to declare queue %v", err3)
+		return nil, nil, fmt.Errorf("failed to declare queue %v", err3)
 	}
 	return &queue, ch, nil
 }

@@ -15,7 +15,6 @@ import (
 
 const MIDDLEWARE = "rabbitmq"
 
-
 var log = logger.NewConsoleLogger("coordinator", logger.Debug)
 
 func main() {
@@ -30,13 +29,13 @@ func main() {
 	nameReadQueue := "filter_release_date_l_2010_and_include_es"
 	nameWriteQueue := "movies_metadata"
 
-	receiver , err := middlewareChan.CreateSubscriberQueue(nameReadQueue)
+	receiver, err := middlewareChan.SuscribeTo(nameReadQueue)
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
 	defer receiver.Close()
 
-	sender , err := middlewareChan.CreateWriteQueue(nameWriteQueue)
+	sender, err := middlewareChan.CreateWriteQueue(nameWriteQueue)
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
@@ -69,7 +68,6 @@ func main() {
 		}
 
 		film := Film(data)
-
 
 		sender.Send(&film)
 
@@ -111,7 +109,7 @@ func main() {
 			if err5.Error() == "timeout reached while waiting for message" {
 				log.Infof("Timeout reached while waiting for message")
 				break
-			}else {
+			} else {
 				log.Errorf("Failed to read message: %v", err5)
 				continue
 			}
@@ -124,7 +122,7 @@ func main() {
 			log.Infof("All expected films received")
 			break
 		}
-		err := envelope.Ack(true) 
+		err := envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
 		timer.Reset(time.Second * 20)
 	}

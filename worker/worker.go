@@ -12,6 +12,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/filter"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
+
 const MIDDLEWARE = "rabbitmq"
 
 type Worker struct {
@@ -29,16 +30,16 @@ func (w Worker) Run() {
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChan.Close()
 	cases := make([]reflect.SelectCase, len(w.Tasks))
-	senders:= make([]middleware.Sender[common.Row], len(w.Tasks))
+	senders := make([]middleware.Sender[common.Row], len(w.Tasks))
 	for i, task := range w.Tasks {
-		taskReceiver, err := middlewareChan.CreateConsumerQueue(task.Input(), task.Name())
+		taskReceiver, err := middlewareChan.ConsumeFrom(task.Input(), task.Name())
 		if err != nil {
-			unwrap(err, "Failed to create read queue for task" + task.Name())
+			unwrap(err, "Failed to create read queue for task"+task.Name())
 		}
 		defer taskReceiver.Close()
 		taskSender, err := middlewareChan.CreateWriteQueue(task.Name())
 		if err != nil {
-			unwrap(err, "Failed to create write queue for task" + task.Name())
+			unwrap(err, "Failed to create write queue for task"+task.Name())
 		}
 		defer taskSender.Close()
 
@@ -46,14 +47,14 @@ func (w Worker) Run() {
 		inputChannel := make(chan middleware.Envelope[common.Row], 0)
 		go func() {
 			for {
-				envelope, err := taskReceiver.Next(nil)  
+				envelope, err := taskReceiver.Next(nil)
 				if err != nil {
-					if err.Error() == "read channel was closed"{
+					if err.Error() == "read channel was closed" {
 						log.Infof("Channel closed: %v", task.Name())
 						break
 					}
 					log.Errorf("Error reading from middleware: %v", err)
-					continue 
+					continue
 				}
 				inputChannel <- envelope
 			}
@@ -86,7 +87,7 @@ func (w Worker) Run() {
 		}
 		err2 := sender.Send(result)
 		unwrap(err2, "Failed to publish a message")
-		err3 := envelope.Ack(false) 
+		err3 := envelope.Ack(false)
 		unwrap(err3, "Failed to ack message")
 		log.Infof("Row processed: %v name: %v", row.Strings["title"], task.Name())
 	}
