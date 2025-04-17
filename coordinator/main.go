@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/csv"
 	"io"
 	"os"
@@ -14,24 +13,21 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 )
 
+const MIDDLEWARE = "rabbitmq"
+
 var log = logger.NewConsoleLogger("coordinator", logger.Debug)
 
 func main() {
-	middlewareChan, err1 := middleware.NewMiddlewareRabbitmq()
+	middlewareChan, err1 := middleware.NewMiddleware(MIDDLEWARE)
 	if err1 != nil {
 		unwrap(err1, "Failed to create middleware")
 	}
-	log.Infof("Connected to RabbitMQ")
+	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 
-	defer middlewareChan.Conn.Close()
-	defer middlewareChan.Ch.Close()
+	defer middlewareChan.Close()
 
-	// middlewareChan.CreateReadWriteQueue("filter_release_date_l_2010_and_include_es", "", "movies_metadata")
 	middlewareChan.CreateReadQueue("filter_release_date_l_2010_and_include_es", "")
 	middlewareChan.CreateWriteQueue("movies_metadata")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	file, err2 := os.Open("/datasets/movies_metadata.csv")
 	unwrap(err2, "Failed to open CSV file")
@@ -62,7 +58,7 @@ func main() {
 		film := Film(data)
 
 
-		middlewareChan.Write(&film, ctx)
+		middlewareChan.Write(&film)
 
 	}
 	log.Debugf("CSV processing completed")

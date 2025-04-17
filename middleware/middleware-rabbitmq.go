@@ -50,6 +50,16 @@ func NewMiddlewareRabbitmq() (*MiddlewareRabbitmq, error) {
 	return &middleware, nil
 }
 
+func (m *MiddlewareRabbitmq) Close() error {
+	if m.Ch != nil {
+		m.Ch.Close()
+	}
+	if m.Conn != nil {
+		m.Conn.Close()
+	}
+	return nil
+}
+
 func (m *MiddlewareRabbitmq) CreateReadQueue(readExchangeName string, readQueueName string) error{
 	inputQueue, err1 := m.createQueue(readExchangeName, readQueueName)
 	if err1 != nil {
@@ -109,7 +119,7 @@ func (m *MiddlewareRabbitmq) Read(timeout *time.Timer) (*common.Row, error){
 	}
 }
 
-func (m *MiddlewareRabbitmq) Write(row *common.Row, ctx context.Context) error {
+func (m *MiddlewareRabbitmq) Write(row *common.Row) error {
 	if m.writeExchangeName == "" {
 		return fmt.Errorf("write exchange is not initialized")
 	}
@@ -117,6 +127,8 @@ func (m *MiddlewareRabbitmq) Write(row *common.Row, ctx context.Context) error {
 	if err1 != nil {
 		return fmt.Errorf("failed to marshal film: %v", err1)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	err2 := m.Ch.PublishWithContext(ctx,
 		m.writeExchangeName, // exchange
 		"",                // routing key

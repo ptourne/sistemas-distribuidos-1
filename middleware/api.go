@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"context"
+	"fmt"
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
@@ -12,5 +12,14 @@ type MiddlewareCola interface {
 	CreateReadQueue(readExchangeName string, readQueueName string) error
 	CreateWriteQueue(writeExchangeName string) error
 	Read(timeout *time.Timer) (*common.Row, error)
-	Write(row *common.Row, ctx context.Context) error
+	Write(row *common.Row) error
+	Close() error 
+}
+
+func NewMiddleware(tipo string) (MiddlewareCola, error) {
+	if tipo == "rabbitmq" {
+		return NewMiddlewareRabbitmq()
+	}
+	// podrías tener más opciones
+	return nil, fmt.Errorf("tipo de middleware no soportado")
 }
