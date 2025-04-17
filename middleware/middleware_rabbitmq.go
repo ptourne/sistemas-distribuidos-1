@@ -98,11 +98,11 @@ func (m *MiddlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string)
 }
 
 func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueName string) (Receiver[T], error) {
-	inputQueue, ch, err1 := m.createQueue(readExchangeName, queueName)
-	if err1 != nil {
-		return nil, err1
+	inputQueue, ch, err := m.createQueue(readExchangeName, queueName)
+	if err != nil {
+		return nil, err
 	}
-	msgs, err2 := ch.Consume(
+	msgs, err := ch.Consume(
 		inputQueue.Name, // queue
 		"",              // consumer
 		false,           // auto-ack
@@ -112,8 +112,8 @@ func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueNa
 		nil,             // args
 	)
 
-	if err2 != nil {
-		return nil, fmt.Errorf("failed to register a consumer %v", err2)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register a consumer %v", err)
 	}
 	receiver := &ReceiverRabbitmq[T]{
 		readChan: &msgs,
@@ -123,11 +123,11 @@ func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueNa
 }
 
 func (m *MiddlewareRabbitmq[T]) CreateWriteQueue(writeExchangeName string) (Sender[T], error) {
-	ch, err2 := m.Conn.Channel()
-	if err2 != nil {
-		return nil, fmt.Errorf("failed to open a channel: %v", err2)
+	ch, err := m.Conn.Channel()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open a channel: %v", err)
 	}
-	err3 := ch.ExchangeDeclare(
+	err = ch.ExchangeDeclare(
 		writeExchangeName, // name
 		"fanout",          // type
 		true,              // durable
@@ -136,8 +136,8 @@ func (m *MiddlewareRabbitmq[T]) CreateWriteQueue(writeExchangeName string) (Send
 		false,             // no-wait
 		nil,               // arguments
 	)
-	if err3 != nil {
-		return nil, fmt.Errorf("failed to declare exchange %v", err3)
+	if err != nil {
+		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
 	sender := &SenderRabbitmq[T]{
 		exchangeName: writeExchangeName,
@@ -202,13 +202,13 @@ func (s *SenderRabbitmq[T]) Send(row *T) error {
 	if s.exchangeName == "" {
 		return fmt.Errorf("write exchange is not initialized")
 	}
-	buf, err1 := json.Marshal(*row)
-	if err1 != nil {
-		return fmt.Errorf("failed to marshal film: %v", err1)
+	buf, err := json.Marshal(*row)
+	if err != nil {
+		return fmt.Errorf("failed to marshal film: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	err2 := s.Ch.PublishWithContext(ctx,
+	err = s.Ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
 		"",             // routing key
 		false,          // mandatory
@@ -217,19 +217,19 @@ func (s *SenderRabbitmq[T]) Send(row *T) error {
 			ContentType: "text/json",
 			Body:        buf,
 		})
-	if err2 != nil {
-		return fmt.Errorf("failed to publish a message: %v in chan %s", err2, s.exchangeName)
+	if err != nil {
+		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
 	}
 	log.Infof("PUBLISHEDDD message in chan %s", s.exchangeName)
 	return nil
 }
 
 func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName string) (*amqp.Queue, *amqp.Channel, error) {
-	ch, err2 := m.Conn.Channel()
-	if err2 != nil {
-		return nil, nil, fmt.Errorf("failed to open a channel: %v", err2)
+	ch, err := m.Conn.Channel()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open a channel: %v", err)
 	}
-	err1 := ch.ExchangeDeclare(
+	err = ch.ExchangeDeclare(
 		exchangeName, // name
 		"fanout",     // type
 		true,         // durable
@@ -238,11 +238,11 @@ func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName strin
 		false,        // no-wait
 		nil,          // arguments
 	)
-	if err1 != nil {
-		return nil, nil, fmt.Errorf("failed to declare exchange %v", err1)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
 
-	queue, err2 := ch.QueueDeclare(
+	queue, err := ch.QueueDeclare(
 		groupName, // name
 		false,     // durable
 		false,     // delete when unused
@@ -251,19 +251,19 @@ func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName strin
 		nil,       // arguments
 	)
 
-	if err2 != nil {
-		return nil, nil, fmt.Errorf("failed to declare queue %v", err2)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to declare queue %v", err)
 	}
 
-	err3 := ch.QueueBind(
+	err = ch.QueueBind(
 		queue.Name,   // queue name
 		"",           // routing key
 		exchangeName, // exchange
 		false,
 		nil,
 	)
-	if err3 != nil {
-		return nil, nil, fmt.Errorf("failed to declare queue %v", err3)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to declare queue %v", err)
 	}
 	return &queue, ch, nil
 }

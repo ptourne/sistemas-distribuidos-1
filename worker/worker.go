@@ -23,9 +23,9 @@ var WORKER_ID = os.Getenv("WORKER_ID")
 var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
 
 func (w Worker) Run() {
-	middlewareChan, err1 := middleware.NewRabbitmq[common.Row]()
-	if err1 != nil {
-		unwrap(err1, "Failed to create middleware")
+	middlewareChan, err := middleware.NewRabbitmq[common.Row]()
+	if err != nil {
+		unwrap(err, "Failed to create middleware")
 	}
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChan.Close()
@@ -85,10 +85,10 @@ func (w Worker) Run() {
 			log.Infof("Row filtered out: %v name: %v", row.Strings["title"], task.Name())
 			continue
 		}
-		err2 := sender.Send(result)
-		unwrap(err2, "Failed to publish a message")
-		err3 := envelope.Ack(false)
-		unwrap(err3, "Failed to ack message")
+		err := sender.Send(result)
+		unwrap(err, "Failed to publish a message")
+		err = envelope.Ack(false)
+		unwrap(err, "Failed to ack message")
 		log.Infof("Row processed: %v name: %v", row.Strings["title"], task.Name())
 	}
 }

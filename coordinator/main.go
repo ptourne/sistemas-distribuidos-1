@@ -18,9 +18,9 @@ const MIDDLEWARE = "rabbitmq"
 var log = logger.NewConsoleLogger("coordinator", logger.Debug)
 
 func main() {
-	middlewareChan, err1 := middleware.NewRabbitmq[common.Row]()
-	if err1 != nil {
-		unwrap(err1, "Failed to create middleware")
+	middlewareChan, err := middleware.NewRabbitmq[common.Row]()
+	if err != nil {
+		unwrap(err, "Failed to create middleware")
 	}
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 
@@ -41,13 +41,13 @@ func main() {
 	}
 	defer sender.Close()
 
-	file, err2 := os.Open("/datasets/movies_metadata.csv")
-	unwrap(err2, "Failed to open CSV file")
+	file, err := os.Open("/datasets/movies_metadata.csv")
+	unwrap(err, "Failed to open CSV file")
 	defer file.Close()
 
 	reader := csv.NewReader(file)
-	_, err3 := reader.Read()
-	unwrap(err3, "Failed to read CSV header")
+	_, err = reader.Read()
+	unwrap(err, "Failed to read CSV header")
 	line := 0
 	log.Debugf("Starting CSV processing")
 	for {
@@ -55,12 +55,12 @@ func main() {
 		if line%1000 == 0 {
 			log.Infof("Processed %d lines", line)
 		}
-		data, err4 := reader.Read()
-		if err4 != nil {
-			if err4 == io.EOF {
+		data, err := reader.Read()
+		if err != nil {
+			if err == io.EOF {
 				break
 			}
-			log.Errorf("Error reading CSV line: %v", err4)
+			log.Errorf("Error reading CSV line: %v", err)
 			continue
 		}
 		if len(data) < 24 {
@@ -104,13 +104,13 @@ func main() {
 	timer := time.NewTimer(time.Second * 20)
 
 	for {
-		envelope, err5 := receiver.Next(timer)
-		if err5 != nil {
-			if err5.Error() == "timeout reached while waiting for message" {
+		envelope, err := receiver.Next(timer)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
 				log.Infof("Timeout reached while waiting for message")
 				break
 			} else {
-				log.Errorf("Failed to read message: %v", err5)
+				log.Errorf("Failed to read message: %v", err)
 				continue
 			}
 		}
@@ -122,7 +122,7 @@ func main() {
 			log.Infof("All expected films received")
 			break
 		}
-		err := envelope.Ack(true)
+		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
 		timer.Reset(time.Second * 20)
 	}
@@ -131,8 +131,8 @@ func main() {
 		log.Errorf("Not all expected films received. Missing %v", expected_output)
 	}
 	newTimer := time.NewTimer(time.Second * 60)
-	extraFilm, err4 := receiver.Next(newTimer)
-	if err4 != nil && err4.Error() == "timeout reached while waiting for message" {
+	extraFilm, err := receiver.Next(newTimer)
+	if err != nil && err.Error() == "timeout reached while waiting for message" {
 		log.Infof("No extra films received")
 	} else {
 		log.Errorf("Extra film received: %v", extraFilm)
