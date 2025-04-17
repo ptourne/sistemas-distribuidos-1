@@ -11,8 +11,8 @@ import (
 type MiddlewareCola interface {
 	CreateReadQueue(readExchangeName string, readQueueName string) error
 	CreateWriteQueue(writeExchangeName string) error
-	Read(timeout *time.Timer) (*common.Row, error)
-	Write(row *common.Row) error
+	Read(readExchangeName string, readQueueName string, timeout *time.Timer) (*common.Row, error)
+	Write(writeExchangeName string,row *common.Row) error
 	Close() error 
 }
 

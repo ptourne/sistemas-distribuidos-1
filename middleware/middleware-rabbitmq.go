@@ -15,9 +15,7 @@ import (
 type MiddlewareRabbitmq struct {
 	Conn *amqp.Connection
 	Ch    *amqp.Channel
-	readChan *<-chan amqp.Delivery
-	writeExchangeName string
-
+	readChannels map[string]*<-chan amqp.Delivery
 }
 
 var log = logger.NewConsoleLogger("coordinator", logger.Debug)
@@ -44,8 +42,7 @@ func NewMiddlewareRabbitmq() (*MiddlewareRabbitmq, error) {
 	middleware:= MiddlewareRabbitmq{
 		Conn: conn,
 		Ch:    ch,
-		readChan: nil,
-		writeExchangeName: "",
+		readChannels: map[string]*<-chan amqp.Delivery{},
 	};
 	return &middleware, nil
 }
@@ -78,9 +75,8 @@ func (m *MiddlewareRabbitmq) CreateReadQueue(readExchangeName string, readQueueN
 	if err2 != nil {
 		return fmt.Errorf("failed to register a consumer %v", err2)
 	}
-	m.readChan = &msgs
-
-
+	nameQueue := readExchangeName + ":" + readQueueName
+	m.readChannels[nameQueue] = &msgs
 	return nil
 }
 
@@ -97,30 +93,46 @@ func (m *MiddlewareRabbitmq) CreateWriteQueue(writeExchangeName string) error{
 	if err3 != nil {
 		return fmt.Errorf("failed to declare exchange %v", err3)
 	}
-	m.writeExchangeName = writeExchangeName
 	return nil
 }
 
-func (m *MiddlewareRabbitmq) Read(timeout *time.Timer) (*common.Row, error){
-	if m.readChan == nil {
-		return nil, fmt.Errorf("read channel is not initialized")
+func (m *MiddlewareRabbitmq) Read(readExchangeName string, readQueueName string, timeout *time.Timer) (*common.Row, error) {
+	nameQueue := readExchangeName + ":" + readQueueName
+	readChan := m.readChannels[nameQueue]
+	if readChan == nil {
+		return nil, fmt.Errorf("read channel %s is not initialized", nameQueue)
 	}
-	select {
-	case msg := <-*m.readChan:
+
+	processMsg := func(msg amqp.Delivery) (*common.Row, error) {
 		var receivedMovie common.Row
 		err := json.Unmarshal(msg.Body, &receivedMovie)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal film: %v", err)
 		}
 		return &receivedMovie, nil
+	}
 
+	if timeout == nil {
+		msg, ok := <-*readChan
+		if !ok {
+			return nil, fmt.Errorf("read channel was closed")
+		}
+		return processMsg(msg)
+	}
+
+	select {
+	case msg, ok := <-*readChan:
+		if !ok {
+			return nil, fmt.Errorf("read channel was closed")
+		}
+		return processMsg(msg)
 	case <-timeout.C:
 		return nil, fmt.Errorf("timeout reached while waiting for message")
 	}
 }
 
-func (m *MiddlewareRabbitmq) Write(row *common.Row) error {
-	if m.writeExchangeName == "" {
+func (m *MiddlewareRabbitmq) Write(writeExchangeName string, row *common.Row) error {
+	if writeExchangeName == "" {
 		return fmt.Errorf("write exchange is not initialized")
 	}
 	buf, err1 := json.Marshal(*row)
@@ -130,7 +142,7 @@ func (m *MiddlewareRabbitmq) Write(row *common.Row) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err2 := m.Ch.PublishWithContext(ctx,
-		m.writeExchangeName, // exchange
+		writeExchangeName, // exchange
 		"",                // routing key
 		false,             // mandatory
 		false,             // immediate

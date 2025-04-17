@@ -15,6 +15,7 @@ import (
 
 const MIDDLEWARE = "rabbitmq"
 
+
 var log = logger.NewConsoleLogger("coordinator", logger.Debug)
 
 func main() {
@@ -26,8 +27,11 @@ func main() {
 
 	defer middlewareChan.Close()
 
-	middlewareChan.CreateReadQueue("filter_release_date_l_2010_and_include_es", "")
-	middlewareChan.CreateWriteQueue("movies_metadata")
+	nameReadQueue := "filter_release_date_l_2010_and_include_es"
+	nameWriteQueue := "movies_metadata"
+
+	middlewareChan.CreateReadQueue(nameReadQueue, "")
+	middlewareChan.CreateWriteQueue(nameWriteQueue)
 
 	file, err2 := os.Open("/datasets/movies_metadata.csv")
 	unwrap(err2, "Failed to open CSV file")
@@ -58,7 +62,7 @@ func main() {
 		film := Film(data)
 
 
-		middlewareChan.Write(&film)
+		middlewareChan.Write(nameWriteQueue, &film)
 
 	}
 	log.Debugf("CSV processing completed")
@@ -93,11 +97,10 @@ func main() {
 	timer := time.NewTimer(time.Second * 10)
 	should_loop := true
 	for should_loop {
-		receivedMovie, err5 := middlewareChan.Read(timer)
+		receivedMovie, err5 := middlewareChan.Read(nameReadQueue, "", timer)
 		if err5 != nil {
 			if err5.Error() == "timeout reached while waiting for message" {
-				should_loop = true
-
+				should_loop = false
 			}else {
 				log.Errorf("Failed to read message: %v", err5)
 				continue
@@ -117,7 +120,7 @@ func main() {
 		log.Errorf("Not all expected films received. Missing %v", expected_output)
 	}
 	newTimer := time.NewTimer(time.Second * 5)
-	extraFilm, err4 := middlewareChan.Read(newTimer)
+	extraFilm, err4 := middlewareChan.Read(nameReadQueue, "", newTimer)
 	if err4 != nil && err4.Error() == "timeout reached while waiting for message" {
 		log.Infof("No extra films received")
 	} else {
