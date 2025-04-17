@@ -19,7 +19,7 @@ const MIDDLEWARE = "rabbitmq"
 var log = logger.NewConsoleLogger("coordinator", logger.Debug)
 
 func main() {
-	middlewareChan, err1 := middleware.NewMiddleware[common.Row](MIDDLEWARE)
+	middlewareChan, err1 := middleware.NewRabbitmq[common.Row]()
 	if err1 != nil {
 		unwrap(err1, "Failed to create middleware")
 	}
@@ -30,14 +30,17 @@ func main() {
 	nameReadQueue := "filter_release_date_l_2010_and_include_es"
 	nameWriteQueue := "movies_metadata"
 
-	receiver , err := middlewareChan.CreateReadQueue(nameReadQueue, "")
+	receiver , err := middlewareChan.CreateSubscriberQueue(nameReadQueue)
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
+	defer receiver.Close()
+
 	sender , err := middlewareChan.CreateWriteQueue(nameWriteQueue)
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
+	defer sender.Close()
 
 	file, err2 := os.Open("/datasets/movies_metadata.csv")
 	unwrap(err2, "Failed to open CSV file")

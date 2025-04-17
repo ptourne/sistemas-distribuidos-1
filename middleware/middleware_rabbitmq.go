@@ -33,8 +33,7 @@ type SenderRabbitmq[T any] struct {
 
 var log = logger.NewConsoleLogger("middleware rabbitmq", logger.Debug)
 
-//sacar middleware
-func NewMiddlewareRabbitmq[T any]() (MiddlewareCola[T], error) {
+func NewRabbitmq[T any]() (MiddlewareCola[T], error) {
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	for range 5 {
 		if err == nil {
@@ -56,19 +55,51 @@ func NewMiddlewareRabbitmq[T any]() (MiddlewareCola[T], error) {
 }
 
 func (m *MiddlewareRabbitmq[T]) Close() error {
-	log.Infof("CLOSING")
+	log.Infof("CLOSING MIDDLEWARE")
 	if m.Conn != nil {
 		m.Conn.Close()
 		m.Conn = nil
 	}
 	return nil
 }
-//group 
-//wrapper
-//close
 
-func (m *MiddlewareRabbitmq[T]) CreateReadQueue(readExchangeName string, readQueueName string) (Receiver[T], error){
-	inputQueue, ch, err1 := m.createQueue(readExchangeName, readQueueName)
+func (r *ReceiverRabbitmq[T]) Close() error {
+	log.Infof("CLOSING RECEIVER")
+	if r.Ch != nil {
+		r.Ch.Close()
+		r.Ch = nil
+	}
+	return nil
+}
+
+func (s *SenderRabbitmq[T]) Close() error {
+	log.Infof("CLOSING SENDER")
+	if s.Ch != nil {
+		s.Ch.Close()
+		s.Ch = nil
+	}
+	return nil
+}
+
+func (m *MiddlewareRabbitmq[T]) CreateSubscriberQueue(readExchangeName string) (Receiver[T], error){
+	if readExchangeName == "" {
+		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
+	}
+	return m.CreateReadQueue(readExchangeName, "")
+}
+
+func (m *MiddlewareRabbitmq[T]) CreateConsumerQueue(readExchangeName string, groupQueueName string) (Receiver[T], error){
+	if readExchangeName == "" {
+		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
+	}
+	if groupQueueName == "" {
+		return nil, fmt.Errorf("groupQueueName is empty, should be a valid name")
+	}
+	return m.CreateReadQueue(readExchangeName, groupQueueName)
+}
+
+func (m *MiddlewareRabbitmq[T]) CreateReadQueue(readExchangeName string, queueName string) (Receiver[T], error){
+	inputQueue, ch, err1 := m.createQueue(readExchangeName, queueName)
 	if err1 != nil {
 		return nil, err1
 	}
@@ -195,7 +226,7 @@ func (s *SenderRabbitmq[T]) Send(row *T) error {
 }
 
 
-func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, queueName string) (*amqp.Queue, *amqp.Channel, error){
+func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName string) (*amqp.Queue, *amqp.Channel, error){
 	ch, err2 := m.Conn.Channel()
 	if err2 != nil {
 		return nil,nil, fmt.Errorf("failed to open a channel: %v", err2)
@@ -214,7 +245,7 @@ func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, queueName strin
 	}
 
 	queue, err2 := ch.QueueDeclare(
-		queueName,    // name
+		groupName,    // name
 		false, // durable
 		false, // delete when unused
 		false, // exclusive

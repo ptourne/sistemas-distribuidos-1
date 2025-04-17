@@ -22,7 +22,7 @@ var WORKER_ID = os.Getenv("WORKER_ID")
 var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
 
 func (w Worker) Run() {
-	middlewareChan, err1 := middleware.NewMiddleware[common.Row](MIDDLEWARE)
+	middlewareChan, err1 := middleware.NewRabbitmq[common.Row]()
 	if err1 != nil {
 		unwrap(err1, "Failed to create middleware")
 	}
@@ -31,14 +31,16 @@ func (w Worker) Run() {
 	cases := make([]reflect.SelectCase, len(w.Tasks))
 	senders:= make([]middleware.Sender[common.Row], len(w.Tasks))
 	for i, task := range w.Tasks {
-		taskReceiver, err := middlewareChan.CreateReadQueue(task.Input(), task.Name())
+		taskReceiver, err := middlewareChan.CreateConsumerQueue(task.Input(), task.Name())
 		if err != nil {
 			unwrap(err, "Failed to create read queue for task" + task.Name())
 		}
+		defer taskReceiver.Close()
 		taskSender, err := middlewareChan.CreateWriteQueue(task.Name())
 		if err != nil {
 			unwrap(err, "Failed to create write queue for task" + task.Name())
 		}
+		defer taskSender.Close()
 
 		//lint:ignore S1019 Ignorar reflect.Select en este archivo
 		inputChannel := make(chan middleware.Envelope[common.Row], 0)
