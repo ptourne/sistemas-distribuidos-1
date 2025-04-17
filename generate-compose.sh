@@ -46,7 +46,7 @@ compose_coordinator() {
         build:
             context: .
             dockerfile: coordinator/Dockerfile
-        command: /bin/sh -c \"test -f /datasets/credits.csv || unzip /datasets/credits.zip; test -f /datasets/ratings.csv || unzip /datasets/ratings.zip -d /datasets && /coordinator\"
+        command: /bin/sh -c '(test -f /datasets/credits.csv || unzip /datasets/credits.zip -d /datasets) && (test -f /datasets/ratings.csv || unzip /datasets/ratings.zip -d /datasets) && /coordinator'        
         networks:
             - local_net
         environment:
