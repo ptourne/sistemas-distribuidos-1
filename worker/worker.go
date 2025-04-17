@@ -22,7 +22,7 @@ var WORKER_ID = os.Getenv("WORKER_ID")
 var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
 
 func (w Worker) Run() {
-	middlewareChan, err1 := middleware.NewMiddleware(MIDDLEWARE)
+	middlewareChan, err1 := middleware.NewMiddleware[common.Row](MIDDLEWARE)
 	if err1 != nil {
 		unwrap(err1, "Failed to create middleware")
 	}
@@ -30,7 +30,7 @@ func (w Worker) Run() {
 	defer middlewareChan.Close()
 
 	cases := make([]reflect.SelectCase, len(w.Tasks))
-	senders:= make([]middleware.Sender, len(w.Tasks))
+	senders:= make([]middleware.Sender[common.Row], len(w.Tasks))
 	for i, task := range w.Tasks {
 		taskReceiver, err := middlewareChan.CreateReadQueue(task.Input(), task.Name())
 		if err != nil {
@@ -41,7 +41,8 @@ func (w Worker) Run() {
 			unwrap(err, "Failed to create write queue for task" + task.Name())
 		}
 
-		inputChannel := make(chan *common.Row)
+		//lint:ignore S1019 Ignorar reflect.Select en este archivo
+		inputChannel := make(chan *common.Row, 0)
 		go func() {
 			for {
 				row, err := taskReceiver.Next(nil)  
@@ -84,7 +85,7 @@ func (w Worker) Run() {
 		}
 		err2 := sender.Send(result)
 		unwrap(err2, "Failed to publish a message")
-		// err3 := delivery.Ack(false) TODOOOO!!!!
+		// err3 := receiver.Ack() 
 		// unwrap(err3, "Failed to ack message")
 	}
 }

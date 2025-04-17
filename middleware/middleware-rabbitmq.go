@@ -6,22 +6,21 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 
-type MiddlewareRabbitmq struct {
+type MiddlewareRabbitmq[T any] struct {
 	Conn *amqp.Connection
 	Ch    *amqp.Channel
 }
 
-type ReceiverRabbitmq struct {
+type ReceiverRabbitmq[T any] struct {
 	readChan *<-chan amqp.Delivery
 }
 
-type SenderRabbitmq struct {
+type SenderRabbitmq[T any] struct {
 	exchangeName string
 	Ch *amqp.Channel
 }
@@ -29,7 +28,7 @@ type SenderRabbitmq struct {
 var log = logger.NewConsoleLogger("middleware rabbitmq", logger.Debug)
 
 
-func NewMiddlewareRabbitmq() (*MiddlewareRabbitmq, error) {
+func NewMiddlewareRabbitmq[T any]() (*MiddlewareRabbitmq[T], error) {
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	for range 5 {
 		if err == nil {
@@ -47,14 +46,14 @@ func NewMiddlewareRabbitmq() (*MiddlewareRabbitmq, error) {
 	if err2 != nil {
 		return nil, fmt.Errorf("failed to open a channel: %v", err2)
 	}
-	middleware:= MiddlewareRabbitmq{
+	middleware:= MiddlewareRabbitmq[T]{
 		Conn: conn,
 		Ch:    ch,
 	};
 	return &middleware, nil
 }
 
-func (m *MiddlewareRabbitmq) Close() error {
+func (m *MiddlewareRabbitmq[T]) Close() error {
 	log.Infof("CLOSING")
 	if m.Ch != nil {
 		m.Ch.Close()
@@ -67,7 +66,7 @@ func (m *MiddlewareRabbitmq) Close() error {
 	return nil
 }
 
-func (m *MiddlewareRabbitmq) CreateReadQueue(readExchangeName string, readQueueName string) (Receiver, error){
+func (m *MiddlewareRabbitmq[T]) CreateReadQueue(readExchangeName string, readQueueName string) (Receiver[T], error){
 	inputQueue, err1 := m.createQueue(readExchangeName, readQueueName)
 	if err1 != nil {
 		return nil, err1
@@ -85,13 +84,13 @@ func (m *MiddlewareRabbitmq) CreateReadQueue(readExchangeName string, readQueueN
 	if err2 != nil {
 		return nil, fmt.Errorf("failed to register a consumer %v", err2)
 	}
-	receiver := &ReceiverRabbitmq{
+	receiver := &ReceiverRabbitmq[T]{
 		readChan: &msgs,
 	}
 	return receiver, nil
 }
 
-func (m *MiddlewareRabbitmq) CreateWriteQueue(writeExchangeName string) (Sender, error){
+func (m *MiddlewareRabbitmq[T]) CreateWriteQueue(writeExchangeName string) (Sender[T], error){
 	err3 := m.Ch.ExchangeDeclare(
 		writeExchangeName, // name
 		"fanout",          // type
@@ -104,20 +103,19 @@ func (m *MiddlewareRabbitmq) CreateWriteQueue(writeExchangeName string) (Sender,
 	if err3 != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err3)
 	}
-	sender := &SenderRabbitmq{
+	sender := &SenderRabbitmq[T]{
 		exchangeName: writeExchangeName,
 		Ch: m.Ch,
 	}
 	return sender, nil
 }
 
-func (r *ReceiverRabbitmq) Next(timeout *time.Timer) (*common.Row, error) {
+func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (*T, error) {
 	if r.readChan == nil {
 		return nil, fmt.Errorf("read channel is not initialized")
 	}
-
-	processMsg := func(msg amqp.Delivery) (*common.Row, error) {
-		var receivedMovie common.Row
+	processMsg := func(msg amqp.Delivery) (*T, error) {
+		var receivedMovie T
 		err := json.Unmarshal(msg.Body, &receivedMovie)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal film: %v", err)
@@ -144,7 +142,7 @@ func (r *ReceiverRabbitmq) Next(timeout *time.Timer) (*common.Row, error) {
 	}
 }
 
-func (s *SenderRabbitmq) Send(row *common.Row) error {
+func (s *SenderRabbitmq[T]) Send(row *T) error {
 	if s.exchangeName == "" {
 		return fmt.Errorf("write exchange is not initialized")
 	}
@@ -170,7 +168,7 @@ func (s *SenderRabbitmq) Send(row *common.Row) error {
 }
 
 
-func (m *MiddlewareRabbitmq) createQueue(exchangeName string, queueName string) (*amqp.Queue, error){
+func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, queueName string) (*amqp.Queue, error){
 	err1 := m.Ch.ExchangeDeclare(
 		exchangeName, // name
 		"fanout", // type

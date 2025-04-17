@@ -19,7 +19,7 @@ const MIDDLEWARE = "rabbitmq"
 var log = logger.NewConsoleLogger("coordinator", logger.Debug)
 
 func main() {
-	middlewareChan, err1 := middleware.NewMiddleware(MIDDLEWARE)
+	middlewareChan, err1 := middleware.NewMiddleware[common.Row](MIDDLEWARE)
 	if err1 != nil {
 		unwrap(err1, "Failed to create middleware")
 	}
@@ -121,6 +121,8 @@ func main() {
 			log.Infof("All expected films received")
 			break
 		}
+		// err := receiver.Ack() 
+		// unwrap(err, "Failed to ack message")
 		timer.Reset(time.Second * 5)
 	}
 	timer.Stop()

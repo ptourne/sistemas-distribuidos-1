@@ -3,30 +3,26 @@ package middleware
 import (
 	"fmt"
 	"time"
-
-	"github.com/ptourne/sistemas-distribuidos-1/common"
 )
 
 //ver de declare, tratr de devovler un struct, ghacer read/write
-type MiddlewareCola interface {
-	CreateReadQueue(readExchangeName string, readQueueName string) (Receiver, error)
-	CreateWriteQueue(writeExchangeName string) (Sender,error)
-	// Read(readExchangeName string, readQueueName string, timeout *time.Timer) (*common.Row, error)
-	// Write(writeExchangeName string,row *common.Row) error
+type MiddlewareCola[T any] interface {
+	CreateReadQueue (readExchangeName string, readQueueName string) (Receiver[T], error)
+	CreateWriteQueue(writeExchangeName string) (Sender[T],error)
 	Close() error 
 }
 
-type Receiver interface {
-	Next(timeout *time.Timer) (*common.Row, error)
+type Receiver[T any] interface {
+	Next(timeout *time.Timer) (*T, error)
 }
 
-type Sender interface {
-	Send(row *common.Row) error
+type Sender[T any] interface {
+	Send(row *T) error
 }
 
-func NewMiddleware(tipo string) (MiddlewareCola, error) {
+func NewMiddleware[T any](tipo string) (MiddlewareCola[T], error) {
 	if tipo == "rabbitmq" {
-		return NewMiddlewareRabbitmq()
+		return NewMiddlewareRabbitmq[T]()
 	}
 	// podrías tener más opciones
 	return nil, fmt.Errorf("tipo de middleware no soportado")
