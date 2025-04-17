@@ -1,8 +1,0 @@
-name: rabbitmq_tutorial
-services:
-  rabbitmq:
-    container_name: rabbitmq
-    image: rabbitmq:4.0.8-management
-    ports:
-      - "5672:5672"
-      - "15672:15672"
