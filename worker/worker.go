@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
@@ -20,76 +21,57 @@ type Worker struct {
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
+var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
 
 func (w Worker) Run() {
-	middlewareChan, err := middleware.NewRabbitmq[common.Row]()
+	middlewareConnection, err := middleware.NewRabbitmq[common.Row]()
 	if err != nil {
 		unwrap(err, "Failed to create middleware")
 	}
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
-	defer middlewareChan.Close()
+	defer middlewareConnection.Close()
 	cases := make([]reflect.SelectCase, len(w.Tasks))
-	senders := make([]middleware.Sender[common.Row], len(w.Tasks))
 	for i, task := range w.Tasks {
-		taskReceiver, err := middlewareChan.ConsumeFrom(task.Input(), task.Name())
+		inputChannel, err := task.Connect(middlewareConnection)
 		if err != nil {
-			unwrap(err, "Failed to create read queue for task"+task.Name())
+			log.Fatalf("Failed to create channel for task %s: %s", task.Name(), err)
 		}
-		defer taskReceiver.Close()
-		taskSender, err := middlewareChan.CreateWriteQueue(task.Name())
-		if err != nil {
-			unwrap(err, "Failed to create write queue for task"+task.Name())
-		}
-		defer taskSender.Close()
-
-		//lint:ignore S1019 Ignorar reflect.Select en este archivo
-		inputChannel := make(chan middleware.Envelope[common.Row], 0)
-		go func() {
-			for {
-				envelope, err := taskReceiver.Next(nil)
-				if err != nil {
-					if err.Error() == "read channel was closed" {
-						log.Infof("Channel closed: %v", task.Name())
-						break
-					}
-					log.Errorf("Error reading from middleware: %v", err)
-					continue
-				}
-				inputChannel <- envelope
-			}
-		}()
 
 		cases[i] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
 			Chan: reflect.ValueOf(inputChannel),
 		}
-		senders[i] = taskSender
 	}
 
 	for {
-		i, val, ok := reflect.Select(cases)
-		if !ok {
-			panic("Channel closed")
+		if len(cases) == 0 {
+			log.Infof("All channels closed")
+			break
 		}
-		log.Infof("Received message from channel %d", i)
+		i, val, ok := reflect.Select(cases)
+		currentTask := w.Tasks[i]
+		if !ok {
+			log.Infof("Channel closed: %s", currentTask.Name())
+			cases = slices.Delete(cases, i, i+1)
+			w.Tasks = slices.Delete(w.Tasks, i, i+1)
+			currentTask.Finish()
+			continue
+		}
+		log.Debugf("Received message from channel %d", i)
 		envelope, ok := val.Interface().(middleware.Envelope[common.Row])
 		if !ok {
 			panic("Failed to cast to envelope")
 		}
 		row := envelope.Msg()
 		task := w.Tasks[i]
-		sender := senders[i]
-		result := task.Process(row)
+		result := task.ProcessAndSend(row)
 		if result == nil {
-			log.Infof("Row filtered out: %v name: %v", row.Strings["title"], task.Name())
+			log.Debugf("Row filtered out: %v name: %v", row.Strings["title"], task.Name())
 			continue
 		}
-		err := sender.Send(result)
-		unwrap(err, "Failed to publish a message")
 		err = envelope.Ack(false)
 		unwrap(err, "Failed to ack message")
-		log.Infof("Row processed: %v name: %v", row.Strings["title"], task.Name())
+		log.Debugf("Row processed: %v name: %v", row.Strings["title"], task.Name())
 	}
 }
 
@@ -108,7 +90,7 @@ func NewSourceTask(name string) task.Task {
 	return &SourceTask{name}
 }
 
-func (t *SourceTask) Process(r common.Row) *common.Row {
+func (t *SourceTask) ProcessAndSend(r common.Row) error {
 	return nil
 }
 
@@ -118,6 +100,14 @@ func (t *SourceTask) Name() string {
 
 func (t *SourceTask) Input() string {
 	return ""
+}
+
+func (t *SourceTask) Finish() error {
+	return nil
+}
+
+func (t *SourceTask) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) (chan middleware.Envelope[common.Row], error) {
+	return nil, nil
 }
 
 func NewWorker() Worker {

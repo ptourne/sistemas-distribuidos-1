@@ -8,12 +8,12 @@ import (
 type MiddlewareCola[T any] interface {
 	ConsumeFrom(sourceName string, groupName string) (Receiver[T], error)
 	SuscribeTo(sourceName string) (Receiver[T], error)
-	CreateWriteQueue(writeExchangeName string) (Sender[T], error)
+	WriteTo(writeExchangeName string) (Sender[T], error)
 	Close() error
 }
 
 type Receiver[T any] interface {
-	Next(timeout *time.Timer) (Envelope[T], error)
+	Next(timeout *time.Timer) (Envelope[T], bool, error)
 	Close() error
 }
 

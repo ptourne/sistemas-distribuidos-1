@@ -35,11 +35,10 @@ func main() {
 	}
 	defer receiver.Close()
 
-	sender, err := middlewareChan.CreateWriteQueue(nameWriteQueue)
+	sender, err := middlewareChan.WriteTo(nameWriteQueue)
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
-	defer sender.Close()
 
 	file, err := os.Open("/datasets/movies_metadata.csv")
 	unwrap(err, "Failed to open CSV file")
@@ -72,6 +71,7 @@ func main() {
 		sender.Send(&film)
 
 	}
+	sender.Close()
 	log.Debugf("CSV processing completed")
 
 	expected_output := []common.Row{
@@ -104,7 +104,7 @@ func main() {
 	timer := time.NewTimer(time.Second * 20)
 
 	for {
-		envelope, err := receiver.Next(timer)
+		envelope, ok, err := receiver.Next(timer)
 		if err != nil {
 			if err.Error() == "timeout reached while waiting for message" {
 				log.Infof("Timeout reached while waiting for message")
@@ -113,6 +113,10 @@ func main() {
 				log.Errorf("Failed to read message: %v", err)
 				continue
 			}
+		}
+		if !ok {
+			log.Infof("No more films")
+			break
 		}
 		receivedMovie := envelope.Msg()
 		log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
@@ -130,14 +134,6 @@ func main() {
 	if len(expected_output) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expected_output)
 	}
-	newTimer := time.NewTimer(time.Second * 60)
-	extraFilm, err := receiver.Next(newTimer)
-	if err != nil && err.Error() == "timeout reached while waiting for message" {
-		log.Infof("No extra films received")
-	} else {
-		log.Errorf("Extra film received: %v", extraFilm)
-	}
-
 }
 
 func remove(slice []common.Row, movie common.Row) []common.Row {
