@@ -25,6 +25,7 @@ type ReceiverRabbitmq[T any] struct {
 	asumeNoInFlightMsgs bool
 	depleteTimmer       *time.Timer
 	conn                *amqp.Connection
+	isBlocked           atomic.Bool
 	isClosed            atomic.Bool
 }
 
@@ -178,8 +179,10 @@ func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueNa
 		closeMsg:  &closeMsg,
 		closeCh:   closeCh,
 		conn:      m.Conn,
+		isBlocked: atomic.Bool{},
 		isClosed:  atomic.Bool{},
 	}
+	receiver.isBlocked.Store(false)
 	receiver.isClosed.Store(false)
 	return receiver, nil
 }
@@ -331,6 +334,28 @@ func (r *ReceiverRabbitmq[T]) LimitUnacked(limit int) error {
 		false, // global
 	)
 }
+
+func (r *ReceiverRabbitmq[T]) NotifyBlocked() {
+	blockedCh := make(chan amqp.Blocking)
+	r.conn.NotifyBlocked(blockedCh)
+
+	go func() {
+		for block := range blockedCh {
+			if block.Active {
+				r.isBlocked.Store(true)
+				log.Warnf("Conexión bloqueada por RabbitMQ: %s (receiver)", block.Reason)
+			} else {
+				r.isBlocked.Store(false)
+				log.Infof("Conexión desbloqueada por RabbitMQ (receiver)")
+			}
+		}
+	}()
+}
+
+func (s *ReceiverRabbitmq[T]) IsBlocked() bool {
+	return s.isBlocked.Load()
+}
+
 func (r *ReceiverRabbitmq[T]) NotifyClose() {
 	if r.inputCh == nil {
 		return
@@ -342,7 +367,7 @@ func (r *ReceiverRabbitmq[T]) NotifyClose() {
 		err := <-connCloseChan
 		if err != nil {
 			r.isClosed.Store(true)
-			log.Warnf("Conexión cerrada por RabbitMQ: %s", err)
+			log.Warnf("Conexión cerrada por RabbitMQ: %s (receiver)", err)
 		}
 	}()
 }
@@ -424,10 +449,10 @@ func (s *SenderRabbitmq[T]) NotifyBlocked() {
 		for block := range blockedCh {
 			if block.Active {
 				s.isBlocked.Store(true)
-				log.Warnf("Conexión bloqueada por RabbitMQ: %s", block.Reason)
+				log.Warnf("Conexión bloqueada por RabbitMQ: %s (sender)", block.Reason)
 			} else {
 				s.isBlocked.Store(false)
-				log.Infof("Conexión desbloqueada por RabbitMQ")
+				log.Infof("Conexión desbloqueada por RabbitMQ (sender)")
 			}
 		}
 	}()
@@ -445,7 +470,7 @@ func (s *SenderRabbitmq[T]) NotifyClose() {
 		err := <-connCloseChan
 		if err != nil {
 			s.isClosed.Store(true)
-			log.Warnf("Conexión cerrada por RabbitMQ: %s", err)
+			log.Warnf("Conexión cerrada por RabbitMQ: %s (sender)", err)
 		}
 	}()
 }

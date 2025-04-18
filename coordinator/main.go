@@ -181,6 +181,7 @@ func processRatings() {
 func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.ConsoleLogger) {
 	timer := time.NewTimer(time.Hour * 1) // ToDo: change
 	ratings_received := 0
+	receiver.NotifyBlocked()
 	receiver.NotifyClose()
 	for {
 		if receiver.IsClosed() {
@@ -198,7 +199,13 @@ func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.Consol
 				unwrap(err, "Failed to create read queue")
 			}
 			defer receiver.Close()
+			receiver.NotifyBlocked()
 			receiver.NotifyClose()
+		}
+		if receiver.IsBlocked() {
+			log.Warnf("RabbitMQ está bloqueado, esperando desbloqueo...")
+			time.Sleep(2 * time.Second)
+			continue
 		}
 		envelope, ok, err := receiver.Next(timer)
 		if err != nil {

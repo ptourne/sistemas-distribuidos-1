@@ -16,6 +16,8 @@ type Receiver[T any] interface {
 	Next(timeout *time.Timer) (Envelope[T], bool, error)
 	Close() error
 	LimitUnacked(limit int) error
+	NotifyBlocked()
+	IsBlocked() bool
 	NotifyClose()
 	IsClosed() bool
 }
