@@ -47,6 +47,8 @@ compose_coordinator() {
             context: .
             dockerfile: coordinator/Dockerfile
         entrypoint: /coordinator
+        environment:
+        - SERVER_PORT=1234
         networks:
             - local_net
         environment:
@@ -69,10 +71,28 @@ compose_workers() {
         entrypoint: /worker
         environment:
             - WORKER_ID=$worker_id
+            - SERVER_PORT=1234
         networks:
             - local_net
         depends_on:
             rabbitmq:
+                condition: service_healthy
+"
+}
+
+compose_client() {
+    echo "    client:
+        container_name: client
+        build:
+            context: .
+            dockerfile: client/Dockerfile
+        entrypoint: /worker
+        environment:
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            endpoint:
                 condition: service_healthy
 "
 }
