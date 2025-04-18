@@ -1,7 +1,8 @@
-package map_reducer
+package top_map_reduce
 
 import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/map_reducer"
 )
 
 type In = common.Row
@@ -11,10 +12,10 @@ type Acc struct {
 }
 type Res = []common.Row
 
-type TopMapReducer = MapReducer[In, Acc, Res]
+type TopMapReducer = map_reducer.MapReducer[In, Acc, Res]
 
 func NewTopMapReducer(name string, input string, topSize uint, batchSize uint) (*TopMapReducer, error) {
-	return NewMapReducer[In, Acc, Res](name, input, batchSize, &TopMapReduce{topSize})
+	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &TopMapReduce{topSize})
 }
 
 type TopMapReduce struct {
@@ -25,7 +26,7 @@ func (r TopMapReduce) Map(in In) Acc {
 	return Acc{
 		top: []common.Row{in},
 		isGreater: func(a common.Row, b common.Row) bool {
-			return a.Numerics["name"] > b.Numerics["name"]
+			return a.Numerics["budget_sum"] > b.Numerics["budget_sum"]
 		},
 	}
 }
@@ -33,7 +34,7 @@ func (r TopMapReduce) Map(in In) Acc {
 func (r TopMapReduce) Reduce(acc []Acc) Acc {
 	newTop := acc[0]
 	for _, acc := range acc[1:] {
-		newTop.SortMerge(acc, r.topSize)
+		newTop.MergeSort(acc, r.topSize)
 	}
 	return newTop
 }
@@ -42,33 +43,35 @@ func (r TopMapReduce) Output(acc Acc) Res {
 	return acc.top
 }
 
-func (a *Acc) SortMerge(b Acc, topSize uint) {
-	i := 0
-	j := 0
+func (a *Acc) MergeSort(b Acc, topSize uint) {
+	a_idx := 0
+	b_idx := 0
+	new_idx := 0
 	bTop := b.top
 	aTop := a.top
-	newSize := len(aTop) + len(bTop)
-	if newSize > int(topSize) {
-		newSize = int(topSize)
-	}
+	newSize := min(len(aTop)+len(bTop), int(topSize))
 	newTop := make([]common.Row, newSize)
 	for range topSize {
-		if i > len(aTop)-1 {
-			newTop[j] = bTop[j]
-			j++
+		if a_idx > len(aTop)-1 {
+			newTop[new_idx] = bTop[b_idx]
+			new_idx++
+			b_idx++
 			continue
 		}
-		if j > len(bTop)-1 {
-			newTop[j] = aTop[i]
-			i++
+		if b_idx > len(bTop)-1 {
+			newTop[new_idx] = aTop[a_idx]
+			new_idx++
+			a_idx++
 			continue
 		}
-		if a.isGreater(aTop[i], bTop[j]) {
-			newTop[j] = aTop[i]
-			i++
+		if a.isGreater(aTop[a_idx], bTop[b_idx]) {
+			newTop[new_idx] = aTop[a_idx]
+			new_idx++
+			a_idx++
 		} else {
-			newTop[j] = bTop[j]
-			j++
+			newTop[new_idx] = bTop[b_idx]
+			new_idx++
+			b_idx++
 		}
 	}
 	a.top = newTop

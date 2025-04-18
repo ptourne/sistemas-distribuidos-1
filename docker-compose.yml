@@ -1,110 +1,109 @@
 name: analisis-peliculas
 services:
-    rabbitmq:
-        container_name: rabbitmq
-        image: rabbitmq:4.0.8-management
-        ports:
-            - "5672:5672"
-            - "15672:15672"
-        networks:
-            - local_net
-        healthcheck:
-            test: rabbitmq-diagnostics -q ping
-            interval: 10s
-            timeout: 10s
-            retries: 10
+  rabbitmq:
+    container_name: rabbitmq
+    image: rabbitmq:4.0.8-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - local_net
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 10s
+      retries: 10
 
-    coordinator:
-        container_name: coordinator
-        build:
-            context: .
-            dockerfile: coordinator/Dockerfile
-        entrypoint: /coordinator
-        networks:
-            - local_net
-        environment:
-            - NUMBER_OF_WORKERS=5
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-        volumes:
-            - /home/user/Documents/Archive/UBA/Cuatrimestres/10mo-cuatrimestre/distribuidos/tp-repo/datasets:/datasets
+  coordinator:
+    container_name: coordinator
+    build:
+      context: .
+      dockerfile: coordinator/Dockerfile
+    entrypoint: /coordinator
+    networks:
+      - local_net
+    environment:
+      - NUMBER_OF_WORKERS=5
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - /home/user/Documents/Archive/UBA/Cuatrimestres/10mo-cuatrimestre/distribuidos/tp-repo/datasets:/datasets
 
-    worker1:
-        container_name: worker1
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
+  worker1:
+    container_name: worker1
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    entrypoint: /worker
+    environment:
+      - WORKER_ID=1
+    networks:
+      - local_net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
-    worker2:
-        container_name: worker2
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=2
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
+  worker2:
+    container_name: worker2
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    entrypoint: /worker
+    environment:
+      - WORKER_ID=2
+    networks:
+      - local_net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
-    worker3:
-        container_name: worker3
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=3
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
+  worker3:
+    container_name: worker3
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    entrypoint: /worker
+    environment:
+      - WORKER_ID=3
+    networks:
+      - local_net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
-    worker4:
-        container_name: worker4
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=4
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
+  worker4:
+    container_name: worker4
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    entrypoint: /worker
+    environment:
+      - WORKER_ID=4
+    networks:
+      - local_net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
-    worker5:
-        container_name: worker5
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=5
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
+  worker5:
+    container_name: worker5
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    entrypoint: /worker
+    environment:
+      - WORKER_ID=5
+    networks:
+      - local_net
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
 networks:
-    local_net:
-        name: local_net
-        ipam:
-            driver: default
-            config:
-                - subnet: 172.25.125.0/24
-
+  local_net:
+    name: local_net
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.125.0/24

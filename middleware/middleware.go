@@ -14,12 +14,14 @@ type MiddlewareCola[T any] interface {
 
 type Receiver[T any] interface {
 	Next(timeout *time.Timer) (Envelope[T], bool, error)
+	CountProducers() (uint, error)
 	Close() error
 }
 
 type Envelope[T any] interface {
 	Msg() T
 	Ack(multiple bool) error
+	Nack(multiple bool) error
 }
 
 type Sender[T any] interface {
