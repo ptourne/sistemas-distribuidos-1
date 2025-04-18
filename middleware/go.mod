@@ -1,16 +1,12 @@
-module github.com/ptourne/sistemas-distribuidos-1/coordinator
+module github.com/ptourne/sistemas-distribuidos-1/middleware
 
 go 1.24.1
 
 require github.com/rabbitmq/amqp091-go v1.10.0
 
 replace github.com/ptourne/sistemas-distribuidos-1/common => ../common
-replace github.com/ptourne/sistemas-distribuidos-1/middleware => ../middleware
-
 
 require github.com/ptourne/sistemas-distribuidos-1/common v0.0.0-00010101000000-000000000000
-require github.com/ptourne/sistemas-distribuidos-1/middleware v0.0.0-00010101000000-000000000000
-
 
 require (
 	github.com/fatih/color v1.18.0 // indirect

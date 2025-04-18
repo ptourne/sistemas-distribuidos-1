@@ -1,9 +1,7 @@
 package main
 
 import (
-	"context"
 	"encoding/csv"
-	"encoding/json"
 	"io"
 	"os"
 	"sync"
@@ -13,64 +11,56 @@ import (
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
-	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 )
+
+const MIDDLEWARE = "rabbitmq"
 
 var log = logger.NewConsoleLogger("coordinator", logger.Debug)
 
 func main() {
-	conn, err := connectToRabbit()
-	if err != nil {
-		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
-		return
-	}
-	defer conn.Close()
-	log.Infof("Connected to RabbitMQ")
-
 	var wg sync.WaitGroup
 	wg.Add(3)
 
 	go func() {
 		defer wg.Done()
-		processRatings(conn)
+		processRatings()
 	}()
 
 	// go func() {
 	// 	defer wg.Done()
-	// 	processCredits(conn)
+	// 	processCredits()
 	// }()
 
 	// go func() {
 	// 	defer wg.Done()
-	// 	processMovies(conn)
+	// 	processMovies()
 	// }()
 
 	wg.Wait()
 }
 
-func connectToRabbit() (*amqp.Connection, error) {
-	var conn *amqp.Connection
-	var err error
-	for range 5 {
-		conn, err = amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
-		if err == nil {
-			break
-		}
-		log.Warnf("Failed to connect to RabbitMQ: %v", err)
-		time.Sleep(5 * time.Second)
+func processCredits() {
+	middlewareChan, err := middleware.NewRabbitmq[common.Row]()
+	if err != nil {
+		unwrap(err, "Failed to create middleware")
 	}
-	return conn, err
-}
+	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+	defer middlewareChan.Close()
 
-func processCredits(conn *amqp.Connection) {
-	ch, err := conn.Channel()
-	unwrap(err, "Failed to open a channel (credits)")
-	defer ch.Close()
+	nameReadQueue := "clean_credits" // TODO: change
+	nameWriteQueue := "credits"
 
-	err = ch.ExchangeDeclare("credits", "fanout", true, false, false, false, nil)
-	unwrap(err, "Failed to declare exchange 'credits'")
+	receiver, err := middlewareChan.SuscribeTo(nameReadQueue)
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer receiver.Close()
 
-	output := outputChannel("clean_credits", err, ch, log) // TODO: cambiar por el res final
+	sender, err := middlewareChan.WriteTo(nameWriteQueue)
+	if err != nil {
+		unwrap(err, "Failed to create write queue")
+	}
 
 	file, err := os.Open("/datasets/credits.csv")
 	unwrap(err, "Failed to open credits.csv")
@@ -98,42 +88,44 @@ func processCredits(conn *amqp.Connection) {
 				"cast": data[0],
 			},
 		}
-		buf, err := json.Marshal(credit)
+		err = sender.Send(&credit)
 		if err != nil {
-			log.Errorf("Marshal error: %v", err)
-			continue
-		}
-		err = ch.PublishWithContext(context.Background(), "credits", "", false, false, amqp.Publishing{
-			ContentType: "text/json",
-			Body:        buf,
-		})
-		if err != nil {
-			log.Errorf("Failed to publish credit: %v", err)
+			log.Errorf("Failed to send credit: %v", err)
 		} else {
 			credits_count++
 		}
+
 	}
 
 	timer := time.NewTimer(time.Second * 10)
-	should_loop := true
 	credits_received := 0
-	for should_loop {
-		select {
-		case msg := <-output:
-			var receivedCredit common.Row // TODO: receivedActor, check results
-			err := json.Unmarshal(msg.Body, &receivedCredit)
-			if err != nil {
-				log.Errorf("Failed to unmarshal credit: %v", err)
+	for {
+		envelope, ok, err := receiver.Next(timer)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
 				continue
 			}
-			credits_received++
-			//log.Infof("Received credit: %s %v", receivedCredit.Strings["ID"], receivedCredit.Arrays["cast"]) // TODO: change => actorName, count
-			timer.Reset(time.Second * 5)
-			break
-		case <-timer.C:
-			should_loop = false
+		}
+		if !ok {
+			log.Infof("No more credits")
 			break
 		}
+		receivedCredit := envelope.Msg()
+		credits_received++
+		if credits_received%10000 == 0 {
+			log.Infof("Processed %d credits", credits_received)
+		}
+		if receivedCredit.Strings["ID"] == "" {
+			log.Debugf("Received empty credit: %v", receivedCredit)
+			continue
+		}
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+		timer.Reset(time.Second * 20)
 	}
 	timer.Stop()
 	log.Infof("Processed %d credits, received %d credits", credits_count, credits_received) // Processed 45476 credits, received 45397 credits
@@ -141,28 +133,29 @@ func processCredits(conn *amqp.Connection) {
 		log.Errorf("Not all credits received. Expected 45397, got %d", credits_received)
 	}
 	// TODO: check expected results
-	newTimer := time.NewTimer(time.Second * 5)
-	select {
-	case <-newTimer.C:
-		log.Infof("No extra credits received")
-	case extraCredit := <-output:
-		log.Errorf("Extra credit received: %+v", extraCredit)
-	}
 }
 
-func processRatings(conn *amqp.Connection) {
-	ch, err := conn.Channel()
-	unwrap(err, "Failed to open a channel (ratings)")
-	defer ch.Close()
+func processRatings() {
+	middlewareChan, err := middleware.NewRabbitmq[common.Row]()
+	if err != nil {
+		unwrap(err, "Failed to create middleware")
+	}
+	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+	defer middlewareChan.Close()
 
-	err = ch.ExchangeDeclare("ratings", "fanout", true, false, false, false, nil)
-	unwrap(err, "Failed to declare exchange 'ratings'")
+	nameReadQueue := "clean_ratings" // TODO: change
+	nameWriteQueue := "ratings"
 
-	outputCh, err := conn.Channel()
-	unwrap(err, "Failed to open output channel")
+	receiver, err := middlewareChan.SuscribeTo(nameReadQueue)
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer receiver.Close()
 
-	output := outputChannel("clean_ratings", err, outputCh, log) // TODO: cambiar por el res final
-
+	sender, err := middlewareChan.WriteTo(nameWriteQueue)
+	if err != nil {
+		unwrap(err, "Failed to create write queue")
+	}
 	file, err := os.Open("/datasets/ratings.csv")
 	unwrap(err, "Failed to open ratings.csv")
 	defer file.Close()
@@ -175,115 +168,76 @@ func processRatings(conn *amqp.Connection) {
 
 	go func() {
 		defer wg.Done()
-		cleanRatings(conn, reader, ch, log)
+		cleanRatings(sender, reader, log)
 	}()
 
 	go func() {
 		defer wg.Done()
-		receiveRatings(conn, output, log)
+		receiveRatings(receiver, log)
 	}()
 	wg.Wait()
 }
 
-func receiveRatings(conn *amqp.Connection, output <-chan amqp.Delivery, log *logger.ConsoleLogger) {
+func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.ConsoleLogger) {
 	timer := time.NewTimer(time.Hour * 1) // ToDo: change
-	should_loop := true
 	ratings_received := 0
-	connCloseChan := make(chan *amqp.Error)
-	conn.NotifyClose(connCloseChan)
-	closedConnection := false
-
-	go func() {
-		err := <-connCloseChan
-		closedConnection = err != nil
-		if closedConnection {
-			log.Warnf("Conexión cerrada por RabbitMQ (consumer): %s", err)
-		}
-	}()
-	var err error
-	for should_loop {
-		if closedConnection {
-			log.Warnf("Connection closed, trying to reconnect...")
-			conn, err = connectToRabbit()
+	receiver.NotifyClose()
+	for {
+		if receiver.IsClosed() {
+			middlewareChan, err := middleware.NewRabbitmq[common.Row]()
 			if err != nil {
-				log.Errorf("Failed to reconnect to RabbitMQ (consumer): %v", err)
+				unwrap(err, "Failed to create middleware")
+			}
+			log.Infof("Reconnected to middleware %s from ratings_consumer", MIDDLEWARE)
+			defer middlewareChan.Close()
+
+			nameReadQueue := "clean_ratings" // TODO: change
+
+			receiver, err = middlewareChan.SuscribeTo(nameReadQueue)
+			if err != nil {
+				unwrap(err, "Failed to create read queue")
+			}
+			defer receiver.Close()
+			receiver.NotifyClose()
+		}
+		envelope, ok, err := receiver.Next(timer)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
 				break
-			}
-			ch, err := conn.Channel()
-			if err != nil {
-				log.Errorf("Failed to re-open channel (consumer): %v", err)
 			} else {
-				output = outputChannel("clean_ratings", err, ch, log)
-				closedConnection = false
-			}
-
-		}
-		select {
-		case msg := <-output:
-			var receivedRating common.Row // TODO: check results
-
-			err = json.Unmarshal(msg.Body, &receivedRating)
-			if err != nil {
-				log.Errorf("Failed to unmarshal rating: %v", err)
+				log.Errorf("Failed to read message: %v", err)
 				continue
 			}
-			ratings_received++
-			if ratings_received%100000 == 0 {
-				log.Infof("Received ratings: %d ", ratings_received)
-			}
-			if receivedRating.Floats["rating"] <= 0.0 {
-				log.Errorf("Invalid rating: %v", receivedRating.Floats["rating"])
-				continue
-			}
-			msg.Ack(false)
-			timer.Reset(time.Hour * 1) // TODO: change
-		case <-timer.C:
-			should_loop = false
 		}
+		if !ok {
+			log.Infof("No more ratings")
+			break
+		}
+		receivedRating := envelope.Msg()
+		ratings_received++
+		if ratings_received%100000 == 0 {
+			log.Infof("Received %d ratings", ratings_received)
+		}
+		if receivedRating.Strings["movieID"] == "" {
+			log.Debugf("Received empty rating: %v", receivedRating)
+			continue
+		}
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+		timer.Reset(time.Hour * 1)
 	}
 	timer.Stop()
-	log.Infof("Received %d ratings", ratings_received) //
-	// TODO: check expected results
-	newTimer := time.NewTimer(time.Second * 5)
-	select {
-	case <-newTimer.C:
-		log.Infof("No extra ratings received")
-	case extraCredit := <-output:
-		log.Errorf("Extra rating received: %+v", extraCredit)
-	}
+	log.Infof("Finished receiving. Received %d ratings", ratings_received)
 }
 
-func cleanRatings(conn *amqp.Connection, reader *csv.Reader, ch *amqp.Channel, log *logger.ConsoleLogger) {
+func cleanRatings(sender middleware.Sender[common.Row], reader *csv.Reader, log *logger.ConsoleLogger) {
 	ratings_count := 0
-	err := ch.Qos(1000, 0, false)
+	err := sender.LimitUnacked(1000)
 	unwrap(err, "Failed to set QoS")
 
-	blockedCh := make(chan amqp.Blocking)
-	conn.NotifyBlocked(blockedCh)
-
-	isBlocked := false
-	go func() {
-		for block := range blockedCh {
-			isBlocked = block.Active
-			if block.Active {
-				log.Warnf("Conexión bloqueada por RabbitMQ: %s", block.Reason)
-			} else {
-				log.Infof("Conexión desbloqueada por RabbitMQ")
-			}
-		}
-	}()
-
-	connCloseChan := make(chan *amqp.Error)
-	conn.NotifyClose(connCloseChan)
-	closedConnection := false
-
-	go func() {
-		err := <-connCloseChan
-		closedConnection = err != nil
-		if closedConnection {
-			log.Warnf("Conexión cerrada por RabbitMQ: %s", err)
-		}
-	}()
+	sender.NotifyBlocked()
+	sender.NotifyClose()
 
 	for {
 		if ratings_count%100000 == 0 {
@@ -306,79 +260,69 @@ func cleanRatings(conn *amqp.Connection, reader *csv.Reader, ch *amqp.Channel, l
 				"rating":  data[2],
 			},
 		}
-		buf, err := json.Marshal(rating)
-		if err != nil {
-			log.Errorf("Marshal error: %v", err)
-			continue
-		}
 		attempt := 0
 
 		for {
-			if isBlocked {
+			if sender.IsBlocked() {
 				log.Warnf("RabbitMQ está bloqueado, esperando desbloqueo...")
 				time.Sleep(2 * time.Second)
 				continue
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			err = ch.PublishWithContext(ctx, "ratings", "", false, false, amqp.Publishing{
-				ContentType: "text/json",
-				Body:        buf,
-			})
-			cancel()
+			err = sender.Send(&rating)
 
 			if err == nil {
 				break
 			}
-			if closedConnection {
+			if sender.IsClosed() {
 				log.Warnf("Connection closed, trying to reconnect...")
-				conn, err = connectToRabbit()
+				middlewareChan, err := middleware.NewRabbitmq[common.Row]()
 				if err != nil {
-					log.Errorf("Failed to reconnect to RabbitMQ: %v", err)
-					break
-				}
-				ch2, err := conn.Channel()
-				if err != nil {
-					log.Errorf("Failed to re-open channel: %v", err)
+					unwrap(err, "Failed to create middleware")
 				} else {
-					ch = ch2
-					err := ch.Qos(1000, 0, false)
-					unwrap(err, "Failed to set QoS")
-					closedConnection = false
+					log.Infof("Reconnected to middleware %s from ratings_producer", MIDDLEWARE)
 				}
+				defer middlewareChan.Close()
+				nameWriteQueue := "ratings"
+				sender, err = middlewareChan.WriteTo(nameWriteQueue)
+				if err != nil {
+					unwrap(err, "Failed to create write queue")
+				}
+				err = sender.LimitUnacked(1000)
+				unwrap(err, "Failed to set QoS")
+				sender.NotifyBlocked()
+				sender.NotifyClose()
 
 			}
 
 			time.Sleep(time.Duration(500*(1<<attempt)) * time.Millisecond)
 			attempt++
 		}
-		if err != nil {
-			log.Errorf("Failed to publish rating: %v", err)
-		} else {
-			ratings_count++
-		}
+		ratings_count++
 	}
 	log.Infof("Processed %d ratings", ratings_count)
 }
 
-func processMovies(conn *amqp.Connection) {
-	ch, err := conn.Channel()
-	unwrap(err, "Failed to open a channel")
-	defer ch.Close()
+func processMovies() {
+	middlewareChan, err := middleware.NewRabbitmq[common.Row]()
+	if err != nil {
+		unwrap(err, "Failed to create middleware")
+	}
+	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+	defer middlewareChan.Close()
 
-	output := outputChannel("filter_release_date_l_2010_and_include_es", err, ch, log)
-	err = ch.ExchangeDeclare(
-		"movies_metadata", // name
-		"fanout",          // type
-		true,              // durable
-		false,             // auto-deleted
-		false,             // internal
-		false,             // no-wait
-		nil,               // arguments
-	)
-	unwrap(err, "Failed to declare an exchange")
+	nameReadQueue := "filter_release_date_l_2010_and_include_es"
+	nameWriteQueue := "movies_metadata"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	receiver, err := middlewareChan.SuscribeTo(nameReadQueue)
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer receiver.Close()
+
+	sender, err := middlewareChan.WriteTo(nameWriteQueue)
+	if err != nil {
+		unwrap(err, "Failed to create write queue")
+	}
 
 	file, err := os.Open("/datasets/movies_metadata.csv")
 	unwrap(err, "Failed to open CSV file")
@@ -408,66 +352,45 @@ func processMovies(conn *amqp.Connection) {
 
 		film := Film(data)
 
-		buf, err := json.Marshal(film)
-		if err != nil {
-			log.Errorf("Failed to encode film: %v", err)
-			continue
-		}
+		sender.Send(&film)
 
-		unwrap(err, "Failed to encode film")
-
-		err = ch.PublishWithContext(ctx,
-			"movies_metadata", // exchange
-			"",                // routing key
-			false,             // mandatory
-			false,             // immediate
-			amqp.Publishing{
-				ContentType: "text/json",
-				Body:        buf,
-			})
-		unwrap(err, "Failed to publish a message")
-
-		// log.Debugf(" [x] Sent %s", film.Strings["title"])
-		// time.Sleep(1 * time.Second)
 	}
 	log.Debugf("CSV processing completed (movies_metadata)")
 
 	expected_output := outputQueryOne()
 
-	timer := time.NewTimer(time.Second * 10)
-	should_loop := true
-	for should_loop {
-		select {
-		case msg := <-output:
-			var receivedMovie common.Row
-			err := json.Unmarshal(msg.Body, &receivedMovie)
-			if err != nil {
-				log.Errorf("Failed to unmarshal film %v: %v", receivedMovie, err)
+	timer := time.NewTimer(time.Second * 20)
+
+	for {
+		envelope, ok, err := receiver.Next(timer)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
 				continue
 			}
-			log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
-			// log.Infof("Received film debug: %+v", receivedMovie)
-			expected_output = remove(expected_output, receivedMovie)
-			if len(expected_output) == 0 {
-				log.Infof("All expected films received")
-			}
-			timer.Reset(time.Second * 5)
-			break
-		case <-timer.C:
-			should_loop = false
+		}
+		if !ok {
+			log.Infof("No more films")
 			break
 		}
+		receivedMovie := envelope.Msg()
+		log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
+		log.Infof("Received film debug: %+v", receivedMovie)
+		expected_output = remove(expected_output, receivedMovie)
+		if len(expected_output) == 0 {
+			log.Infof("All expected films received")
+			break
+		}
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+		timer.Reset(time.Second * 20)
 	}
 	timer.Stop()
 	if len(expected_output) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expected_output)
-	}
-	newTimer := time.NewTimer(time.Second * 5)
-	select {
-	case <-newTimer.C:
-		log.Infof("No extra films received")
-	case extraFilm := <-output:
-		log.Errorf("Extra film received: %+v", extraFilm)
 	}
 }
 
@@ -520,52 +443,6 @@ func stringSlicesEqual(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-func outputChannel(name string, err error, ch *amqp.Channel, log *logger.ConsoleLogger) <-chan amqp.Delivery {
-	err = ch.ExchangeDeclare(
-		name,     // name
-		"fanout", // type
-		true,     // durable
-		false,    // auto-deleted
-		false,    // internal
-		false,    // no-wait
-		nil,      // arguments
-	)
-	unwrap(err, "Failed to declare exchange")
-
-	inputQueue, err := ch.QueueDeclare(
-		"",    // name
-		false, // durable
-		false, // delete when unused
-		false, // exclusive
-		false, // no-wait
-		nil,   // arguments
-	)
-
-	unwrap(err, "Failed to declare a queue")
-
-	err = ch.QueueBind(
-		inputQueue.Name, // queue name
-		"",              // routing key
-		name,            // exchange
-		false,
-		nil,
-	)
-	unwrap(err, "Failed to bind a queue")
-
-	msgs, err := ch.Consume(
-		inputQueue.Name, // queue
-		"",              // consumer
-		false,           // auto-ack
-		false,           // exclusive
-		false,           // no-local
-		false,           // no-wait
-		nil,             // args
-	)
-	unwrap(err, "Failed to register a consumer")
-	log.Debugf("Reading results")
-	return msgs
 }
 
 // adult,belongs_to_collection,budget,genres,homepage,id,imdb_id,original_language,

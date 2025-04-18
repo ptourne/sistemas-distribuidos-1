@@ -8,10 +8,12 @@ FROM golang:1.24.1 AS builder
 LABEL intermediateStageToBeDeleted=true
 
 RUN mkdir -p /build/common
+RUN mkdir -p /build/middleware
 RUN mkdir -p /build/worker
 WORKDIR /build/worker
 
 COPY ./common /build/common
+COPY ./middleware /build/middleware
 COPY ./worker/go.mod ./worker/go.sum ./
 RUN go mod download
 
