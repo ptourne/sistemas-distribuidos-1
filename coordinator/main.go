@@ -27,15 +27,15 @@ func main() {
 		processRatings()
 	}()
 
-	// go func() {
-	// 	defer wg.Done()
-	// 	processCredits()
-	// }()
+	go func() {
+		defer wg.Done()
+		processCredits()
+	}()
 
-	// go func() {
-	// 	defer wg.Done()
-	// 	processMovies()
-	// }()
+	go func() {
+		defer wg.Done()
+		processMovies()
+	}()
 
 	wg.Wait()
 }
@@ -97,7 +97,7 @@ func processCredits() {
 
 	}
 
-	timer := time.NewTimer(time.Second * 10)
+	timer := time.NewTimer(time.Minute * 5)
 	credits_received := 0
 	for {
 		envelope, ok, err := receiver.Next(timer)
@@ -125,7 +125,7 @@ func processCredits() {
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 20)
+		timer.Reset(time.Minute * 5)
 	}
 	timer.Stop()
 	log.Infof("Processed %d credits, received %d credits", credits_count, credits_received) // Processed 45476 credits, received 45397 credits
@@ -156,19 +156,13 @@ func processRatings() {
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
-	file, err := os.Open("/datasets/ratings.csv")
-	unwrap(err, "Failed to open ratings.csv")
-	defer file.Close()
 
-	reader := csv.NewReader(file)
-	_, err = reader.Read()
-	unwrap(err, "Failed to read CSV header")
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
-		cleanRatings(sender, reader, log)
+		cleanRatings(sender, log)
 	}()
 
 	go func() {
@@ -238,9 +232,17 @@ func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.Consol
 	log.Infof("Finished receiving. Received %d ratings", ratings_received)
 }
 
-func cleanRatings(sender middleware.Sender[common.Row], reader *csv.Reader, log *logger.ConsoleLogger) {
+func cleanRatings(sender middleware.Sender[common.Row], log *logger.ConsoleLogger) {
+	file, err := os.Open("/datasets/ratings.csv")
+	unwrap(err, "Failed to open ratings.csv")
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	_, err = reader.Read()
+	unwrap(err, "Failed to read CSV header")
+
 	ratings_count := 0
-	err := sender.LimitUnacked(1000)
+	err = sender.LimitUnacked(1000)
 	unwrap(err, "Failed to set QoS")
 
 	sender.NotifyBlocked()
@@ -366,7 +368,7 @@ func processMovies() {
 
 	expected_output := outputQueryOne()
 
-	timer := time.NewTimer(time.Second * 20)
+	timer := time.NewTimer(time.Minute * 5)
 
 	for {
 		envelope, ok, err := receiver.Next(timer)
@@ -393,7 +395,7 @@ func processMovies() {
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 20)
+		timer.Reset(time.Minute * 5)
 	}
 	timer.Stop()
 	if len(expected_output) > 0 {
