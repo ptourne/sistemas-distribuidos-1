@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/csv"
 	"io"
-	"os"
 	"time"
 
 	"slices"
@@ -19,6 +18,7 @@ var log = logger.NewConsoleLogger("coordinator", logger.Debug)
 
 func main() {
 	middlewareChan, err := middleware.NewRabbitmq[common.Row]()
+	middlewareChanByte, err := middleware.NewRabbitmq[[]byte]()
 	if err != nil {
 		unwrap(err, "Failed to create middleware")
 	}
@@ -26,25 +26,56 @@ func main() {
 
 	defer middlewareChan.Close()
 
-	nameReadQueue := "filter_release_date_l_2010_and_include_es"
+	readFileByteQueue := "file_bytes"
+	nameReadQueueQ1 := "filter_release_date_l_2010_and_include_es"
 	nameWriteQueue := "movies_metadata"
 
-	receiver, err := middlewareChan.SuscribeTo(nameReadQueue)
+	receiverQ1, err := middlewareChan.SuscribeTo(nameReadQueueQ1)
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
-	defer receiver.Close()
-
+	defer receiverQ1.Close()
+	receiverFileByte, err := middlewareChanByte.SuscribeTo(readFileByteQueue)
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer receiverFileByte.Close()
+	
 	sender, err := middlewareChan.WriteTo(nameWriteQueue)
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
 
-	file, err := os.Open("/datasets/movies_metadata.csv")
-	unwrap(err, "Failed to open CSV file")
-	defer file.Close()
+	// file, err := os.Open("/datasets/movies_metadata.csv")
+	// unwrap(err, "Failed to open CSV file")
+	// defer file.Close()
 
-	reader := csv.NewReader(file)
+	// reader := csv.NewReader(file)
+	inputChannel := make(chan middleware.Envelope[[]byte], 0)
+	go func() {
+		for {
+			envelope, ok, err := receiverFileByte.Next(nil)
+			if err != nil {
+				if err.Error() == "read channel was closed" {
+					log.Infof("Channel closed: %v", readFileByteQueue)
+					break
+				}
+				log.Errorf("Error reading from middleware: %v", err)
+				continue
+			}
+			if !ok {
+				log.Infof("Channel closed: %v", readFileByteQueue)
+				break
+			}
+			inputChannel <- envelope
+		}
+		close(inputChannel)
+	}()
+	conn := <-inputChannel
+	conn.Msg()
+
+	
+	reader := csv.NewReader(conn)
 	_, err = reader.Read()
 	unwrap(err, "Failed to read CSV header")
 	line := 0
@@ -104,7 +135,7 @@ func main() {
 	timer := time.NewTimer(time.Second * 20)
 
 	for {
-		envelope, ok, err := receiver.Next(timer)
+		envelope, ok, err := receiverQ1.Next(timer)
 		if err != nil {
 			if err.Error() == "timeout reached while waiting for message" {
 				log.Infof("Timeout reached while waiting for message")

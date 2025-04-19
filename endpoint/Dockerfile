@@ -9,9 +9,11 @@ LABEL intermediateStageToBeDeleted=true
 
 RUN mkdir -p /build/endpoint
 RUN mkdir -p /build/common
+RUN mkdir -p /build/middleware
 WORKDIR /build/endpoint
 
 COPY ./common /build/common
+COPY ./middleware /build/middleware
 COPY ./endpoint/go.mod ./endpoint/go.sum ./
 RUN go mod download
 

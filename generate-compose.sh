@@ -107,8 +107,9 @@ compose_endpoint() {
             - ENDPOINT_PORT=9876
         networks:
             - local_net
-        volumes:
-            - ${PWD}/endpoint/datasets:/datasets
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
 "
 }
 

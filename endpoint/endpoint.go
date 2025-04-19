@@ -8,7 +8,9 @@ import (
 	"os"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 )
+const MIDDLEWARE = "rabbitmq"
 
 
 type Endpoint struct {
@@ -35,6 +37,14 @@ func NewEndpoint() (*Endpoint, error) {
 }
 
 func (e *Endpoint) Run() error{
+	middlewareChan, err := middleware.NewRabbitmq[[]byte]()
+	if err != nil {
+		return fmt.Errorf("failed to create middleware connection: %v", err)
+	}
+	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+
+	defer middlewareChan.Close()
+
 	for e.Running {
 		conn, ip, err := e.acceptNewConnection()
 		if err != nil {
@@ -47,7 +57,7 @@ func (e *Endpoint) Run() error{
 		}
 		// s.wg.Add(1)
 		// go s.handleClientConnection(conn, ip)
-		err = e.ReceiveFilesFromClient(conn, ip)
+		err = e.ReceiveFilesFromClient(conn, ip, middlewareChan)
 		if err != nil {
 			log.Errorf("error recibiendo archivos: %v", err)
 			continue
@@ -69,11 +79,30 @@ func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
 	return conn, remoteAddr, nil
 }
 
-func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string) error{
+func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[[]byte]) error{
+	fileBytes := "file_bytes"
+	fileBytesSender, err := middlewareChan.WriteTo(fileBytes)
+	if err != nil {
+		return fmt.Errorf("failed to create write queue %s: %v", fileBytes, err)
+	}
+	defer fileBytesSender.Close()
+	// creditsQueue := "credits_bytes"
+	// creditsSender, err := middlewareChan.WriteTo(creditsQueue)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to create write queue %s: %v", creditsQueue, err)
+	// }
+	// defer creditsSender.Close()
+	// ratingsQueue := "ratings_bytes"
+	// ratingsSender, err := middlewareChan.WriteTo(ratingsQueue)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to create write queue %s: %v", ratingsQueue, err)
+	// }
+	// defer ratingsSender.Close()
+
 	e.clientsConn[ip] = conn
 
-	file := &os.File{}
-
+	// file := &os.File{}
+	// var sender middleware.Sender[[]byte]
 	log.Infof("Receiving files")
 	OuterLoop:
 	for {
@@ -98,26 +127,29 @@ func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string) error{
 		switch packetType {
 		case common.FileName:
 			log.Infof("Recibido FILE %s", data[5:])
-			filePath := "datasets/" + data[5:]
-			file, err = os.Create(filePath)
-			if err != nil {
-				return fmt.Errorf("error creando archivo: %v", err)
-			}
-			defer file.Close()
+			// filePath := "datasets/" + data[5:]
+			// file, err = os.Create(filePath)
+			// if err != nil {
+			// 	return fmt.Errorf("error creando archivo: %v", err)
+			// }
+			// defer file.Close() //VER SI SE CIERRAN TODOS
 		case common.FinishFile:
 			log.Infof("Recibido FINISH %s", data[7:])
 		case common.FileData:
-			err = common.WriteFull(file, dataBuf, len(dataBuf))
-			if err != nil {
-				log.Errorf("Error escribiendo al archivo: %v", err)
-				break OuterLoop
-			}
+			// err = common.WriteFull(sender, dataBuf, len(dataBuf))
 		case common.AllFilesSent:
 			log.Infof("Recibido ALL FILES SENT")
 			break OuterLoop
 		}
+		typeDataBuf := append(sizeBuf[4:8], dataBuf...)
+		err = fileBytesSender.Send(&typeDataBuf)
+		if err != nil {
+			log.Errorf("Error escribiendo al archivo: %v", err)
+			break OuterLoop
+		}
 		bufAck := []byte("ACK")
 		common.WriteFull(conn, bufAck, len(bufAck))
+
 	}
 	return nil
 }
