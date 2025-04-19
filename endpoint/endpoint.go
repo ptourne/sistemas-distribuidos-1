@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
@@ -81,11 +82,12 @@ func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
 
 func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[[]byte]) error{
 	fileBytes := "file_bytes"
+	time.Sleep(10 * time.Second)
 	fileBytesSender, err := middlewareChan.WriteTo(fileBytes)
 	if err != nil {
 		return fmt.Errorf("failed to create write queue %s: %v", fileBytes, err)
 	}
-	defer fileBytesSender.Close()
+	// defer fileBytesSender.Close()
 
 	e.clientsConn[ip] = conn
 	defer func() {

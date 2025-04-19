@@ -231,11 +231,13 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 	}
 
 	if timeout == nil {
+		log.Infof("Timeout is nil, waiting for message")
 		select {
 		case msg, ok := <-*r.inputMsgs:
 			if !ok {
 				return nil, false, fmt.Errorf("read channel was closed")
 			}
+			log.Infof("Received message: %v", msg)
 			return processMsg[T](msg)
 
 		case _, ok := <-*r.closeMsg:
