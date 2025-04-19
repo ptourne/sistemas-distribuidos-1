@@ -117,7 +117,7 @@ func (f CleanMovies) process(row common.Row) *common.Row {
 	}
 }
 
-func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) (chan middleware.Envelope[common.Row], error) {
+func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
 	var err error
 	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
@@ -149,7 +149,9 @@ func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[com
 		}
 		close(inputChannel)
 	}()
-	return inputChannel, nil
+	channels := []chan middleware.Envelope[common.Row]{inputChannel}
+
+	return channels, nil
 }
 
 func (f *CleanMovies) Finish() error {

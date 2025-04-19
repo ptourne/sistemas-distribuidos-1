@@ -134,7 +134,7 @@ func (f GenericFilter) String() string {
 	return fmt.Sprintf("GenericFilter{Conditions: %v}", f.Conditions)
 }
 
-func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) (chan middleware.Envelope[common.Row], error) {
+func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
 	var err error
 	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
@@ -166,7 +166,9 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[c
 		}
 		close(inputChannel)
 	}()
-	return inputChannel, nil
+	channels := []chan middleware.Envelope[common.Row]{inputChannel}
+
+	return channels, nil
 }
 
 func (f *GenericFilter) Finish() error {

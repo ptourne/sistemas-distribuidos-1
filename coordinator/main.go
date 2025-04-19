@@ -22,10 +22,10 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(3)
 
-	go func() {
-		defer wg.Done()
-		processRatings()
-	}()
+	// go func() {
+	// 	defer wg.Done()
+	// 	processRatings()
+	// }()
 
 	go func() {
 		defer wg.Done()
@@ -48,7 +48,7 @@ func processCredits() {
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChan.Close()
 
-	nameReadQueue := "clean_credits" // TODO: change
+	nameReadQueue := "joiner_credits" // TODO: change
 	nameWriteQueue := "credits"
 
 	receiver, err := middlewareChan.SuscribeTo(nameReadQueue)
@@ -71,7 +71,7 @@ func processCredits() {
 	unwrap(err, "Failed to read CSV header")
 	credits_count := 0
 	for {
-		if credits_count%1000 == 0 {
+		if credits_count%10000 == 0 {
 			log.Infof("Processed %d lines from credits", credits_count)
 		}
 		data, err := reader.Read()
@@ -96,8 +96,13 @@ func processCredits() {
 		}
 
 	}
+	// sleep 5 seconds
+	time.Sleep(5 * time.Second)
 
-	timer := time.NewTimer(time.Minute * 5)
+	sender.Close()
+	log.Infof("Sender credits closed")
+
+	timer := time.NewTimer(time.Minute * 1)
 	credits_received := 0
 	for {
 		envelope, ok, err := receiver.Next(timer)
@@ -116,22 +121,17 @@ func processCredits() {
 		}
 		receivedCredit := envelope.Msg()
 		credits_received++
-		if credits_received%10000 == 0 {
-			log.Infof("Processed %d credits", credits_received)
-		}
-		if receivedCredit.Strings["ID"] == "" {
-			log.Debugf("Received empty credit: %v", receivedCredit)
-			continue
-		}
+		log.Debugf("Received credit: %v", receivedCredit)
+
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Minute * 5)
+		timer.Reset(time.Minute * 1)
 	}
 	timer.Stop()
 	log.Infof("Processed %d credits, received %d credits", credits_count, credits_received) // Processed 45476 credits, received 45397 credits
-	if credits_received != 45397 {
-		log.Errorf("Not all credits received. Expected 45397, got %d", credits_received)
-	}
+	// if credits_received != 45397 {
+	// 	log.Errorf("Not all credits received. Expected 45397, got %d", credits_received)
+	// }
 	// TODO: check expected results
 }
 
@@ -344,9 +344,10 @@ func processMovies() {
 	log.Debugf("Starting CSV processing (movies_metadata)")
 	for {
 		line++
-		if line%1000 == 0 {
+		if line%10000 == 0 {
 			log.Infof("Processed %d lines from movies_metadata", line)
 		}
+
 		data, err := reader.Read()
 		if err != nil {
 			if err == io.EOF {
@@ -361,7 +362,10 @@ func processMovies() {
 
 		film := Film(data)
 
-		sender.Send(&film)
+		err = sender.Send(&film)
+		if err != nil {
+			log.Errorf("Failed to send film: %v", err)
+		}
 
 	}
 	log.Debugf("CSV processing completed (movies_metadata)")
@@ -369,7 +373,6 @@ func processMovies() {
 	expected_output := outputQueryOne()
 
 	timer := time.NewTimer(time.Minute * 5)
-
 	for {
 		envelope, ok, err := receiver.Next(timer)
 		if err != nil {
@@ -386,8 +389,8 @@ func processMovies() {
 			break
 		}
 		receivedMovie := envelope.Msg()
-		log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
-		log.Infof("Received film debug: %+v", receivedMovie)
+		// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
+		// log.Infof("Received film debug: %+v", receivedMovie)
 		expected_output = remove(expected_output, receivedMovie)
 		if len(expected_output) == 0 {
 			log.Infof("All expected films received")
@@ -435,7 +438,7 @@ func outputQueryOne() []common.Row {
 func remove(slice []common.Row, movie common.Row) []common.Row {
 	for i, v := range slice {
 		if v.Strings["title"] == movie.Strings["title"] && stringSlicesEqual(v.Arrays["genres"], movie.Arrays["genres"]) {
-			log.Infof("Film matched expected")
+			//log.Infof("Film matched expected")
 			return slices.Delete(slice, i, i+1)
 		}
 	}

@@ -55,7 +55,7 @@ func (f CleanCredits) process(row common.Row) *common.Row {
 
 	cast, err := utils.DictionaryToListName(row.Strings["cast"])
 	if err != nil {
-		log.Warnf("err: %v, could not parse cast: %s", err, row.Strings["cast"])
+		log.Warnf("err: %v, could not parse cast for movie %s", err, row.Strings["ID"])
 		return nil
 	}
 
@@ -71,7 +71,7 @@ func (f CleanCredits) process(row common.Row) *common.Row {
 	}
 }
 
-func (f *CleanCredits) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) (chan middleware.Envelope[common.Row], error) {
+func (f *CleanCredits) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
 	var err error
 	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
@@ -103,7 +103,9 @@ func (f *CleanCredits) Connect(middlewareConnection middleware.MiddlewareCola[co
 		}
 		close(inputChannel)
 	}()
-	return inputChannel, nil
+
+	channels := []chan middleware.Envelope[common.Row]{inputChannel}
+	return channels, nil
 }
 
 func (f *CleanCredits) Finish() error {

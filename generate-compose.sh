@@ -75,6 +75,8 @@ compose_workers() {
         depends_on:
             rabbitmq:
                 condition: service_healthy
+        volumes:
+            - ${PWD}/joiner_credits:/joiner_credits
 "
 }
 
