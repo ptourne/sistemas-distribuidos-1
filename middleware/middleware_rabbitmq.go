@@ -16,13 +16,12 @@ type MiddlewareRabbitmq[T any] struct {
 }
 
 type ReceiverRabbitmq[T any] struct {
-	inputMsgs           *<-chan amqp.Delivery
-	inputCh             *amqp.Channel
-	closeMsg            *<-chan amqp.Delivery
-	closeCh             *amqp.Channel
-	notifedClosed       bool
-	asumeNoInFlightMsgs bool
-	depleteTimmer       *time.Timer
+	inputMsgs              *<-chan amqp.Delivery
+	inputCh                *amqp.Channel
+	closeMsg               *<-chan amqp.Delivery
+	closeCh                *amqp.Channel
+	asumeNoInFlightMsgs    bool
+	depleteTimmerStartTime *time.Time
 }
 
 type EnvelopeRabbitmq[T any] struct {
@@ -77,10 +76,6 @@ func (r *ReceiverRabbitmq[T]) Close() error {
 	if r.closeCh != nil {
 		r.closeCh.Close()
 		r.closeCh = nil
-	}
-	if r.depleteTimmer != nil {
-		r.depleteTimmer.Stop()
-		r.depleteTimmer = nil
 	}
 	return nil
 }
@@ -226,7 +221,7 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 		return r.nextIfNoInFlightMsgs()
 	}
 
-	if r.notifedClosed {
+	if r.depleteTimmerStartTime != nil {
 		return r.nextIfNotifedClosed(timeout)
 	}
 
@@ -239,11 +234,7 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 			return processMsg[T](msg)
 
 		case _, ok := <-*r.closeMsg:
-			if !ok {
-				return nil, false, fmt.Errorf("close channel was closed")
-			}
-			r.notifedClosed = true
-			return r.nextIfNotifedClosed(timeout)
+			return r.nextHandleCloseMsg(ok, timeout)
 		}
 	}
 
@@ -256,26 +247,42 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 	case <-timeout.C:
 		return nil, false, fmt.Errorf("timeout reached while waiting for message")
 	case _, ok := <-*r.closeMsg:
-		if !ok {
-			return nil, false, fmt.Errorf("close channel was closed")
-		}
-		r.notifedClosed = true
-		return r.nextIfNotifedClosed(timeout)
+		return r.nextHandleCloseMsg(ok, timeout)
 	}
 }
 
-func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope[T], bool, error) {
-	if r.depleteTimmer == nil {
-		r.depleteTimmer = time.NewTimer(time.Millisecond * 500)
+func (r *ReceiverRabbitmq[T]) nextHandleCloseMsg(ok bool, timeout *time.Timer) (Envelope[T], bool, error) {
+	if !ok {
+		return nil, false, fmt.Errorf("close channel was closed")
 	}
+	newVar := time.Now()
+	r.depleteTimmerStartTime = &newVar
+	return r.nextIfNotifedClosed(timeout)
+}
+
+func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope[T], bool, error) {
+	remaining := time.Millisecond*500 - time.Since(*r.depleteTimmerStartTime) // timeout until finish sending
+	var depleteTimmer *time.Timer
+	var depleteTimmerCh <-chan time.Time
+	if remaining > 0 {
+		depleteTimmer = time.NewTimer(remaining)
+		defer depleteTimmer.Stop()
+		depleteTimmerCh = depleteTimmer.C
+	}
+
 	if timeout == nil {
+		if depleteTimmer == nil {
+			depleteTimmer = time.NewTimer(time.Millisecond * 500) // timeout until inflight reception
+			defer depleteTimmer.Stop()
+			depleteTimmerCh = depleteTimmer.C
+		}
 		select {
 		case msg, ok := <-*r.inputMsgs:
 			if !ok {
 				return nil, false, fmt.Errorf("read channel was closed")
 			}
 			return processMsg[T](msg)
-		case <-r.depleteTimmer.C:
+		case <-depleteTimmerCh:
 			r.asumeNoInFlightMsgs = true
 			return nil, false, nil
 		}
@@ -287,7 +294,7 @@ func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope
 			return nil, false, fmt.Errorf("read channel was closed")
 		}
 		return processMsg[T](msg)
-	case <-r.depleteTimmer.C:
+	case <-depleteTimmerCh:
 		r.asumeNoInFlightMsgs = true
 		return r.nextIfNoInFlightMsgs()
 	case <-timeout.C:
