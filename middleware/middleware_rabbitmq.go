@@ -485,13 +485,17 @@ func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName strin
 		return nil, nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
 
+	queueName := ""
+	if groupName != "" {
+		queueName = fmt.Sprintf("%s_%s", exchangeName, groupName)
+	}
 	queue, err := ch.QueueDeclare(
-		exchangeName+groupName, // name
-		false,                  // durable
-		false,                  // delete when unused
-		false,                  // exclusive
-		false,                  // no-wait
-		nil,                    // arguments
+		queueName, // name
+		false,     // durable
+		false,     // delete when unused
+		false,     // exclusive
+		false,     // no-wait
+		nil,       // arguments
 	)
 
 	if err != nil {
