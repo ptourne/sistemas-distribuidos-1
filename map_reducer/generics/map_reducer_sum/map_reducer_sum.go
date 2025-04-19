@@ -9,7 +9,7 @@ type In = common.Row
 type Acc struct {
 	Sums map[string]uint `json:"sums" validate:"required"`
 }
-type Res = []common.Row
+type Res = common.Row
 
 type MapReducerSum = map_reducer.MapReducer[In, Acc, Res]
 
@@ -36,7 +36,7 @@ func (r SumMapReduce) Reduce(acc []Acc) Acc {
 	return newAcc
 }
 
-func (r SumMapReduce) Output(acc Acc) Res {
+func (r SumMapReduce) Output(acc Acc) []Res {
 	output := make([]common.Row, len(acc.Sums))
 	i := 0
 	for country, budgetSum := range acc.Sums {

@@ -65,7 +65,9 @@ compose_coordinator() {
         networks:
             - local_net
         environment:
-            - NUMBER_OF_WORKERS=$number_of_workers
+            - NUMBER_OF_FILTERS=$number_of_filters
+            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=$number_of_reduce_by_country_sum_budgets
+            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=$number_of_reduce_top_5_by_budgets
         depends_on:
             rabbitmq:
                 condition: service_healthy

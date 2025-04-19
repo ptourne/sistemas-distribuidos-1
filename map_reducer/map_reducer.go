@@ -59,6 +59,10 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 	if err != nil {
 		return nil, err
 	}
+	err = accIn.Qos(1, 0)
+	if err != nil {
+		return nil, err
+	}
 	accOut, err := connAcc.WriteTo(accName)
 	if err != nil {
 		return nil, err
@@ -81,7 +85,7 @@ func accName(name string) string {
 type MapReduce[T, A, R any] interface {
 	Map(T) A
 	Reduce([]A) A
-	Output(A) R
+	Output(A) []R
 }
 
 const INITIAL_TIMEOUT_DURATION = 1000
@@ -229,7 +233,9 @@ func (mr *MapReducer[I, A, R]) Run() error {
 	log.Debugf("Reduced final partial result: %v", lastRes)
 	output := mr.mapReduce.Output(lastRes)
 	log.Debugf("Output final result: %v", output)
-	mr.output.Send(&output)
+	for _, o := range output {
+		mr.output.Send(&o)
+	}
 	cerr := mr.output.Close()
 	err = (*lastMsg).Ack(true)
 	if cerr != nil {

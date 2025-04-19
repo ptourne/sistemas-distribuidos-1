@@ -76,6 +76,10 @@ func (m *MiddlewareRabbitmq[T]) Close() error {
 	return nil
 }
 
+func (m *ReceiverRabbitmq[T]) Qos(prefetchCount int, prefetchSize int) error {
+	return m.inputCh.Qos(prefetchCount, prefetchSize, false)
+}
+
 func (r *ReceiverRabbitmq[T]) Close() error {
 	log.Infof("CLOSING RECEIVER")
 	if r.inputCh != nil {
@@ -247,14 +251,19 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string) (Sender[T], error) {
 	producerCountReplier := make(chan struct{})
 	producerCountReplierKill := make(chan struct{})
 	task := func() {
-		shouldContinue := true
-		for shouldContinue {
+		close(producerCountReplier)
+		producerCountResCh.Close()
+		producerCountReqCh.Close()
+		for {
 			select {
 			case msg := <-producerCountReqMsg:
-				req, _, err := processMsg[CountProducerReq](msg)
+				req, ok, err := processMsg[CountProducerReq](msg)
 				if err != nil {
 					log.Errorf("error getting count producer request: %s", err)
-					req.Nack(false)
+					return
+				}
+				if !ok {
+					log.Debugf("count producer request was closed")
 					return
 				}
 				err = publish(req.Msg(), producerCountResCh, producerCountResExchangeName(outputName))
@@ -265,16 +274,12 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string) (Sender[T], error) {
 				}
 				req.Ack(false)
 			case <-producerCountReplierKill:
-				shouldContinue = false
-				break
+				return
 			}
 		}
-		producerCountReqCh.Close()
-		producerCountResCh.Close()
-		close(producerCountReplier)
 	}
 	_ = task
-	// go task()
+	go task()
 
 	sender := &SenderRabbitmq[T]{
 		exchangeName:             outputName,
@@ -291,7 +296,6 @@ func publish[T any](msg T, producerCountResCh *amqp.Channel, outputName string) 
 	if err != nil {
 		return fmt.Errorf("failed to marshal reply: %v", err)
 	}
-	log.Debugf("Publishing message %s", string(buf))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err = producerCountResCh.PublishWithContext(ctx,
@@ -321,26 +325,21 @@ type CountProducerReq struct {
 //
 // If timer triggers, the function returns an error: "timeout reached while waiting for message"
 func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, error) {
-	log.Debugf("Next()")
 	if r.inputMsgs == nil {
 		return nil, false, fmt.Errorf("read channel is not initialized")
 	}
 
 	if r.asumeNoInFlightMsgs {
-		log.Debugf("Assuming no in-flight messages")
 		return r.nextIfNoInFlightMsgs()
 	}
 
 	if r.notifedClosed {
-		log.Debugf("Notifed closed")
 		return r.nextIfNotifedClosed(timeout)
 	}
 
 	if timeout == nil {
-		log.Debugf("Timeout is nil")
 		select {
 		case msg, ok := <-*r.inputMsgs:
-			log.Debugf("Received message body: %s", string(msg.Body))
 			if !ok {
 				return nil, false, fmt.Errorf("read channel was closed")
 			}
@@ -417,7 +416,6 @@ func (r *ReceiverRabbitmq[T]) nextIfNoInFlightMsgs() (Envelope[T], bool, error) 
 
 func processMsg[T any](msg amqp.Delivery) (Envelope[T], bool, error) {
 	var receivedMovie T
-	log.Debugf("Received message body: %s", string(msg.Body))
 	err := json.Unmarshal(msg.Body, &receivedMovie)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to unmarshal film: %v", err)
@@ -466,7 +464,6 @@ func (s *SenderRabbitmq[T]) Send(row *T) error {
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
 	}
-	log.Infof("PUBLISHEDDD message in chan %s", s.exchangeName)
 	return nil
 }
 
@@ -489,12 +486,12 @@ func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName strin
 	}
 
 	queue, err := ch.QueueDeclare(
-		groupName, // name
-		false,     // durable
-		false,     // delete when unused
-		false,     // exclusive
-		false,     // no-wait
-		nil,       // arguments
+		exchangeName+groupName, // name
+		false,                  // durable
+		false,                  // delete when unused
+		false,                  // exclusive
+		false,                  // no-wait
+		nil,                    // arguments
 	)
 
 	if err != nil {

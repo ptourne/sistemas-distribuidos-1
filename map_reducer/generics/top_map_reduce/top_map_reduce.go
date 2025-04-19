@@ -5,11 +5,16 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
 )
 
+type CountryBudget struct {
+	Name      string `json:"name" validate:"required"`
+	BudgetSum uint   `json:"budget_sum" validate:"required"`
+}
+
 type In = common.Row
 type Acc struct {
-	Top []common.Row `json:"top" validate:"required"`
+	Top []CountryBudget `json:"top" validate:"required"`
 }
-type Res = []common.Row
+type Res = common.Row
 
 type TopMapReducer = map_reducer.MapReducer[In, Acc, Res]
 
@@ -23,12 +28,17 @@ type TopMapReduce struct {
 
 func (r TopMapReduce) Map(in In) Acc {
 	return Acc{
-		Top: []common.Row{in},
+		Top: []CountryBudget{
+			{
+				Name:      in.Strings["country"],
+				BudgetSum: in.Numerics["budget_sum"],
+			},
+		},
 	}
 }
 
-func isGreater(a common.Row, b common.Row) bool {
-	return a.Numerics["budget_sum"] > b.Numerics["budget_sum"]
+func isGreater(a CountryBudget, b CountryBudget) bool {
+	return a.BudgetSum > b.BudgetSum
 }
 
 func (r TopMapReduce) Reduce(acc []Acc) Acc {
@@ -39,40 +49,52 @@ func (r TopMapReduce) Reduce(acc []Acc) Acc {
 	return newTop
 }
 
-func (r TopMapReduce) Output(acc Acc) Res {
-	return acc.Top
+func (r TopMapReduce) Output(acc Acc) []Res {
+	rows := make([]common.Row, len(acc.Top))
+	for i, country := range acc.Top {
+		rows[i] = common.Row{
+			Strings:  map[string]string{"country": country.Name},
+			Numerics: map[string]uint{"budget_sum": country.BudgetSum},
+		}
+	}
+	return rows
 }
 
 func (a *Acc) MergeSort(b Acc, topSize uint) {
+	bTop := b.Top
+	aTop := a.Top
+	newTop := mergeSort(aTop, bTop, isGreater, topSize)
+	a.Top = newTop
+}
+
+func mergeSort[T any](a, b []T, isGreater func(T, T) bool, topSize uint) []T {
 	a_idx := 0
 	b_idx := 0
 	new_idx := 0
-	bTop := b.Top
-	aTop := a.Top
-	newSize := min(len(aTop)+len(bTop), int(topSize))
-	newTop := make([]common.Row, newSize)
-	for range topSize {
-		if a_idx > len(aTop)-1 {
-			newTop[new_idx] = bTop[b_idx]
+	newSize := min(len(a)+len(b), int(topSize))
+	newTop := make([]T, newSize)
+	for range newSize {
+		if a_idx > len(a)-1 && b_idx < len(b) {
+			newTop[new_idx] = b[b_idx]
 			new_idx++
 			b_idx++
 			continue
 		}
-		if b_idx > len(bTop)-1 {
-			newTop[new_idx] = aTop[a_idx]
+		if b_idx > len(b)-1 && a_idx < len(a) {
+			newTop[new_idx] = a[a_idx]
 			new_idx++
 			a_idx++
 			continue
 		}
-		if isGreater(aTop[a_idx], bTop[b_idx]) {
-			newTop[new_idx] = aTop[a_idx]
+		if isGreater(a[a_idx], b[b_idx]) {
+			newTop[new_idx] = a[a_idx]
 			new_idx++
 			a_idx++
 		} else {
-			newTop[new_idx] = bTop[b_idx]
+			newTop[new_idx] = b[b_idx]
 			new_idx++
 			b_idx++
 		}
 	}
-	a.Top = newTop
+	return newTop
 }

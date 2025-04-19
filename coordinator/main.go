@@ -27,7 +27,7 @@ func main() {
 	defer middlewareChan.Close()
 
 	q1Output := "filter_release_date_l_2010_and_include_es"
-	q2Output := "number_of_reduce_top_5_by_budgets"
+	q2Output := "reduce_top_5_by_budget"
 	nameWriteQueue := "movies_metadata"
 
 	q1Receiver, err := middlewareChan.SuscribeTo(q1Output)
@@ -81,7 +81,7 @@ func main() {
 	sender.Close()
 	log.Debugf("CSV processing completed")
 
-	expected_output := []common.Row{
+	expectedOutputQ1 := []common.Row{
 		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
 		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
 		{Strings: map[string]string{"title": "The City of No Limits"}, Arrays: map[string][]string{"genres": []string{"Thriller", "Drama"}}},
@@ -108,8 +108,9 @@ func main() {
 		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 	}
 
-	timer := time.NewTimer(time.Second * 20)
+	timer := time.NewTimer(time.Second * 40)
 
+	log.Infof("Verifying Q1")
 	for {
 		envelope, ok, err := q1Receiver.Next(timer)
 		if err != nil {
@@ -128,8 +129,8 @@ func main() {
 		receivedMovie := envelope.Msg()
 		log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
 		log.Infof("Received film debug: %+v", receivedMovie)
-		expected_output = remove(expected_output, receivedMovie)
-		if len(expected_output) == 0 {
+		expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedMovie)
+		if len(expectedOutputQ1) == 0 {
 			log.Infof("All expected films received")
 			break
 		}
@@ -138,12 +139,29 @@ func main() {
 		timer.Reset(time.Second * 20)
 	}
 	timer.Stop()
-	if len(expected_output) > 0 {
-		log.Errorf("Not all expected films received. Missing %v", expected_output)
+	if len(expectedOutputQ1) > 0 {
+		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
 	}
 
-	timer = time.NewTimer(time.Second * 20)
+	// expectedOutputQ2 := []common.Row{
+	// 	{Strings: map[string]string{"country": "US"}, Numerics: map[string]uint{"budget_sum": 120153886644}},
+	// 	{Strings: map[string]string{"country": "FR"}, Numerics: map[string]uint{"budget_sum": 2256831838}},
+	// 	{Strings: map[string]string{"country": "GB"}, Numerics: map[string]uint{"budget_sum": 1611604610}},
+	// 	{Strings: map[string]string{"country": "IN"}, Numerics: map[string]uint{"budget_sum": 1169682797}},
+	// 	{Strings: map[string]string{"country": "JP"}, Numerics: map[string]uint{"budget_sum": 832585873}},
+	// }
 
+	expectedOutputQ2 := []common.Row{
+		{Numerics: map[string]uint{"budget_sum": 79472691950}, Strings: map[string]string{"country": "US"}},
+		{Numerics: map[string]uint{"budget_sum": 868966074}, Strings: map[string]string{"country": "GB"}},
+		{Numerics: map[string]uint{"budget_sum": 839859521}, Strings: map[string]string{"country": "FR"}},
+		{Numerics: map[string]uint{"budget_sum": 359479490}, Strings: map[string]string{"country": "JP"}},
+		{Numerics: map[string]uint{"budget_sum": 256543797}, Strings: map[string]string{"country": "CA"}},
+	}
+
+	timer = time.NewTimer(time.Second * 40)
+
+	log.Infof("Verifying Q2")
 	for {
 		envelope, ok, err := q2Receiver.Next(timer)
 		if err != nil {
@@ -162,28 +180,45 @@ func main() {
 		receivedCountry := envelope.Msg()
 		log.Infof("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
 		log.Infof("Received country debug: %+v", receivedCountry)
-		// expected_output = remove(expected_output, receivedCountry)
-		// if len(expected_output) == 0 {
-		// 	log.Infof("All expected films received")
-		// 	break
-		// }
+		expectedOutputQ2 = removeQ2(expectedOutputQ2, receivedCountry)
+		if len(expectedOutputQ2) == 0 {
+			log.Infof("All expected films received")
+			break
+		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
 		timer.Reset(time.Second * 20)
 	}
 	timer.Stop()
-	// if len(expected_output) > 0 {
-	// 	log.Errorf("Not all expected films received. Missing %v", expected_output)
-	// }
+	if len(expectedOutputQ2) > 0 {
+		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
+	}
 }
 
-func remove(slice []common.Row, movie common.Row) []common.Row {
+func removeQ1(slice []common.Row, movie common.Row) []common.Row {
 	for i, v := range slice {
 		if v.Strings["title"] == movie.Strings["title"] && stringSlicesEqual(v.Arrays["genres"], movie.Arrays["genres"]) {
 			log.Infof("Film matched expected")
 			return slices.Delete(slice, i, i+1)
 		}
 	}
+	log.Errorf("Film not matched expected")
+	return slice
+}
+
+func removeQ2(slice []common.Row, country common.Row) []common.Row {
+	for i, v := range slice {
+		if v.Strings["country"] == country.Strings["country"] {
+			if v.Numerics["budget_sum"] == country.Numerics["budget_sum"] {
+				log.Infof("Country matched expected")
+			} else {
+				log.Errorf("Budget sum not matched expected: %d != %d", v.Numerics["budget_sum"], country.Numerics["budget_sum"])
+			}
+			return slices.Delete(slice, i, i+1)
+
+		}
+	}
+	log.Errorf("Country not matched expected")
 	return slice
 }
 
