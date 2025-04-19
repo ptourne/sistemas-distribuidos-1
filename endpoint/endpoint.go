@@ -86,27 +86,21 @@ func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareCh
 		return fmt.Errorf("failed to create write queue %s: %v", fileBytes, err)
 	}
 	defer fileBytesSender.Close()
-	// creditsQueue := "credits_bytes"
-	// creditsSender, err := middlewareChan.WriteTo(creditsQueue)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to create write queue %s: %v", creditsQueue, err)
-	// }
-	// defer creditsSender.Close()
-	// ratingsQueue := "ratings_bytes"
-	// ratingsSender, err := middlewareChan.WriteTo(ratingsQueue)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to create write queue %s: %v", ratingsQueue, err)
-	// }
-	// defer ratingsSender.Close()
 
 	e.clientsConn[ip] = conn
+	defer func() {
+		err := conn.Close()
+		if err != nil {
+			log.Errorf("Error closing connection: %s", err)
+		}
+		delete(e.clientsConn, ip)
+		log.Infof("Connection closed with ip: %s", ip)
+	}()
 
-	// file := &os.File{}
-	// var sender middleware.Sender[[]byte]
 	log.Infof("Receiving files")
 	OuterLoop:
 	for {
-		// Leer los primeros 4 bytes (tamaño)
+		// Leer los primeros 8 bytes (tamaño y type)
 		sizeBuf := make([]byte, 8)
 		_, err := io.ReadFull(conn, sizeBuf)
 		if err != nil {
@@ -127,18 +121,14 @@ func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareCh
 		switch packetType {
 		case common.FileName:
 			log.Infof("Recibido FILE %s", data[5:])
-			// filePath := "datasets/" + data[5:]
-			// file, err = os.Create(filePath)
-			// if err != nil {
-			// 	return fmt.Errorf("error creando archivo: %v", err)
-			// }
-			// defer file.Close() //VER SI SE CIERRAN TODOS
 		case common.FinishFile:
 			log.Infof("Recibido FINISH %s", data[7:])
 		case common.FileData:
 			// err = common.WriteFull(sender, dataBuf, len(dataBuf))
 		case common.AllFilesSent:
 			log.Infof("Recibido ALL FILES SENT")
+			bufAck := []byte("ACK")
+			common.WriteFull(conn, bufAck, len(bufAck))
 			break OuterLoop
 		}
 		typeDataBuf := append(sizeBuf[4:8], dataBuf...)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/csv"
 	"io"
 	"time"
@@ -18,6 +19,9 @@ var log = logger.NewConsoleLogger("coordinator", logger.Debug)
 
 func main() {
 	middlewareChan, err := middleware.NewRabbitmq[common.Row]()
+	if err != nil {
+		unwrap(err, "Failed to create middleware")
+	}
 	middlewareChanByte, err := middleware.NewRabbitmq[[]byte]()
 	if err != nil {
 		unwrap(err, "Failed to create middleware")
@@ -35,26 +39,41 @@ func main() {
 		unwrap(err, "Failed to create read queue")
 	}
 	defer receiverQ1.Close()
+	log.Debugf("Subscribe to queue: %s", nameReadQueueQ1)
 	receiverFileByte, err := middlewareChanByte.SuscribeTo(readFileByteQueue)
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
 	defer receiverFileByte.Close()
+	log.Debugf("Subscribe to queue: %s", readFileByteQueue)
 	
 	sender, err := middlewareChan.WriteTo(nameWriteQueue)
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
+	log.Debugf("Create write queue: %s", nameWriteQueue)
 
-	// file, err := os.Open("/datasets/movies_metadata.csv")
-	// unwrap(err, "Failed to open CSV file")
-	// defer file.Close()
+	// envelope, ok, err := receiverFileByte.Next(nil)
+	// if err != nil {
+	// 	if err.Error() == "read channel was closed" {
+	// 		log.Infof("Channel closed: %v", readFileByteQueue)
+	// 		return
+	// 	}
+	// 	log.Errorf("Error reading from middleware: %v", err)
+	// 	return
+	// }
+	// if !ok {
+	// 	log.Infof("Channel closed: %v", readFileByteQueue)
+	// 	return
+	// }
+	// log.Infof("Received envelope: %v", envelope)
 
-	// reader := csv.NewReader(file)
+	//lint:ignore S1019 Ignoring suggestion to simplify channel creation
 	inputChannel := make(chan middleware.Envelope[[]byte], 0)
 	go func() {
 		for {
 			envelope, ok, err := receiverFileByte.Next(nil)
+			log.Infof("Received envelope: %v", envelope)
 			if err != nil {
 				if err.Error() == "read channel was closed" {
 					log.Infof("Channel closed: %v", readFileByteQueue)
@@ -71,38 +90,51 @@ func main() {
 		}
 		close(inputChannel)
 	}()
-	conn := <-inputChannel
-	conn.Msg()
-
-	
-	reader := csv.NewReader(conn)
-	_, err = reader.Read()
-	unwrap(err, "Failed to read CSV header")
-	line := 0
-	log.Debugf("Starting CSV processing")
+	OuterLoop:
 	for {
-		line++
-		if line%1000 == 0 {
-			log.Infof("Processed %d lines", line)
-		}
-		data, err := reader.Read()
-		if err != nil {
-			if err == io.EOF {
-				break
+		msgEnvelope := <-inputChannel
+		msg := msgEnvelope.Msg() 
+		typeMsgRaw := binary.BigEndian.Uint32(msg[0:4])
+		tipo := common.TypeMsg(typeMsgRaw)
+		log.Infof("Received message type: %v", tipo)
+		connReader := &ConnReader{ch: inputChannel}
+		msgEnvelope.Ack(false)
+		switch tipo{
+		case common.FileName:
+			reader := csv.NewReader(connReader)
+			_, err = reader.Read()
+			unwrap(err, "Failed to read CSV header")
+			line := 0
+			log.Debugf("Starting CSV processing")
+			for {
+				line++
+				if line%1000 == 0 {
+					log.Infof("Processed %d lines", line)
+				}
+				data, err := reader.Read()
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
+					log.Errorf("Error reading CSV line: %v", err)
+					continue
+				}
+				if len(data) < 24 {
+					continue
+				}
+
+				film := Film(data)
+
+				sender.Send(&film)
+
 			}
-			log.Errorf("Error reading CSV line: %v", err)
-			continue
+			sender.Close()
+		
+		case common.AllFilesSent:
+			break OuterLoop
 		}
-		if len(data) < 24 {
-			continue
-		}
-
-		film := Film(data)
-
-		sender.Send(&film)
-
+		msgEnvelope.Ack(false)
 	}
-	sender.Close()
 	log.Debugf("CSV processing completed")
 
 	expected_output := []common.Row{
@@ -216,4 +248,29 @@ func unwrap(err error, msg string) {
 	if err != nil {
 		log.Fatalf("%s: %s", msg, err)
 	}
+}
+
+
+type ConnReader struct {
+	ch chan middleware.Envelope[[]byte]
+}
+
+func (cr *ConnReader) Read(buff []byte) (n int, err error) {
+    msgEnvelope := <-cr.ch
+	msg := msgEnvelope.Msg() 
+	typeMsgRaw := binary.BigEndian.Uint32(msg[0:4])
+	tipo := common.TypeMsg(typeMsgRaw)
+	data := msg[4:]
+    switch tipo{
+	case common.FileData:
+		copy(buff, data)
+		n = len(data)
+		err = nil
+        
+	case common.FinishFile:
+		n = 0
+		err = io.EOF
+    }
+    msgEnvelope.Ack(false)
+    return n, err
 }

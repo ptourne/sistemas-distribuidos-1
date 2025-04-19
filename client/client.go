@@ -14,7 +14,7 @@ import (
 const CHUNK_SIZE = 1024 
 
 func (c *Client) SendFiles() error{
-	filesNames :=[]string{"movies_metadata.csv", "ratings.csv", "credits.csv"}
+	filesNames :=[]string{"movies_metadata.csv"}
 	log.Infof("Sending files")
 	for _, fileName := range filesNames {
 		log.Infof("sending file: %s", fileName)
