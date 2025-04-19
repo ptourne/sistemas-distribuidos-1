@@ -94,15 +94,14 @@ func processCredits() {
 		} else {
 			credits_count++
 		}
-
 	}
 	// sleep 5 seconds
-	time.Sleep(5 * time.Second)
+	// time.Sleep(1 * time.Minute)
 
-	sender.Close()
-	log.Infof("Sender credits closed")
+	// sender.Close()
+	//log.Infof("Sender credits closed")
 
-	timer := time.NewTimer(time.Minute * 1)
+	timer := time.NewTimer(time.Minute * 5)
 	credits_received := 0
 	for {
 		envelope, ok, err := receiver.Next(timer)
@@ -125,10 +124,10 @@ func processCredits() {
 
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Minute * 1)
+		timer.Reset(time.Minute * 5)
 	}
 	timer.Stop()
-	log.Infof("Processed %d credits, received %d credits", credits_count, credits_received) // Processed 45476 credits, received 45397 credits
+	log.Infof("Processed %d credits, received %d flattened_actors", credits_count, credits_received) // Processed 45476 credits, received 45397 credits
 	// if credits_received != 45397 {
 	// 	log.Errorf("Not all credits received. Expected 45397, got %d", credits_received)
 	// }

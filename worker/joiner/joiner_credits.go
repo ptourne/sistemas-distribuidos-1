@@ -84,10 +84,14 @@ func (f *JoinerCredits) processAndSendMovie(row common.Row) error {
 }
 
 func (f *JoinerCredits) processCredit(row common.Row) error {
-
+	f.creditsProcessed++
+	log.Infof("Processing credit: %v", f.creditsProcessed)
 	movieID := row.Strings["ID"]
-	//log.Infof("Processing credit for movie: %s", movieID)
-
+	cast := row.Arrays["cast"]
+	if len(cast) == 0 {
+		return nil
+	}
+	//log.Infof("Processing credit: %s", movieID)
 	lastDigit := string(movieID[len(movieID)-1])
 
 	if err := os.MkdirAll("joiner_credits", os.ModePerm); err != nil {
@@ -131,7 +135,7 @@ func (f *JoinerCredits) processCredit(row common.Row) error {
 		}
 	}
 
-	castString, err := json.Marshal(row.Arrays["cast"])
+	castString, err := json.Marshal(cast)
 	//log.Infof("Writing cast for from strings=%v, arrays=%v", row.Strings, row.Arrays)
 	if err != nil {
 		log.Errorf("Failed to marshal cast: %v", err)
@@ -144,10 +148,9 @@ func (f *JoinerCredits) processCredit(row common.Row) error {
 		return err
 	}
 
-	f.creditsProcessed++
-	// if f.creditsProcessed == 1000 { //TODO
-	// 	f.notifyCreditsDone()
-	// }
+	if f.creditsProcessed == 45464 { //TODO
+		f.notifyCreditsDone()
+	}
 
 	return nil
 }
@@ -155,7 +158,7 @@ func (f *JoinerCredits) processCredit(row common.Row) error {
 func (f *JoinerCredits) processMovie(row common.Row) ([]*common.Row, error) {
 	var flattenCast []*common.Row
 	movieID := row.Strings["movieID"]
-
+	log.Infof("Processing movie: %s", movieID)
 	lastDigit := string(movieID[len(movieID)-1])
 	dirPath := fmt.Sprintf("joiner_credits/joiner%s", WORKER_ID)
 
@@ -194,7 +197,7 @@ func (f *JoinerCredits) processMovie(row common.Row) ([]*common.Row, error) {
 		}
 	}
 
-	if cast == "" {
+	if cast == "" || cast == "null" {
 		log.Infof("No cast found for %s", movieID)
 		return nil, nil
 	}
@@ -308,7 +311,8 @@ func (f *JoinerCredits) Finish() error {
 }
 
 func (f *JoinerCredits) notifyCreditsDone() {
-	log.Infof("Finished writing credits to file")
+	log.Infof("Finished writing credits to file, have processed %d credits", f.creditsProcessed)
+	//f.taskReceiverCredits.Close()
 	f.doneCredits.Store(true)
 	f.pendingMoviesMu.Lock()
 	pendings := f.pendingMovies
@@ -316,7 +320,7 @@ func (f *JoinerCredits) notifyCreditsDone() {
 	f.pendingMoviesMu.Unlock()
 
 	for _, row := range pendings {
-		log.Infof("Process pending movie: %s", row.Strings["movieID"])
+		//log.Infof("Process pending movie: %s", row.Strings["movieID"])
 		f.processAndSendMovie(row)
 	}
 }
