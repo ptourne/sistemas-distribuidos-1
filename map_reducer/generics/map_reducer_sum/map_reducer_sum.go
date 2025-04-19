@@ -1,19 +1,19 @@
-package reduce_by_country_sum_budget
+package map_reducer_sum
 
 import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
-	"github.com/ptourne/sistemas-distribuidos-1/worker/map_reducer"
+	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
 )
 
 type In = common.Row
 type Acc struct {
-	sums map[string]uint
+	Sums map[string]uint `json:"sums"`
 }
 type Res = []common.Row
 
-type TopMapReducer = map_reducer.MapReducer[In, Acc, Res]
+type MapReducerSum = map_reducer.MapReducer[In, Acc, Res]
 
-func NewTopMapReducer(name string, input string, topSize uint, batchSize uint) (*TopMapReducer, error) {
+func NewMapReducerSum(name string, input string, batchSize uint) (*MapReducerSum, error) {
 	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &SumMapReduce{})
 }
 
@@ -24,7 +24,7 @@ func (r SumMapReduce) Map(in In) Acc {
 	budget := in.Numerics["budget"]
 	country := in.Strings["country"]
 	return Acc{
-		sums: map[string]uint{country: budget},
+		Sums: map[string]uint{country: budget},
 	}
 }
 
@@ -37,9 +37,9 @@ func (r SumMapReduce) Reduce(acc []Acc) Acc {
 }
 
 func (r SumMapReduce) Output(acc Acc) Res {
-	output := make([]common.Row, len(acc.sums))
+	output := make([]common.Row, len(acc.Sums))
 	i := 0
-	for country, budgetSum := range acc.sums {
+	for country, budgetSum := range acc.Sums {
 		output[i] = common.Row{
 			Numerics: map[string]uint{"budget_sum": budgetSum},
 			Strings:  map[string]string{"country": country},
@@ -52,7 +52,7 @@ func (r SumMapReduce) Output(acc Acc) Res {
 }
 
 func (a *Acc) Merge(b Acc) {
-	for country, budgetSum := range b.sums {
-		a.sums[country] += budgetSum
+	for country, budgetSum := range b.Sums {
+		a.Sums[country] += budgetSum
 	}
 }

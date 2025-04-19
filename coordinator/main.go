@@ -26,14 +26,21 @@ func main() {
 
 	defer middlewareChan.Close()
 
-	nameReadQueue := "filter_release_date_l_2010_and_include_es"
+	q1Output := "filter_release_date_l_2010_and_include_es"
+	q2Output := "number_of_reduce_top_5_by_budgets"
 	nameWriteQueue := "movies_metadata"
 
-	receiver, err := middlewareChan.SuscribeTo(nameReadQueue)
+	q1Receiver, err := middlewareChan.SuscribeTo(q1Output)
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
-	defer receiver.Close()
+	defer q1Receiver.Close()
+
+	q2Receiver, err := middlewareChan.SuscribeTo(q2Output)
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer q1Receiver.Close()
 
 	sender, err := middlewareChan.WriteTo(nameWriteQueue)
 	if err != nil {
@@ -104,7 +111,7 @@ func main() {
 	timer := time.NewTimer(time.Second * 20)
 
 	for {
-		envelope, ok, err := receiver.Next(timer)
+		envelope, ok, err := q1Receiver.Next(timer)
 		if err != nil {
 			if err.Error() == "timeout reached while waiting for message" {
 				log.Infof("Timeout reached while waiting for message")
@@ -134,6 +141,40 @@ func main() {
 	if len(expected_output) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expected_output)
 	}
+
+	timer = time.NewTimer(time.Second * 20)
+
+	for {
+		envelope, ok, err := q2Receiver.Next(timer)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
+				continue
+			}
+		}
+		if !ok {
+			log.Infof("No more countries")
+			break
+		}
+		receivedCountry := envelope.Msg()
+		log.Infof("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
+		log.Infof("Received country debug: %+v", receivedCountry)
+		// expected_output = remove(expected_output, receivedCountry)
+		// if len(expected_output) == 0 {
+		// 	log.Infof("All expected films received")
+		// 	break
+		// }
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+		timer.Reset(time.Second * 20)
+	}
+	timer.Stop()
+	// if len(expected_output) > 0 {
+	// 	log.Errorf("Not all expected films received. Missing %v", expected_output)
+	// }
 }
 
 func remove(slice []common.Row, movie common.Row) []common.Row {

@@ -2,13 +2,12 @@ package top_map_reduce
 
 import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
-	"github.com/ptourne/sistemas-distribuidos-1/worker/map_reducer"
+	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
 )
 
 type In = common.Row
 type Acc struct {
-	top       []common.Row
-	isGreater func(a, b common.Row) bool
+	Top []common.Row `json:"top"`
 }
 type Res = []common.Row
 
@@ -24,11 +23,12 @@ type TopMapReduce struct {
 
 func (r TopMapReduce) Map(in In) Acc {
 	return Acc{
-		top: []common.Row{in},
-		isGreater: func(a common.Row, b common.Row) bool {
-			return a.Numerics["budget_sum"] > b.Numerics["budget_sum"]
-		},
+		Top: []common.Row{in},
 	}
+}
+
+func isGreater(a common.Row, b common.Row) bool {
+	return a.Numerics["budget_sum"] > b.Numerics["budget_sum"]
 }
 
 func (r TopMapReduce) Reduce(acc []Acc) Acc {
@@ -40,15 +40,15 @@ func (r TopMapReduce) Reduce(acc []Acc) Acc {
 }
 
 func (r TopMapReduce) Output(acc Acc) Res {
-	return acc.top
+	return acc.Top
 }
 
 func (a *Acc) MergeSort(b Acc, topSize uint) {
 	a_idx := 0
 	b_idx := 0
 	new_idx := 0
-	bTop := b.top
-	aTop := a.top
+	bTop := b.Top
+	aTop := a.Top
 	newSize := min(len(aTop)+len(bTop), int(topSize))
 	newTop := make([]common.Row, newSize)
 	for range topSize {
@@ -64,7 +64,7 @@ func (a *Acc) MergeSort(b Acc, topSize uint) {
 			a_idx++
 			continue
 		}
-		if a.isGreater(aTop[a_idx], bTop[b_idx]) {
+		if isGreater(aTop[a_idx], bTop[b_idx]) {
 			newTop[new_idx] = aTop[a_idx]
 			new_idx++
 			a_idx++
@@ -74,5 +74,5 @@ func (a *Acc) MergeSort(b Acc, topSize uint) {
 			b_idx++
 		}
 	}
-	a.top = newTop
+	a.Top = newTop
 }

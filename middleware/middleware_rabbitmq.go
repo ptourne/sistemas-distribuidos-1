@@ -290,6 +290,7 @@ func publish[T any](msg T, producerCountResCh *amqp.Channel, outputName string) 
 	if err != nil {
 		return fmt.Errorf("failed to marshal reply: %v", err)
 	}
+	log.Debugf("Publishing message %s", string(buf))
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err = producerCountResCh.PublishWithContext(ctx,
@@ -304,7 +305,7 @@ func publish[T any](msg T, producerCountResCh *amqp.Channel, outputName string) 
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, outputName)
 	}
-	log.Infof("PUBLISHEDDD message in chan %s", outputName)
+	log.Infof("PUBLISHED message in chan %s", outputName)
 	return nil
 }
 
@@ -404,6 +405,7 @@ func (r *ReceiverRabbitmq[T]) nextIfNoInFlightMsgs() (Envelope[T], bool, error) 
 
 func processMsg[T any](msg amqp.Delivery) (Envelope[T], bool, error) {
 	var receivedMovie T
+	log.Debugf("Received message: %s", string(msg.Body))
 	err := json.Unmarshal(msg.Body, &receivedMovie)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to unmarshal film: %v", err)

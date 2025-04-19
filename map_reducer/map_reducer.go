@@ -3,10 +3,15 @@ package map_reducer
 import (
 	"fmt"
 	"math/rand/v2"
+	"os"
 	"time"
 
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 )
+
+var WORKER_ID = os.Getenv("WORKER_ID")
+var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
 
 // MapReducer is a struct that represents a map-reduce operation.
 //
@@ -79,7 +84,7 @@ type MapReduce[T, A, R any] interface {
 	Output(A) R
 }
 
-const INITIAL_TIMEOUT_DURATION = 100
+const INITIAL_TIMEOUT_DURATION = 1000
 const WATING_JITTER = 50
 const GIVE_UP_READING_AT = 10
 
@@ -88,6 +93,7 @@ func ExponentialBackoffDuration(originalDuration uint) uint {
 }
 
 func (mr *MapReducer[I, A, R]) Run() error {
+	log.Debugf("Starting map-reduce operation")
 	timeoutDuration := ExponentialBackoffDuration(0)
 
 	accBatch := mr.readBatch(timeoutDuration)
@@ -107,23 +113,30 @@ func (mr *MapReducer[I, A, R]) Run() error {
 			consumedInput = false
 		}
 
+		log.Debugf("Waiting for batch or input")
 		select {
 		case acc := <-accBatch:
+			log.Debugf("Received partial result")
 			consumedBatch = true
 			if acc.err != nil {
 				return fmt.Errorf("error reading partial result: %w", acc.err)
 			}
 			if len(acc.res) == 0 {
+				log.Debugf("Partial result is empty")
 				timeoutDuration = ExponentialBackoffDuration(timeoutDuration)
 				break
 			}
+			log.Debugf("Partial result: %v", acc.res)
 			timeoutDuration = ExponentialBackoffDuration(0)
 			reduced := mr.mapReduce.Reduce(acc.res)
+			log.Debugf("Reduced partial result: %v", reduced)
 			err := mr.partialResultSender.Send(&reduced)
 			if err != nil {
 				return fmt.Errorf("error sending partial result: %w", err)
 			}
+			log.Debugf("Sent reduced partial result")
 		case input := <-inputChan:
+			log.Debugf("Received input")
 			consumedInput = true
 			if input.err != nil {
 				return fmt.Errorf("error reading input: %w", input.err)
@@ -131,16 +144,20 @@ func (mr *MapReducer[I, A, R]) Run() error {
 
 			if input.res == nil {
 				mr.inputClosed = true
+				log.Debugf("Input is closed")
 				break // Should abandon reading from input
 			}
+			log.Debugf("Mapping row: %v", input.res)
 			acc := mr.mapReduce.Map(*input.res)
 			err := mr.partialResultSender.Send(&acc)
 			if err != nil {
 				return fmt.Errorf("error sending partial result: %w", err)
 			}
+			log.Debugf("Sent mapped partial result: %v", acc)
 		}
 	}
 
+	log.Debugf("Finished processing input")
 	producerCount, err := mr.partialResultReceiver.CountProducers()
 	if err != nil {
 		return fmt.Errorf("failed to get producer count")
@@ -148,21 +165,28 @@ func (mr *MapReducer[I, A, R]) Run() error {
 	shouldRetire := false
 	for {
 		if shouldRetire {
+			log.Debugf("Retiring")
 			return nil
 		}
 		if producerCount == 1 {
+			log.Debugf("I am the last producer, computing final result")
 			break
 		}
+		log.Debugf("Waiting for partial result")
 		acc := <-accBatch
 		if acc.err != nil {
 			return fmt.Errorf("error reading partial result: %w", acc.err)
 		}
+		log.Debugf("Received partial result")
 		if len(acc.res) < int(mr.batchSize) {
 			timeoutDuration = ExponentialBackoffDuration(timeoutDuration)
 			if len(acc.res) == 0 {
+				log.Debugf("No partial result received")
 				shouldRetire = true
 			} else {
+				log.Debugf("Partial result is smaller than batch size: %d < %d", len(acc.res), mr.batchSize)
 				producerCount, err = mr.partialResultReceiver.CountProducers()
+				log.Debugf("Producer count: %d", producerCount)
 				if err != nil {
 					return fmt.Errorf("failed to get producer count")
 				}
@@ -170,7 +194,9 @@ func (mr *MapReducer[I, A, R]) Run() error {
 			break
 		}
 		timeoutDuration = ExponentialBackoffDuration(0)
+		log.Debugf("Partial result received: %v", acc.res)
 		reduced := mr.mapReduce.Reduce(acc.res)
+		log.Debugf("Reduced partial result: %v", reduced)
 		err := mr.partialResultSender.Send(&reduced)
 		if err != nil {
 			return fmt.Errorf("error sending partial result: %w", err)
@@ -182,6 +208,7 @@ func (mr *MapReducer[I, A, R]) Run() error {
 	timer := time.NewTimer(time.Millisecond * time.Duration(INITIAL_TIMEOUT_DURATION))
 	lastBatch := make([]A, 0, mr.batchSize)
 	var lastMsg *middleware.Envelope[A] = nil
+	log.Debugf("Waiting for final partial result")
 	for range mr.batchSize {
 		a, ok, err := mr.partialResultReceiver.Next(timer)
 		if err != nil {
@@ -196,8 +223,11 @@ func (mr *MapReducer[I, A, R]) Run() error {
 		lastBatch = append(lastBatch, a.Msg())
 		lastMsg = &a
 	}
+	log.Debugf("Received final partial result: %v", lastBatch)
 	lastRes := mr.mapReduce.Reduce(lastBatch)
+	log.Debugf("Reduced final partial result: %v", lastRes)
 	output := mr.mapReduce.Output(lastRes)
+	log.Debugf("Output final result: %v", output)
 	mr.output.Send(&output)
 	cerr := mr.output.Close()
 	err = (*lastMsg).Ack(true)
@@ -251,7 +281,7 @@ func (mr *MapReducer[I, A, R]) readBatch(milliseconds uint) <-chan asyncRes[[]A]
 
 func (mr *MapReducer[I, A, R]) readInput() <-chan asyncRes[*I] {
 	res := make(chan asyncRes[*I])
-	timer := time.NewTimer(time.Millisecond * 200)
+	timer := time.NewTimer(time.Second * 200)
 	task := func() {
 		a, ok, err := mr.input.Next(timer)
 		if err != nil {
@@ -260,9 +290,11 @@ func (mr *MapReducer[I, A, R]) readInput() <-chan asyncRes[*I] {
 				return
 			}
 			res <- asyncRes[*I]{nil, fmt.Errorf("error reading partial result: %w", err)}
+			return
 		}
 		if !ok {
 			res <- asyncRes[*I]{nil, nil}
+			return
 		}
 
 		msg := a.Msg()

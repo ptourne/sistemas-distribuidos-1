@@ -91,13 +91,13 @@ func (f CleanMovies) process(row common.Row) *common.Row {
 		return nil
 	}
 
-	budget, ok := parseFloat(row.Strings["budget"])
+	budget, ok := parseUint(row.Strings["budget"])
 	if !ok {
 		log.Warnf("could not parse budget: %s", row.Strings["budget"])
 		return nil
 	}
 
-	revenue, ok := parseFloat(row.Strings["revenue"])
+	revenue, ok := parseUint(row.Strings["revenue"])
 	if !ok {
 		log.Warnf("could not parse revenue: %s", row.Strings["revenue"])
 		return nil
@@ -117,11 +117,10 @@ func (f CleanMovies) process(row common.Row) *common.Row {
 		},
 		Numerics: map[string]uint{
 			"release_date": releaseYear,
+			"budget":       budget,
+			"revenue":      revenue,
 		},
-		Floats: map[string]float64{
-			"budget":  budget,
-			"revenue": revenue,
-		},
+		Floats: map[string]float64{},
 	}
 }
 
@@ -202,16 +201,16 @@ func dictionaryToListIso(input string) ([]string, bool) {
 	return result, true
 }
 
-func parseFloat(s string) (float64, bool) { // TODO: Handle empty strings
+func parseUint(s string) (uint, bool) { // TODO: Handle empty strings
 	if s == "" {
-		return 0.0, false
+		return 0, false
 	}
-	value, err := strconv.ParseFloat(s, 64)
+	value, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
-		log.Errorf("Failed to parse float: %s", err)
-		return 0.0, false
+		log.Errorf("Failed to parse uint: %s", err)
+		return 0, false
 	}
-	return value, true
+	return uint(value), true
 }
 
 func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) (chan middleware.Envelope[common.Row], error) {
