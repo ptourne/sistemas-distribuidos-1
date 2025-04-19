@@ -28,7 +28,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/user/Documents/Archive/UBA/Cuatrimestres/10mo-cuatrimestre/distribuidos/tp-repo/datasets:/datasets
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/datasets:/datasets
 
     filter1:
         container_name: filter1

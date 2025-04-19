@@ -98,6 +98,7 @@ func (mr *MapReducer[I, A, R]) Run() error {
 
 	accBatch := mr.readBatch(timeoutDuration)
 	inputChan := mr.readInput()
+	// var inputChan <-chan asyncRes[*I] = nil
 	consumedBatch := false
 	consumedInput := false
 	for {
@@ -246,13 +247,18 @@ type asyncRes[T any] struct {
 }
 
 func (mr *MapReducer[I, A, R]) readBatch(milliseconds uint) <-chan asyncRes[[]A] {
+	log.Debugf("readBatch(%d)", milliseconds)
 	res := make(chan asyncRes[[]A])
 	timer := time.NewTimer(time.Millisecond * time.Duration(milliseconds))
 	task := func() {
 		batch := make([]A, 0, mr.batchSize)
 		var lastMsg *middleware.Envelope[A] = nil
+		log.Debugf("Initial batch: %v", batch)
 		for range mr.batchSize {
+			log.Debugf("Batch state: %v", batch)
 			a, ok, err := mr.partialResultReceiver.Next(timer)
+			log.Debugf("Received message envelope: %v", a)
+			log.Debugf("Received message ok: %v, err: %s", ok, err)
 			if err != nil {
 				if err.Error() == "timeout reached while waiting for message" {
 					break
@@ -260,11 +266,13 @@ func (mr *MapReducer[I, A, R]) readBatch(milliseconds uint) <-chan asyncRes[[]A]
 				res <- asyncRes[[]A]{batch, fmt.Errorf("error reading partial result: %w", err)}
 			}
 			if !ok {
+				log.Debugf("No more messages available")
 				break
 			}
 			batch = append(batch, a.Msg())
 			lastMsg = &a
 		}
+		log.Debugf("Batch read completed: %v", batch)
 		if len(batch) < 2 {
 			res <- asyncRes[[]A]{batch, nil}
 			if lastMsg != nil {

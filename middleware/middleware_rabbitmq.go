@@ -44,7 +44,7 @@ type SenderRabbitmq[T any] struct {
 	producerCountReplierKill chan struct{}
 }
 
-var log = logger.NewConsoleLogger("middleware rabbitmq", logger.Debug)
+var log = logger.NewConsoleLogger("middleware", logger.Debug)
 
 func NewRabbitmq[T any]() (MiddlewareCola[T], error) {
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
@@ -273,7 +273,8 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string) (Sender[T], error) {
 		producerCountResCh.Close()
 		close(producerCountReplier)
 	}
-	go task()
+	_ = task
+	// go task()
 
 	sender := &SenderRabbitmq[T]{
 		exchangeName:             outputName,
@@ -313,22 +314,33 @@ type CountProducerReq struct {
 	ID uint `json:"id"`
 }
 
+// Returns:
+// - Envelope[T]: The next message from the input channel.
+// - bool: True if the message was successfully processed, false otherwise.
+// - error: An error if occurred during processing, nil otherwise.
+//
+// If timer triggers, the function returns an error: "timeout reached while waiting for message"
 func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, error) {
+	log.Debugf("Next()")
 	if r.inputMsgs == nil {
 		return nil, false, fmt.Errorf("read channel is not initialized")
 	}
 
 	if r.asumeNoInFlightMsgs {
+		log.Debugf("Assuming no in-flight messages")
 		return r.nextIfNoInFlightMsgs()
 	}
 
 	if r.notifedClosed {
+		log.Debugf("Notifed closed")
 		return r.nextIfNotifedClosed(timeout)
 	}
 
 	if timeout == nil {
+		log.Debugf("Timeout is nil")
 		select {
 		case msg, ok := <-*r.inputMsgs:
+			log.Debugf("Received message body: %s", string(msg.Body))
 			if !ok {
 				return nil, false, fmt.Errorf("read channel was closed")
 			}
@@ -405,7 +417,7 @@ func (r *ReceiverRabbitmq[T]) nextIfNoInFlightMsgs() (Envelope[T], bool, error) 
 
 func processMsg[T any](msg amqp.Delivery) (Envelope[T], bool, error) {
 	var receivedMovie T
-	log.Debugf("Received message: %s", string(msg.Body))
+	log.Debugf("Received message body: %s", string(msg.Body))
 	err := json.Unmarshal(msg.Body, &receivedMovie)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to unmarshal film: %v", err)

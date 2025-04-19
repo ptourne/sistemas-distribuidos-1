@@ -7,7 +7,7 @@ import (
 
 type In = common.Row
 type Acc struct {
-	Sums map[string]uint `json:"sums"`
+	Sums map[string]uint `json:"sums" validate:"required"`
 }
 type Res = []common.Row
 

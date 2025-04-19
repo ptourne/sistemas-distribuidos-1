@@ -126,7 +126,7 @@ func (l *ConsoleLogger) Logf(level LogLevel, format string, args ...interface{})
 	}
 	now := time.Now()
 	TimeColor.Fprintf(l.w, "%s ", now.Format("15:04:05.000000"))
-	l.nameColor.Fprintf(l.w, " %-*s ", 9, l.name)
+	l.nameColor.Fprintf(l.w, " %-*s ", 11, l.name)
 	switch level {
 	case Debug:
 		DebugColorTag.Fprintf(l.w, " DEBUG ")

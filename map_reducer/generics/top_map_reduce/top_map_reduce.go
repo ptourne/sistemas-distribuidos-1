@@ -7,7 +7,7 @@ import (
 
 type In = common.Row
 type Acc struct {
-	Top []common.Row `json:"top"`
+	Top []common.Row `json:"top" validate:"required"`
 }
 type Res = []common.Row
 
