@@ -43,33 +43,42 @@ func DictionaryToListName(input string) ([]string, error) {
 	if input == "[]" {
 		return result, nil
 	}
-	var cleaned string
+	cleaned := input
 
-	if strings.Contains(input, "cast_id") {
+	// 'key' => "key"
+	reKey := regexp.MustCompile(`'([^']+)':`)
+	cleaned = reKey.ReplaceAllString(input, `"$1":`)
 
-		// 'key' => "key"
-		reKey := regexp.MustCompile(`'([^']+)':`)
-		cleaned = reKey.ReplaceAllString(input, `"$1":`)
+	// values
+	reVal := regexp.MustCompile(`:\s*'(.+?)'[,}]`)
+	cleaned = reVal.ReplaceAllStringFunc(cleaned, func(match string) string {
+		start := strings.Index(match, "'") + 1
+		end := strings.LastIndex(match, "'")
+		if start <= 0 || end <= start {
+			return match
+		}
+		value := match[start:end]
+		value = strings.ReplaceAll(value, `\'`, `'`)
 
-		// 'value' => "value"
-		reVal := regexp.MustCompile(`: '([^']*)'([,}])`)
-		cleaned = reVal.ReplaceAllString(cleaned, `: "$1"$2`)
-		reDoubleQuotesInValues := regexp.MustCompile(`:\s*"[^"]*"[^,}]*"[,}]`)
+		var escaped strings.Builder
+		for i := 0; i < len(value); i++ {
+			if value[i] == '"' {
+				if i == 0 || value[i-1] != '\\' {
 
-		// para: 'character': 'Roop Lal "Phillauri"',
-		cleaned = reDoubleQuotesInValues.ReplaceAllStringFunc(cleaned, func(match string) string {
-
-			value := match[3 : len(match)-2]
-			if strings.Contains(value, `"`) {
-				value = strings.ReplaceAll(value, `"`, `'`)
+					escaped.WriteByte('\\')
+				}
 			}
+			escaped.WriteByte(value[i])
+		}
 
-			return `: "` + value + `"` + match[len(match)-1:]
-		})
-		cleaned = strings.ReplaceAll(cleaned, "None", "null")
-	} else {
-		cleaned = strings.ReplaceAll(input, "'", "\"")
-	}
+		suffix := match[len(match)-1:] // coma o llave
+		return `: "` + escaped.String() + `"` + suffix
+	})
+
+	reVal2 := regexp.MustCompile(`: ''`)
+	cleaned = reVal2.ReplaceAllString(cleaned, `: ""`)
+
+	cleaned = strings.ReplaceAll(cleaned, "None", "null")
 	var items []NameItem
 	err := json.Unmarshal([]byte(cleaned), &items)
 	if err != nil {

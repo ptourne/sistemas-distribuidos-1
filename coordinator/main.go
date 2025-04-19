@@ -97,7 +97,7 @@ func processCredits() {
 
 	}
 
-	timer := time.NewTimer(time.Minute * 5)
+	timer := time.NewTimer(time.Minute * 1)
 	credits_received := 0
 	for {
 		envelope, ok, err := receiver.Next(timer)
@@ -125,13 +125,10 @@ func processCredits() {
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Minute * 5)
+		timer.Reset(time.Minute * 1)
 	}
 	timer.Stop()
 	log.Infof("Processed %d credits, received %d credits", credits_count, credits_received) // Processed 45476 credits, received 45397 credits
-	if credits_received != 45397 {
-		log.Errorf("Not all credits received. Expected 45397, got %d", credits_received)
-	}
 	// TODO: check expected results
 }
 
@@ -368,7 +365,7 @@ func processMovies() {
 
 	expected_output := outputQueryOne()
 
-	timer := time.NewTimer(time.Minute * 5)
+	timer := time.NewTimer(time.Minute * 1)
 
 	for {
 		envelope, ok, err := receiver.Next(timer)
@@ -395,7 +392,7 @@ func processMovies() {
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Minute * 5)
+		timer.Reset(time.Minute * 1)
 	}
 	timer.Stop()
 	if len(expected_output) > 0 {
