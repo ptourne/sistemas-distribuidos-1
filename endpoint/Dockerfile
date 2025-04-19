@@ -7,22 +7,22 @@ FROM golang:1.24.1 AS builder
 # we are adding a very specific label to the image to then find these kind of images and delete them
 LABEL intermediateStageToBeDeleted=true
 
-RUN mkdir -p /build/client
+RUN mkdir -p /build/endpoint
 RUN mkdir -p /build/common
+WORKDIR /build/endpoint
 
-WORKDIR /build/client
 COPY ./common /build/common
-COPY ./client/go.mod ./client/go.sum ./
+COPY ./endpoint/go.mod ./endpoint/go.sum ./
 RUN go mod download
 
-COPY ./client .
+COPY ./endpoint .
 
 RUN go test -v ./...
 
 # CGO_ENABLED must be disabled to run go binary in Alpine
-RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/client github.com/ptourne/sistemas-distribuidos-1/client
+RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/endpoint github.com/ptourne/sistemas-distribuidos-1/endpoint
 
 
 FROM busybox:latest
-COPY --from=builder /build/bin/client /client
+COPY --from=builder /build/bin/endpoint /endpoint
 ENTRYPOINT ["/bin/sh"]

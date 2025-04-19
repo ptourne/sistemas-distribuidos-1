@@ -47,8 +47,6 @@ compose_coordinator() {
             context: .
             dockerfile: coordinator/Dockerfile
         entrypoint: /coordinator
-        environment:
-        - SERVER_PORT=1234
         networks:
             - local_net
         environment:
@@ -86,14 +84,31 @@ compose_client() {
         build:
             context: .
             dockerfile: client/Dockerfile
-        entrypoint: /worker
+        entrypoint: /client
         environment:
-            - SERVER_PORT=1234
+            - SERVER_PORT=endpoint:9876
         networks:
             - local_net
         depends_on:
-            endpoint:
-                condition: service_healthy
+            - endpoint
+        volumes:
+            - ${PWD}/client/datasets:/datasets
+"
+}
+
+compose_endpoint() {
+    echo "    endpoint:
+        container_name: endpoint
+        build:
+            context: .
+            dockerfile: endpoint/Dockerfile
+        entrypoint: /endpoint
+        environment:
+            - ENDPOINT_PORT=9876
+        networks:
+            - local_net
+        volumes:
+            - ${PWD}/endpoint/datasets:/datasets
 "
 }
 
@@ -114,4 +129,6 @@ compose_coordinator >> $file_name
 for i in $(seq 1 $number_of_workers); do
     compose_workers $i >> $file_name
 done
+compose_client >> $file_name
+compose_endpoint >> $file_name
 compose_network >> $file_name

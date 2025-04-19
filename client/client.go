@@ -1,85 +1,93 @@
 package main
 
 import (
-	"bytes"
-	"encoding/csv"
+	"bufio"
+	"encoding/binary"
 	"fmt"
 	"io"
-	"net"
 	"os"
+
+	"github.com/ptourne/sistemas-distribuidos-1/common"
 )
 
-func (c *Client) SendFiles() {
+
+const CHUNK_SIZE = 1024 
+
+func (c *Client) SendFiles() error{
+	filesNames :=[]string{"movies_metadata.csv", "ratings.csv", "credits.csv"}
 	log.Infof("Sending files")
-	writer := csv.NewWriter(c.conn) // escribe en el socket como si fuera un archivo
-
-	sendRecords("movies_metadata.csv", 24, writer, c.conn)
-	sendRecords("credits.csv", 24, writer, c.conn)
-
-	log.Infof("Files sent")
-	response := make([]byte, 1024)
-	_, err := c.conn.Read(response)
-	if err != nil {
-		log.Errorf("Error reading response: %v", err)
-		return
-	}
-	log.Infof("Response received")
-}
-
-func sendRecords(fileName string, columns int, writer *csv.Writer, conn net.Conn) error {
-	filePath:= "/datasets/" + fileName
-	file, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("error opening file %s: %v", fileName, err)
-	}
-	defer file.Close()
-	reader := csv.NewReader(file)
-
-	writer.Write([]string{"#FILE", fileName})
-	_, err = reader.Read()
-	if err != nil {
-		return fmt.Errorf("error reading header: %v", err)
-	}
-
-	line := 0
-	log.Debugf("Starting CSV processing")
-	for {
-		line++
-		if line%1000 == 0 {
-			log.Infof("Processed %d lines", line)
-		}
-		record, err := reader.Read()
-		if err != nil {
-			if err == io.EOF {
-				break
+	for _, fileName := range filesNames {
+		log.Infof("sending file: %s", fileName)
+		err := sendFile(c, fileName)
+		if c.Running {
+			if err != nil {
+				return fmt.Errorf("error sending %s: %v", fileName, err)
 			}
-			log.Errorf("Error reading CSV line: %v", err)
-			continue
-		}
-		if len(record) < columns {
-			continue
-		}
-		var buf bytes.Buffer
-		csvWriter := csv.NewWriter(&buf)
-		csvWriter.Write(record)
-		csvWriter.Flush()
-
-		if err := safeWrite(conn, buf.Bytes()); err != nil {
-			log.Errorf("Failed to send record: %v", err)
+			log.Infof("Archivo %s enviado exitosamente", fileName)
 		}
 	}
-	log.Debugf("CSV %s sent", fileName)
+	bufFinish := []byte("ALL FILES SENT")
+	writeProtocol(c, bufFinish, len(bufFinish), common.AllFilesSent)
+	log.Infof("Files sent")
 	return nil
 }
 
-func safeWrite(conn net.Conn, data []byte) error {
-	total := 0
-	for total < len(data) {
-		n, err := conn.Write(data[total:])
-		if err != nil {
-			return err
+func sendFile(c *Client, fileName string) error {
+	filePath := "/datasets/" + fileName
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("error abriendo el archivo %s: %v", fileName, err)
+	}
+	defer file.Close()
+
+	bufFile := []byte("FILE " + fileName)
+	err = writeProtocol(c, bufFile, len(bufFile), common.FileName)
+	if err != nil {
+		return fmt.Errorf("error enviando nombre de archivo: %v", err)
+	}
+
+	reader := bufio.NewReader(file)
+	buf := make([]byte, CHUNK_SIZE)
+
+	for c.Running {
+		n, err := io.ReadFull(reader, buf)
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF { 
+			return fmt.Errorf("error leyendo archivo: %v", err)
 		}
-		total += n
+
+		if n == 0 {
+			break // fin de archivo
+		}
+
+		writeProtocol(c, buf, n, common.FileData)
+	}
+	bufFinish := []byte("FINISH "+ fileName)
+	writeProtocol(c, bufFinish, len(bufFinish), common.FinishFile)
+	return nil
+}
+
+func writeProtocol(c *Client, buf []byte, n int, typeMsg common.TypeMsg) error {
+	sizeBuf := make([]byte, 8)
+	binary.BigEndian.PutUint32(sizeBuf, uint32(n))
+	binary.BigEndian.PutUint32(sizeBuf[4:], uint32(typeMsg))
+	common.WriteFull(c.conn, sizeBuf, len(sizeBuf))
+	common.WriteFull(c.conn, buf, n)
+	err := waitAck(c)
+	if err != nil {
+		return fmt.Errorf("error esperando ACK: %v", err)
+	}
+	return nil
+}
+
+func waitAck(c *Client) error {
+	ackBuf := make([]byte, 3)
+	_, err := io.ReadFull(c.conn, ackBuf)
+	if err != nil {
+		return fmt.Errorf("error recibiendo ACK: %v", err)
+		
+	}
+	if string(ackBuf) != "ACK" {
+		return fmt.Errorf("ACK inválido: %s", string(ackBuf))
 	}
 	return nil
 }

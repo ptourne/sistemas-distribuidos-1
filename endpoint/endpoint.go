@@ -1,0 +1,136 @@
+package main
+
+import (
+	"encoding/binary"
+	"fmt"
+	"io"
+	"net"
+	"os"
+
+	"github.com/ptourne/sistemas-distribuidos-1/common"
+)
+
+
+type Endpoint struct {
+	Running bool
+	listener  net.Listener
+	clientsConn  map[string]net.Conn
+}
+
+func NewEndpoint() (*Endpoint, error) {
+	ENDPOINT_PORT := os.Getenv("ENDPOINT_PORT")
+	log.Infof("endpoint port: %s", ENDPOINT_PORT)
+	port := ":" + ENDPOINT_PORT
+	listener, err := net.Listen("tcp", port)
+	if err != nil {
+		return nil, err
+	}
+
+	endpoint := &Endpoint{
+		Running: true,
+		listener:  listener,
+		clientsConn:  make(map[string]net.Conn),
+	}
+	return endpoint, nil
+}
+
+func (e *Endpoint) Run() error{
+	for e.Running {
+		conn, ip, err := e.acceptNewConnection()
+		if err != nil {
+			if !e.Running {
+				log.Infof("accepted connection fail for quitting")
+				return nil
+			}
+			log.Errorf("accept_connections, error: %v", err)
+			continue
+		}
+		// s.wg.Add(1)
+		// go s.handleClientConnection(conn, ip)
+		err = e.ReceiveFilesFromClient(conn, ip)
+		if err != nil {
+			log.Errorf("error recibiendo archivos: %v", err)
+			continue
+		}
+		// s.canRevealWinners()
+	}
+	// s.wg.Wait()
+	return nil
+}
+
+func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
+	log.Infof("accepting connections")
+	conn, err := s.listener.Accept()
+	if err != nil {
+		return nil, "", err
+	}
+	remoteAddr := conn.RemoteAddr().String()
+	log.Infof("accept connection with ip: %s", remoteAddr)
+	return conn, remoteAddr, nil
+}
+
+func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string) error{
+	e.clientsConn[ip] = conn
+
+	file := &os.File{}
+
+	log.Infof("Receiving files")
+	OuterLoop:
+	for {
+		// Leer los primeros 4 bytes (tamaño)
+		sizeBuf := make([]byte, 8)
+		_, err := io.ReadFull(conn, sizeBuf)
+		if err != nil {
+			log.Infof("Error leyendo tamaño: %v", err)
+			break
+		}
+
+		packetSize := binary.BigEndian.Uint32(sizeBuf[0:4])
+		packetType := common.TypeMsg(binary.BigEndian.Uint32(sizeBuf[4:8]))
+		dataBuf := make([]byte, packetSize)
+		_, err = io.ReadFull(conn, dataBuf)
+		if err != nil {
+			log.Errorf("Error leyendo datos del paquete: %v", err)
+			break
+		}
+		data := string(dataBuf)
+
+		switch packetType {
+		case common.FileName:
+			log.Infof("Recibido FILE %s", data[5:])
+			filePath := "datasets/" + data[5:]
+			file, err = os.Create(filePath)
+			if err != nil {
+				return fmt.Errorf("error creando archivo: %v", err)
+			}
+			defer file.Close()
+		case common.FinishFile:
+			log.Infof("Recibido FINISH %s", data[7:])
+		case common.FileData:
+			err = common.WriteFull(file, dataBuf, len(dataBuf))
+			if err != nil {
+				log.Errorf("Error escribiendo al archivo: %v", err)
+				break OuterLoop
+			}
+		case common.AllFilesSent:
+			log.Infof("Recibido ALL FILES SENT")
+			break OuterLoop
+		}
+		bufAck := []byte("ACK")
+		common.WriteFull(conn, bufAck, len(bufAck))
+	}
+	return nil
+}
+
+
+func (e *Endpoint) StopEndpoint() {
+	log.Infof("Stopping endpoint")
+	e.Running = false
+	for _, conn := range e.clientsConn {
+		err := conn.Close()
+		if err != nil {
+			log.Errorf("Error closing connection: %s", err)
+		}
+	}
+	log.Infof("Endpoint stopped")
+}
