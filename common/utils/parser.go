@@ -48,9 +48,8 @@ func DictionaryToListName(input string) ([]string, error) {
 	// 'key' => "key"
 	reKey := regexp.MustCompile(`'([^']+)':`)
 	cleaned = reKey.ReplaceAllString(input, `"$1":`)
-
 	// values
-	reVal := regexp.MustCompile(`:\s*'(.+?)'[,}]`)
+	reVal := regexp.MustCompile(`"\s*:\s*'(.+?)'[,}]`)
 	cleaned = reVal.ReplaceAllStringFunc(cleaned, func(match string) string {
 		start := strings.Index(match, "'") + 1
 		end := strings.LastIndex(match, "'")
@@ -71,14 +70,18 @@ func DictionaryToListName(input string) ([]string, error) {
 			escaped.WriteByte(value[i])
 		}
 
-		suffix := match[len(match)-1:] // coma o llave
-		return `: "` + escaped.String() + `"` + suffix
+		suffix := match[len(match)-1:]
+		return `" : "` + escaped.String() + `"` + suffix
 	})
 
 	reVal2 := regexp.MustCompile(`: ''`)
 	cleaned = reVal2.ReplaceAllString(cleaned, `: ""`)
+	cleaned = strings.ReplaceAll(cleaned, "\\xa0", " ")
+	cleaned = strings.ReplaceAll(cleaned, "\\xad", "-")
+	cleaned = strings.ReplaceAll(cleaned, "\\x92", "")
 
 	cleaned = strings.ReplaceAll(cleaned, "None", "null")
+
 	var items []NameItem
 	err := json.Unmarshal([]byte(cleaned), &items)
 	if err != nil {

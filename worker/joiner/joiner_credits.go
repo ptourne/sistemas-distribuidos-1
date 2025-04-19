@@ -23,12 +23,12 @@ type JoinerCredits struct {
 	taskSender          middleware.Sender[common.Row]
 	creditsProcessed    int
 	doneCredits         atomic.Bool
-	pendingMovies       []common.Row
+	pendingMovies       map[string]common.Row
 	pendingMoviesMu     sync.Mutex
 }
 
 func NewJoinerCredits(inputToProcess task.Task, inputToSave task.Task) task.Task {
-	joiner := JoinerCredits{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make([]common.Row, 0), sync.Mutex{}}
+	joiner := JoinerCredits{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make(map[string]common.Row), sync.Mutex{}}
 	joiner.doneCredits.Store(false)
 	return &joiner
 }
@@ -48,7 +48,7 @@ func (f *JoinerCredits) ProcessAndSend(row common.Row) error {
 		if !f.doneCredits.Load() {
 			//log.Infof("Adding movie to pending: %s", movieID)
 			f.pendingMoviesMu.Lock()
-			f.pendingMovies = append(f.pendingMovies, row)
+			f.pendingMovies[movieID] = row
 			f.pendingMoviesMu.Unlock()
 
 			return nil
@@ -85,9 +85,12 @@ func (f *JoinerCredits) processAndSendMovie(row common.Row) error {
 
 func (f *JoinerCredits) processCredit(row common.Row) error {
 	f.creditsProcessed++
-	log.Infof("Processing credit: %v", f.creditsProcessed)
 	movieID := row.Strings["ID"]
 	cast := row.Arrays["cast"]
+	log.Infof("Processing credit %v", f.creditsProcessed)
+	if f.creditsProcessed == 45476 && len(cast) == 0 { //TODO
+		f.notifyCreditsDone()
+	}
 	if len(cast) == 0 {
 		return nil
 	}
@@ -148,7 +151,21 @@ func (f *JoinerCredits) processCredit(row common.Row) error {
 		return err
 	}
 
-	if f.creditsProcessed == 45464 { //TODO
+	// f.pendingMoviesMu.Lock()
+	// movie, found := f.pendingMovies[movieID]
+	// if found {
+	// 	delete(f.pendingMovies, movieID)
+	// }
+	// f.pendingMoviesMu.Unlock()
+
+	// if found {
+	// 	log.Infof("Processing pending movie: %s", movieID)
+	// 	if err := f.processAndSendMovie(movie); err != nil {
+	// 		log.Errorf("Failed to process pending movie: %v", err)
+	// 	}
+	// }
+
+	if f.creditsProcessed == 45476 { //TODO
 		f.notifyCreditsDone()
 	}
 

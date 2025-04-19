@@ -101,8 +101,9 @@ func processCredits() {
 	// sender.Close()
 	//log.Infof("Sender credits closed")
 
-	timer := time.NewTimer(time.Minute * 5)
+	timer := time.NewTimer(time.Minute * 3)
 	credits_received := 0
+	actorsPerMovie := make(map[string]int)
 	for {
 		envelope, ok, err := receiver.Next(timer)
 		if err != nil {
@@ -118,15 +119,23 @@ func processCredits() {
 			log.Infof("No more credits")
 			break
 		}
+		if credits_received%100 == 0 {
+			log.Infof("Received %d credits", credits_received)
+		}
 		receivedCredit := envelope.Msg()
 		credits_received++
-		log.Debugf("Received credit: %v", receivedCredit)
+		actorsPerMovie[receivedCredit.Strings["movieID"]]++
+		//log.Debugf("Received credit: %v", receivedCredit)
 
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Minute * 5)
+		timer.Reset(time.Minute * 3)
+		if credits_received == 1515 {
+			break
+		}
 	}
 	timer.Stop()
+	//log.Infof("Actors per movie: %v", actorsPerMovie)
 	log.Infof("Processed %d credits, received %d flattened_actors", credits_count, credits_received) // Processed 45476 credits, received 45397 credits
 	// if credits_received != 45397 {
 	// 	log.Errorf("Not all credits received. Expected 45397, got %d", credits_received)
@@ -371,7 +380,7 @@ func processMovies() {
 
 	expected_output := outputQueryOne()
 
-	timer := time.NewTimer(time.Minute * 5)
+	timer := time.NewTimer(time.Minute * 3)
 	for {
 		envelope, ok, err := receiver.Next(timer)
 		if err != nil {
@@ -397,7 +406,7 @@ func processMovies() {
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Minute * 5)
+		timer.Reset(time.Minute * 3)
 	}
 	timer.Stop()
 	if len(expected_output) > 0 {
