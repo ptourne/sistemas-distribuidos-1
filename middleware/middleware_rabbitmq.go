@@ -338,11 +338,7 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 	}
 
 	if r.asumeNoInFlightMsgs {
-		return r.nextIfNoInFlightMsgs()
-	}
-
-	if r.depleteTimmerStartTime != nil {
-		return r.nextIfNotifedClosed(timeout)
+		return nil, false, nil
 	}
 
 	if timeout == nil {
@@ -353,8 +349,13 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 			}
 			return processMsg[T](msg)
 
-		case _, ok := <-*r.close.C:
-			return r.nextHandleCloseMsg(ok, timeout)
+		case producerCount := <-r.CountProducersAsync():
+			if producerCount.Err != nil {
+				return nil, false, fmt.Errorf("error while counting producers: %w", producerCount.Err)
+			}
+			if producerCount.Res == 0 {
+				return nil, false, fmt.Errorf("no producers available")
+			}
 		}
 	}
 
@@ -582,4 +583,18 @@ func (r *ReceiverRabbitmq[T]) CountProducers() (uint, error) {
 		}
 	}
 	return uint(producerCount), nil
+}
+
+type AsyncRes[T any] struct {
+	Res T
+	Err error
+}
+
+func (r *ReceiverRabbitmq[T]) CountProducersAsync() chan AsyncRes[uint] {
+	res := make(chan AsyncRes[uint], 1)
+	go func() {
+		count, err := r.CountProducers()
+		res <- AsyncRes[uint]{Res: count, Err: err}
+	}()
+	return res
 }
