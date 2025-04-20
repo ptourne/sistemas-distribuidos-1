@@ -53,27 +53,26 @@ func main() {
 	}
 	log.Debugf("Create write queue: %s", nameWriteQueue)
 
-	envelope, ok, err := receiverFileByte.Next(nil)
-	if err != nil {
-		if err.Error() == "read channel was closed" {
-			log.Infof("Channel closed: %v", readFileByteQueue)
-			return
-		}
-		log.Errorf("Error reading from middleware: %v", err)
-		return
-	}
-	if !ok {
-		log.Infof("Channel closed: %v", readFileByteQueue)
-		return
-	}
-	log.Infof("Received envelope: %v", envelope)
+	// envelope, ok, err := receiverFileByte.Next(nil)
+	// if err != nil {
+	// 	if err.Error() == "read channel was closed" {
+	// 		log.Infof("Channel closed: %v", readFileByteQueue)
+	// 		return
+	// 	}
+	// 	log.Errorf("Error reading from middleware: %v", err)
+	// 	return
+	// }
+	// if !ok {
+	// 	log.Infof("Channel closed: %v", readFileByteQueue)
+	// 	return
+	// }
+	// log.Infof("Received envelope: %v", envelope)
 
 	//lint:ignore S1019 Ignoring suggestion to simplify channel creation
 	inputChannel := make(chan middleware.Envelope[[]byte], 0)
 	go func() {
 		for {
 			envelope, ok, err := receiverFileByte.Next(nil)
-			log.Infof("Received envelope: %v", envelope)
 			if err != nil {
 				if err.Error() == "read channel was closed" {
 					log.Infof("Channel closed: %v", readFileByteQueue)
@@ -102,7 +101,9 @@ func main() {
 		switch tipo{
 		case common.FileName:
 			reader := csv.NewReader(connReader)
-			_, err = reader.Read()
+			d, err := reader.Read()
+			log.Infof("Received header file: %v", d)
+
 			unwrap(err, "Failed to read CSV header")
 			line := 0
 			log.Debugf("Starting CSV processing")

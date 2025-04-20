@@ -70,8 +70,9 @@ services:
             - ENDPOINT_PORT=9876
         networks:
             - local_net
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/endpoint/datasets:/datasets
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
 
 networks:
     local_net:

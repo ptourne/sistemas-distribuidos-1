@@ -231,13 +231,11 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 	}
 
 	if timeout == nil {
-		log.Infof("Timeout is nil, waiting for message")
 		select {
 		case msg, ok := <-*r.inputMsgs:
 			if !ok {
 				return nil, false, fmt.Errorf("read channel was closed")
 			}
-			log.Infof("Received message: %v", msg)
 			return processMsg[T](msg)
 
 		case _, ok := <-*r.closeMsg:
@@ -360,7 +358,7 @@ func (s *SenderRabbitmq[T]) Send(row *T) error {
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
 	}
-	log.Infof("PUBLISHEDDD message in chan %s", s.exchangeName)
+	// log.Infof("PUBLISHEDDD message in chan %s", s.exchangeName)
 	return nil
 }
 
