@@ -19,7 +19,6 @@ func NewFilterProductionCountriesLen1(input task.Task, subscribers []string) tas
 	}
 }
 
-// func (f FilterProductionCountriesLen1) ProcessAndSend(row common.Row) (*common.Row, error) { // TODO add error to interface
 type SingleProductionCountryCondition struct {
 }
 
