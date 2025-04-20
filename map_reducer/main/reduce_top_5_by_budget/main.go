@@ -12,7 +12,7 @@ var WORKER_ID = os.Getenv("WORKER_ID")
 var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_top_5_by_budget_%s", WORKER_ID), logger.Info)
 
 func main() {
-	mapReducer, err := top_map_reduce.NewTopMapReducer("reduce_top_5_by_budget", "reduce_by_country_sum_budget", 5, 2)
+	mapReducer, err := top_map_reduce.NewTopMapReducer("reduce_top_5_by_budget", "reduce_by_country_sum_budget", 5, 2, []string{"q2"})
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)
 		return

@@ -13,18 +13,18 @@ type Res = common.Row
 
 type MapReducerSum = map_reducer.MapReducer[In, Acc, Res]
 
-func NewMapReducerSum(name string, input string, batchSize uint) (*MapReducerSum, error) {
-	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &SumMapReduce{})
+func NewMapReducerSum(name string, input string, batchSize uint, subscribers []string) (*MapReducerSum, error) {
+	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &SumMapReduce{}, subscribers)
 }
 
 type SumMapReduce struct {
 }
 
-func (r SumMapReduce) Map(in In) Acc {
+func (r SumMapReduce) Map(in In) []Acc {
 	budget := in.Numerics["budget"]
 	country := in.Strings["country"]
-	return Acc{
-		Sums: map[string]uint{country: budget},
+	return []Acc{
+		{Sums: map[string]uint{country: budget}},
 	}
 }
 
@@ -53,6 +53,7 @@ func (r SumMapReduce) Output(acc Acc) []Res {
 
 func (a *Acc) Merge(b Acc) {
 	for country, budgetSum := range b.Sums {
-		a.Sums[country] += budgetSum
+		prevVal := a.Sums[country]
+		a.Sums[country] = budgetSum + prevVal
 	}
 }

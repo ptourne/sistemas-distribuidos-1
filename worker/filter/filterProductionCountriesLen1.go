@@ -5,16 +5,17 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterProductionCountriesLen1(input task.Task) task.Task {
+func NewFilterProductionCountriesLen1(input task.Task, subscribers []string) task.Task {
 	return &GenericFilter{
 		name:              "filter_one_production_country",
 		input:             input,
-		Conditions:        []Condition{SingleProductionCountryCondition{}},
+		Conditions:        []Condition{SingleProductionCountryCondition{}, NumericCondition{"budget", GreaterThan, 0}},
 		KeptStringFields:  []string{"movieID", "title"},
 		KeptNumericFields: []string{"budget"},
 		KeptFloatFields:   []string{},
 		KeptArrayFields:   []string{},
 		Maps:              []Map{MapProductionCountries{}},
+		subscribers:       subscribers,
 	}
 }
 

@@ -18,22 +18,22 @@ type Res = common.Row
 
 type TopMapReducer = map_reducer.MapReducer[In, Acc, Res]
 
-func NewTopMapReducer(name string, input string, topSize uint, batchSize uint) (*TopMapReducer, error) {
-	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &TopMapReduce{topSize})
+func NewTopMapReducer(name string, input string, topSize uint, batchSize uint, subscribers []string) (*TopMapReducer, error) {
+	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &TopMapReduce{topSize}, subscribers)
 }
 
 type TopMapReduce struct {
 	topSize uint
 }
 
-func (r TopMapReduce) Map(in In) Acc {
-	return Acc{
-		Top: []CountryBudget{
+func (r TopMapReduce) Map(in In) []Acc {
+	return []Acc{
+		{Top: []CountryBudget{
 			{
 				Name:      in.Strings["country"],
 				BudgetSum: in.Numerics["budget_sum"],
 			},
-		},
+		}},
 	}
 }
 

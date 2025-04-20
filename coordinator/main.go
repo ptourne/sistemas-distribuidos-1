@@ -30,19 +30,25 @@ func main() {
 	q2Output := "reduce_top_5_by_budget"
 	nameWriteQueue := "movies_metadata"
 
-	q1Receiver, err := middlewareChan.SuscribeTo(q1Output)
+	q1Receiver, err := middlewareChan.ConsumeFrom(q1Output, "q1")
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
 	defer q1Receiver.Close()
 
-	q2Receiver, err := middlewareChan.SuscribeTo(q2Output)
+	// q1fReceiver, err := middlewareChan.ConsumeFrom(q1Output, "q1f")
+	// if err != nil {
+	// 	unwrap(err, "Failed to create read queue")
+	// }
+	// defer q1fReceiver.Close()
+
+	q2Receiver, err := middlewareChan.ConsumeFrom(q2Output, "q2")
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
 	defer q1Receiver.Close()
 
-	sender, err := middlewareChan.WriteTo(nameWriteQueue)
+	sender, err := middlewareChan.WriteTo(nameWriteQueue, []string{"clean_movies"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
@@ -143,20 +149,38 @@ func main() {
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
 	}
 
-	// expectedOutputQ2 := []common.Row{
-	// 	{Strings: map[string]string{"country": "US"}, Numerics: map[string]uint{"budget_sum": 120153886644}},
-	// 	{Strings: map[string]string{"country": "FR"}, Numerics: map[string]uint{"budget_sum": 2256831838}},
-	// 	{Strings: map[string]string{"country": "GB"}, Numerics: map[string]uint{"budget_sum": 1611604610}},
-	// 	{Strings: map[string]string{"country": "IN"}, Numerics: map[string]uint{"budget_sum": 1169682797}},
-	// 	{Strings: map[string]string{"country": "JP"}, Numerics: map[string]uint{"budget_sum": 832585873}},
+	// timer = time.NewTimer(time.Second * 40)
+
+	// log.Infof("Verifying Q2f")
+
+	// i := 0
+	// for {
+	// 	e, ok, err := q1fReceiver.Next(timer)
+	// 	if err != nil {
+	// 		if err.Error() == "timeout reached while waiting for message" {
+	// 			log.Infof("Timeout reached while waiting for message")
+	// 			break
+	// 		} else {
+	// 			log.Errorf("Failed to read message: %v", err)
+	// 			continue
+	// 		}
+	// 	}
+	// 	if !ok {
+	// 		log.Infof("No more countries")
+	// 		break
+	// 	}
+	// 	log.Infof("IN film %v", e.Msg())
+	// 	i++
 	// }
+	// log.Infof("INDIANCOUNT:%d", i)
+	// panic("")
 
 	expectedOutputQ2 := []common.Row{
-		{Numerics: map[string]uint{"budget_sum": 79472691950}, Strings: map[string]string{"country": "US"}},
-		{Numerics: map[string]uint{"budget_sum": 868966074}, Strings: map[string]string{"country": "GB"}},
-		{Numerics: map[string]uint{"budget_sum": 839859521}, Strings: map[string]string{"country": "FR"}},
-		{Numerics: map[string]uint{"budget_sum": 359479490}, Strings: map[string]string{"country": "JP"}},
-		{Numerics: map[string]uint{"budget_sum": 256543797}, Strings: map[string]string{"country": "CA"}},
+		{Strings: map[string]string{"country": "US"}, Numerics: map[string]uint{"budget_sum": 120153886644}},
+		{Strings: map[string]string{"country": "FR"}, Numerics: map[string]uint{"budget_sum": 2256831838}},
+		{Strings: map[string]string{"country": "GB"}, Numerics: map[string]uint{"budget_sum": 1611604610}},
+		{Strings: map[string]string{"country": "IN"}, Numerics: map[string]uint{"budget_sum": 1169682797}},
+		{Strings: map[string]string{"country": "JP"}, Numerics: map[string]uint{"budget_sum": 832585873}},
 	}
 
 	timer = time.NewTimer(time.Second * 40)
@@ -210,15 +234,15 @@ func removeQ2(slice []common.Row, country common.Row) []common.Row {
 	for i, v := range slice {
 		if v.Strings["country"] == country.Strings["country"] {
 			if v.Numerics["budget_sum"] == country.Numerics["budget_sum"] {
-				log.Infof("Country matched expected")
+				log.Infof("Country matched expected 🟢")
 			} else {
-				log.Errorf("Budget sum not matched expected: %d != %d", v.Numerics["budget_sum"], country.Numerics["budget_sum"])
+				log.Errorf("Budget sum not matched expected:😔 %d != %d", country.Numerics["budget_sum"], v.Numerics["budget_sum"])
 			}
 			return slices.Delete(slice, i, i+1)
 
 		}
 	}
-	log.Errorf("Country not matched expected")
+	log.Errorf("Country not matched expected 🛑")
 	return slice
 }
 

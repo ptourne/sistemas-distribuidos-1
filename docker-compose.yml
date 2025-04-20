@@ -23,7 +23,9 @@ services:
         networks:
             - local_net
         environment:
-            - NUMBER_OF_WORKERS=
+            - NUMBER_OF_FILTERS=1
+            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=1
+            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=1
         depends_on:
             rabbitmq:
                 condition: service_healthy

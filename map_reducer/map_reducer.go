@@ -29,7 +29,7 @@ type MapReducer[I, A, R any] struct {
 }
 
 // batchSize is the number of top groups you reduce at once
-func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapReducer MapReduce[I, A, R]) (*MapReducer[I, A, R], error) {
+func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapReducer MapReduce[I, A, R], subscribers []string) (*MapReducer[I, A, R], error) {
 	if batchSize < 2 {
 		return nil, fmt.Errorf("batchSize must be at least two")
 	}
@@ -45,7 +45,7 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 	if err != nil {
 		return nil, err
 	}
-	output, err := connOut.WriteTo(name)
+	output, err := connOut.WriteTo(name, subscribers)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 	if err != nil {
 		return nil, err
 	}
-	accOut, err := connAcc.WriteTo(accName)
+	accOut, err := connAcc.WriteTo(accName, []string{})
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func accName(name string) string {
 }
 
 type MapReduce[T, A, R any] interface {
-	Map(T) A
+	Map(T) []A
 	Reduce([]A) A
 	Output(A) []R
 }
@@ -126,7 +126,7 @@ func (mr *MapReducer[I, A, R]) Run() error {
 			if acc.err != nil {
 				return fmt.Errorf("error reading partial result: %w", acc.err)
 			}
-			if len(acc.res) == 0 {
+			if len(acc.res) < int(mr.batchSize) {
 				log.Debugf("Partial result is empty")
 				timeoutDuration = ExponentialBackoffDuration(timeoutDuration)
 				break
@@ -154,9 +154,11 @@ func (mr *MapReducer[I, A, R]) Run() error {
 			}
 			log.Debugf("Mapping row: %v", input.res)
 			acc := mr.mapReduce.Map(*input.res)
-			err := mr.partialResultSender.Send(&acc)
-			if err != nil {
-				return fmt.Errorf("error sending partial result: %w", err)
+			for _, a := range acc {
+				err := mr.partialResultSender.Send(&a)
+				if err != nil {
+					return fmt.Errorf("error sending partial result: %w", err)
+				}
 			}
 			log.Debugf("Sent mapped partial result: %v", acc)
 		}
@@ -278,8 +280,8 @@ func (mr *MapReducer[I, A, R]) readBatch(milliseconds uint) <-chan asyncRes[[]A]
 			batch = append(batch, a.Msg())
 			lastMsg = &a
 		}
-		log.Debugf("Batch read completed: %v", batch)
-		if len(batch) < 2 {
+		log.Debugf("Batch read completed: len = %v", len(batch))
+		if len(batch) < int(mr.batchSize) {
 			res <- asyncRes[[]A]{batch, nil}
 			if lastMsg != nil {
 				(*lastMsg).Nack(true)

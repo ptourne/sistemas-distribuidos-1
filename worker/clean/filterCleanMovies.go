@@ -219,7 +219,7 @@ func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[com
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middlewareConnection.WriteTo(f.Name())
+	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), []string{"filter_one_production_country", "filter_release_date_ge_2000_and_include_ar"})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create write queue for task %s", f.Name())
 	}

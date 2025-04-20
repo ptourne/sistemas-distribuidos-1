@@ -7,7 +7,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterReleaseDateGe2000AndIncludeAR(input task.Task) task.Task {
+func NewFilterReleaseDateGe2000AndIncludeAR(input task.Task, subscribers []string) task.Task {
 	return &GenericFilter{
 		name:              "filter_release_date_ge_2000_and_include_ar",
 		input:             input,
@@ -17,6 +17,7 @@ func NewFilterReleaseDateGe2000AndIncludeAR(input task.Task) task.Task {
 		KeptFloatFields:   []string{},
 		KeptArrayFields:   []string{"production_countries", "genres"},
 		Maps:              []Map{MapProductionCountriesa{}},
+		subscribers:       subscribers,
 	}
 }
 
