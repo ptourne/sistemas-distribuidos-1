@@ -222,8 +222,8 @@ func (mr *MapReducer[I, A, R]) readBatch() (batch []A, lastMsg *middleware.Envel
 	for range mr.batchSize {
 		log.Debugf("Batch state: %v", batch)
 		a, ok, err := mr.partialResultReceiver.Next(timer)
-		log.Debugf("Received message envelope: %v", a)
-		log.Debugf("Received message ok: %v, err: %s", ok, err)
+		// log.Debugf("Received message envelope: %v", a)
+		log.Debugf("Received message len ok: %v, err: %s", ok, err)
 		if err != nil {
 			if err.Error() == "timeout reached while waiting for message" {
 				return batch, lastMsg, err

@@ -383,29 +383,20 @@ func (r *ReceiverRabbitmq[T]) nextHandleCloseMsg(ok bool, timeout *time.Timer) (
 func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope[T], bool, error) {
 	log.Infof("nextIfNotifedClosed")
 	remaining := time.Millisecond*500 - time.Since(*r.depleteTimmerStartTime) // timeout until finish sending
-	var depleteTimmer *time.Timer
-	var depleteTimmerCh <-chan time.Time
-	if remaining > 0 {
-		log.Infof("remaining time: %v", remaining)
-		depleteTimmer = time.NewTimer(remaining)
-		defer depleteTimmer.Stop()
-		depleteTimmerCh = depleteTimmer.C
-	}
+	remaining = max(remaining, time.Millisecond*500, time.Millisecond*500)
+	log.Infof("remaining time: %v", remaining)
+	depleteTimmer := time.NewTimer(remaining)
+	defer depleteTimmer.Stop()
 
 	if timeout == nil {
 		log.Infof("timeout is nil")
-		if depleteTimmer == nil {
-			depleteTimmer = time.NewTimer(time.Millisecond * 500) // timeout until inflight reception
-			defer depleteTimmer.Stop()
-			depleteTimmerCh = depleteTimmer.C
-		}
 		select {
 		case msg, ok := <-*r.input.C:
 			if !ok {
 				return nil, false, fmt.Errorf("read channel was closed")
 			}
 			return processMsg[T](msg)
-		case <-depleteTimmerCh:
+		case <-depleteTimmer.C:
 			r.asumeNoInFlightMsgs = true
 			return nil, false, nil
 		}
@@ -414,12 +405,12 @@ func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope
 	log.Infof("timeout is not nil")
 	select {
 	case msg, ok := <-*r.input.C:
-		log.Infof("msg received: ok: %v, msg: %v", ok, msg)
+		log.Infof("msg received: ok: %v, msg: %s", ok, string(msg.Body))
 		if !ok {
 			return nil, false, fmt.Errorf("read channel was closed")
 		}
 		return processMsg[T](msg)
-	case <-depleteTimmerCh:
+	case <-depleteTimmer.C:
 		r.asumeNoInFlightMsgs = true
 		return r.nextIfNoInFlightMsgs()
 	case <-timeout.C:
@@ -434,7 +425,8 @@ func (r *ReceiverRabbitmq[T]) nextIfNoInFlightMsgs() (Envelope[T], bool, error) 
 			return nil, false, fmt.Errorf("read channel was closed")
 		}
 		return processMsg[T](msg)
-	default:
+	case <-time.NewTimer(time.Millisecond * 500).C:
+		r.asumeNoInFlightMsgs = true
 		return nil, false, nil
 	}
 }
