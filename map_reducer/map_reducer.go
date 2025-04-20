@@ -112,44 +112,33 @@ func (mr *MapReducer[I, A, R]) Run() error {
 	defer mr.output.Close()
 	inputChan := mr.readInput()
 	accBatch := mr.reduceBattchess()
-	inputFinished := false
 	var err error
 	select {
 	case err = <-inputChan:
-		inputFinished = true
 	case err = <-accBatch:
 	}
 	if err != nil {
 		return err
 	}
-	lastProcess := inputChan
-	if inputFinished {
-		lastProcess = accBatch
-	}
-	err = <-lastProcess
-
-	return nil
-}
-
-type asyncRes[T any] struct {
-	res T
-	err error
+	err = <-accBatch
+	return err
 }
 
 func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
-	log.Debugf("Starting map-reduce operation")
-	timeoutStep, backoff := ExponentialBackoffDuration(0)
-	log.Debugf("reduceBattchess(%d)", backoff)
 	res := make(chan error)
 	task := func() {
+		log.Debugf("Starting map-reduce operation")
+		timeoutStep, backoff := ExponentialBackoffDuration(0)
+		log.Debugf("reduceBattchess(%d)", backoff)
 		var err error
 		defer func() {
 			res <- err
 		}()
-		var producerCount uint
+		var producerCount int
 		for {
 			<-time.NewTimer(time.Millisecond * time.Duration(backoff)).C
-			batch, lastMsg, err := mr.readBatch()
+			batch, lastMsg, err_ := mr.readBatch()
+			err = err_
 			if err != nil {
 				if err.Error() == "timeout reached while waiting for message" {
 					err = nil
@@ -178,7 +167,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 				log.Debugf("Sent output")
 				return
 			}
-			if len(batch) < int(mr.batchSize) {
+			if len(batch) < int(mr.batchSize) && producerCount > 1 {
 				timeoutStep, backoff = ExponentialBackoffDuration(timeoutStep)
 				if lastMsg != nil {
 					(*lastMsg).Nack(true)
@@ -250,20 +239,17 @@ func (mr *MapReducer[I, A, R]) readInput() <-chan error {
 			res <- err
 		}()
 		for {
-			timer := time.NewTimer(time.Second * 200)
-			a, ok, err := mr.input.Next(timer)
+			var envelope middleware.Envelope[I]
+			var ok bool
+			envelope, ok, err = mr.input.Next(nil)
 			if err != nil {
-				if err.Error() == "timeout reached while waiting for message" {
-					err = nil
-					continue
-				}
 				return
 			}
 			if !ok {
 				return
 			}
 
-			msg := a.Msg()
+			msg := envelope.Msg()
 			log.Debugf("Received input")
 			log.Debugf("Mapping row: %v", msg)
 			acc := mr.mapReduce.Map(msg)
@@ -275,7 +261,7 @@ func (mr *MapReducer[I, A, R]) readInput() <-chan error {
 				}
 			}
 			log.Debugf("Sent mapped partial result: %v", acc)
-			a.Ack(false)
+			envelope.Ack(false)
 		}
 	}
 	go task()

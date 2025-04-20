@@ -14,7 +14,7 @@ type MiddlewareCola[T any] interface {
 
 type Receiver[T any] interface {
 	Next(timeout *time.Timer) (Envelope[T], bool, error)
-	CountProducers() (uint, error)
+	CountProducers() (int, error)
 	Qos(int, int) error
 	Close() error
 }

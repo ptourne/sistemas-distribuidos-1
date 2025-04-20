@@ -17,12 +17,13 @@ type MiddlewareRabbitmq[T any] struct {
 }
 
 type ReceiverRabbitmq[T any] struct {
-	input                  ReceiverChannel[T]
-	close                  ReceiverChannel[CloseNotification]
-	producerCountReq       SenderChannel[CountProducerReq]
-	producerCountRes       ReceiverChannel[CountProducerReq]
-	asumeNoInFlightMsgs    bool
-	depleteTimmerStartTime *time.Time
+	input                        ReceiverChannel[T]
+	close                        ReceiverChannel[CloseNotification]
+	producerCountReq             SenderChannel[CountProducerReq]
+	producerCountRes             ReceiverChannel[CountProducerReq]
+	asumeNoInFlightMsgs          bool
+	timeCloseNotificationArrived *time.Time
+	lastProducerCount            int
 }
 
 type ReceiverChannel[T any] struct {
@@ -66,7 +67,7 @@ func (s *SenderChannel[T]) Close() {
 	}
 }
 
-var log = logger.NewConsoleLogger("middleware", logger.Info)
+var log = logger.NewConsoleLogger("middleware", logger.Debug)
 
 func NewRabbitmq[T any]() (MiddlewareCola[T], error) {
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
@@ -169,18 +170,26 @@ func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueNa
 		return nil, err
 	}
 
-	producerCountReqExchangeName := producerCountReqExchangeName(readExchangeName)
-	producerCountReq, err := CreateProducer[T, CountProducerReq](m, producerCountReqExchangeName)
+	producerCountReq, err := CreateProducer[T, CountProducerReq](m, producerCountReqExchangeName(readExchangeName))
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
 
 	receiver := &ReceiverRabbitmq[T]{
-		input:            input,
-		close:            close,
-		producerCountReq: *producerCountReq,
-		producerCountRes: producerCountRes,
+		input:             input,
+		close:             close,
+		producerCountReq:  *producerCountReq,
+		producerCountRes:  producerCountRes,
+		lastProducerCount: 0,
 	}
+	receiver.lastProducerCount, err = receiver.CountProducers()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get producer count %v", err)
+	}
+	if receiver.lastProducerCount == 0 {
+		receiver.lastProducerCount = -1
+	}
+	log.Debugf("ReceiverRabbitmq: '%s', '%s', producer count: %d", receiver.input.exchangeName, receiver.input.queueName, receiver.lastProducerCount)
 	return receiver, nil
 }
 
@@ -257,10 +266,12 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 	producerCountReplier := make(chan struct{})
 	producerCountReplierKill := make(chan struct{})
 	task := func() {
+		log.Debugf("Starting producer count replier")
 		defer close(producerCountReplier)
 		defer producerCountRes.Close()
 		defer producerCountReq.Close()
 		for {
+			log.Debugf("Waiting for producer count request: '%s' from '%s'", producerCountReq.exchangeName, producerCountReq.queueName)
 			select {
 			case msg := <-*producerCountReq.C:
 				req, ok, err := processMsg[CountProducerReq](msg)
@@ -272,6 +283,7 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 					log.Debugf("count producer request was closed")
 					return
 				}
+				log.Debugf("Received producer count request: '%s' from '%s' with id: %d", producerCountReq.exchangeName, producerCountReq.queueName, req.Msg().ID)
 				ctx, cancel := context.WithTimeout(context.Background(), 500*time.Second)
 				err = producerCountRes.Publish(ctx, req.Msg())
 				if err != nil {
@@ -283,11 +295,11 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 				cancel()
 				req.Ack(false)
 			case <-producerCountReplierKill:
+				log.Infof("kill go routine for producer count request: '%s' from '%s'", producerCountReq.exchangeName, producerCountReq.queueName)
 				return
 			}
 		}
 	}
-	_ = task
 	go task()
 
 	sender := &SenderRabbitmq[T]{
@@ -338,14 +350,38 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 	}
 
 	if r.asumeNoInFlightMsgs {
-		return r.nextIfNoInFlightMsgs()
+		panic("Should not call Next() when already received close notification")
 	}
 
-	if r.depleteTimmerStartTime != nil {
+	if r.lastProducerCount == -1 {
+		log.Debugf("Waiting for producers to start in '%s'", r.input.exchangeName)
+		for range 60 {
+			producerCount, err := r.CountProducers()
+			if err != nil {
+				return nil, false, fmt.Errorf("failed to get producer count %v", err)
+			}
+			log.Debugf("Producer count: %v in %s", producerCount, r.input.exchangeName)
+			if producerCount > 0 {
+				r.lastProducerCount = int(producerCount)
+				break
+			}
+			log.Infof("Waiting for producers to start...")
+			time.Sleep(2 * time.Second)
+		}
+		log.Infof("No producers found")
+		r.lastProducerCount = 0
+	}
+
+	if r.lastProducerCount == 0 {
 		return r.nextIfNotifedClosed(timeout)
 	}
 
-	if timeout == nil {
+	var timeoutC <-chan time.Time = nil
+	if timeout != nil {
+		timeoutC = timeout.C
+	}
+
+	for {
 		select {
 		case msg, ok := <-*r.input.C:
 			if !ok {
@@ -354,21 +390,19 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 			return processMsg[T](msg)
 
 		case _, ok := <-*r.close.C:
-			return r.nextHandleCloseMsg(ok, timeout)
+			var err error
+			r.lastProducerCount, err = r.CountProducers()
+			if err != nil {
+				return nil, false, fmt.Errorf("failed to get producer count %v", err)
+			}
+			if r.lastProducerCount == 0 {
+				return r.nextHandleCloseMsg(ok, timeout)
+			}
+		case <-timeoutC:
+			return nil, false, fmt.Errorf("timeout reached while waiting for message")
 		}
 	}
 
-	select {
-	case msg, ok := <-*r.input.C:
-		if !ok {
-			return nil, false, fmt.Errorf("read channel was closed")
-		}
-		return processMsg[T](msg)
-	case <-timeout.C:
-		return nil, false, fmt.Errorf("timeout reached while waiting for message")
-	case _, ok := <-*r.close.C:
-		return r.nextHandleCloseMsg(ok, timeout)
-	}
 }
 
 func (r *ReceiverRabbitmq[T]) nextHandleCloseMsg(ok bool, timeout *time.Timer) (Envelope[T], bool, error) {
@@ -376,30 +410,23 @@ func (r *ReceiverRabbitmq[T]) nextHandleCloseMsg(ok bool, timeout *time.Timer) (
 		return nil, false, fmt.Errorf("close channel was closed")
 	}
 	newVar := time.Now()
-	r.depleteTimmerStartTime = &newVar
+	r.timeCloseNotificationArrived = &newVar
 	return r.nextIfNotifedClosed(timeout)
 }
 
 func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope[T], bool, error) {
 	log.Infof("nextIfNotifedClosed")
-	remaining := time.Millisecond*500 - time.Since(*r.depleteTimmerStartTime) // timeout until finish sending
-	remaining = max(remaining, time.Millisecond*500, time.Millisecond*500)
+	const timeUntilArrivalToBroker = time.Millisecond * 500
+	const transmissionTime = time.Millisecond * 500
+	remaining := timeUntilArrivalToBroker - time.Since(*r.timeCloseNotificationArrived) // timeout until finish sending
+	remaining = max(remaining+transmissionTime, transmissionTime)
 	log.Infof("remaining time: %v", remaining)
 	depleteTimmer := time.NewTimer(remaining)
 	defer depleteTimmer.Stop()
 
-	if timeout == nil {
-		log.Infof("timeout is nil")
-		select {
-		case msg, ok := <-*r.input.C:
-			if !ok {
-				return nil, false, fmt.Errorf("read channel was closed")
-			}
-			return processMsg[T](msg)
-		case <-depleteTimmer.C:
-			r.asumeNoInFlightMsgs = true
-			return nil, false, nil
-		}
+	var timeoutC <-chan time.Time = nil
+	if timeout != nil {
+		timeoutC = timeout.C
 	}
 
 	log.Infof("timeout is not nil")
@@ -412,8 +439,8 @@ func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope
 		return processMsg[T](msg)
 	case <-depleteTimmer.C:
 		r.asumeNoInFlightMsgs = true
-		return r.nextIfNoInFlightMsgs()
-	case <-timeout.C:
+		return nil, false, nil
+	case <-timeoutC:
 		return nil, false, fmt.Errorf("timeout reached while waiting for message")
 	}
 }
@@ -544,10 +571,10 @@ func producerCountReqExchangeName(readExchangeName string) string {
 }
 
 func producerCountResExchangeName(readExchangeName string) string {
-	return fmt.Sprintf("%s_count_rep", readExchangeName)
+	return fmt.Sprintf("%s_count_res", readExchangeName)
 }
 
-func (r *ReceiverRabbitmq[T]) CountProducers() (uint, error) {
+func (r *ReceiverRabbitmq[T]) CountProducers() (int, error) {
 	producerCount := 0
 	reqID := rand.UintN(1000000000)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Second)
@@ -581,5 +608,6 @@ func (r *ReceiverRabbitmq[T]) CountProducers() (uint, error) {
 			}
 		}
 	}
-	return uint(producerCount), nil
+
+	return producerCount, nil
 }

@@ -193,7 +193,7 @@ func main() {
 		{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	}
 
-	timer = time.NewTimer(time.Second * 40)
+	timer = time.NewTimer(time.Second * 400)
 
 	log.Infof("Verifying Q2")
 	for {
