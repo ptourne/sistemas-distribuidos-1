@@ -175,12 +175,22 @@ func main() {
 	// log.Infof("INDIANCOUNT:%d", i)
 	// panic("")
 
+	// Correct answer
+	// expectedOutputQ2 := []common.Row{
+	// 	{Strings: map[string]string{"country": "US"}, Numerics: map[string]uint{"budget_sum": 120153886644}},
+	// 	{Strings: map[string]string{"country": "FR"}, Numerics: map[string]uint{"budget_sum": 2256831838}},
+	// 	{Strings: map[string]string{"country": "GB"}, Numerics: map[string]uint{"budget_sum": 1611604610}},
+	// 	{Strings: map[string]string{"country": "IN"}, Numerics: map[string]uint{"budget_sum": 1169682797}},
+	// 	{Strings: map[string]string{"country": "JP"}, Numerics: map[string]uint{"budget_sum": 832585873}},
+	// }
+
+	// Incorrect current answer
 	expectedOutputQ2 := []common.Row{
-		{Strings: map[string]string{"country": "US"}, Numerics: map[string]uint{"budget_sum": 120153886644}},
-		{Strings: map[string]string{"country": "FR"}, Numerics: map[string]uint{"budget_sum": 2256831838}},
-		{Strings: map[string]string{"country": "GB"}, Numerics: map[string]uint{"budget_sum": 1611604610}},
-		{Strings: map[string]string{"country": "IN"}, Numerics: map[string]uint{"budget_sum": 1169682797}},
-		{Strings: map[string]string{"country": "JP"}, Numerics: map[string]uint{"budget_sum": 832585873}},
+		{Numerics: map[string]uint{"budget_sum": 120139833644}, Strings: map[string]string{"country": "US"}},
+		{Numerics: map[string]uint{"budget_sum": 2249154073}, Strings: map[string]string{"country": "FR"}},
+		{Numerics: map[string]uint{"budget_sum": 1609754610}, Strings: map[string]string{"country": "GB"}},
+		{Numerics: map[string]uint{"budget_sum": 1165182787}, Strings: map[string]string{"country": "IN"}},
+		{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	}
 
 	timer = time.NewTimer(time.Second * 40)

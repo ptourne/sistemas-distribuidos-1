@@ -32,8 +32,9 @@ type ReceiverChannel[T any] struct {
 	C            *<-chan amqp.Delivery
 }
 
-func (r ReceiverChannel[T]) Close() {
+func (r *ReceiverChannel[T]) Close() {
 	if r.amqpCh != nil {
+		log.Debugf("Clossing channel '%s', '%s'", r.exchangeName, r.queueName)
 		r.amqpCh.Close()
 		r.amqpCh = nil
 	}
@@ -57,14 +58,15 @@ type SenderChannel[T any] struct {
 	ch           *amqp.Channel
 }
 
-func (s SenderChannel[T]) Close() {
+func (s *SenderChannel[T]) Close() {
 	if s.ch != nil {
+		log.Debugf("Clossing channel '%s'", s.exchangeName)
 		s.ch.Close()
 		s.ch = nil
 	}
 }
 
-var log = logger.NewConsoleLogger("middleware", logger.Debug)
+var log = logger.NewConsoleLogger("middleware", logger.Info)
 
 func NewRabbitmq[T any]() (MiddlewareCola[T], error) {
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
@@ -101,7 +103,7 @@ func (m *ReceiverRabbitmq[T]) Qos(prefetchCount int, prefetchSize int) error {
 }
 
 func (r *ReceiverRabbitmq[T]) Close() error {
-	log.Infof("CLOSING RECEIVER")
+	log.Debugf("CLOSING RECEIVER: '%s', '%s", r.input.exchangeName, r.input.queueName)
 	r.input.Close()
 	r.close.Close()
 	r.producerCountReq.Close()
@@ -112,7 +114,7 @@ func (r *ReceiverRabbitmq[T]) Close() error {
 type CloseNotification struct{}
 
 func (s *SenderRabbitmq[T]) Close() error {
-	log.Infof("CLOSING SENDER")
+	log.Debugf("CLOSING SENDER")
 	s.output.Close()
 	if s.close != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -129,6 +131,7 @@ func (s *SenderRabbitmq[T]) Close() error {
 	if s.producerCountReplierKill != nil {
 		close(*s.producerCountReplierKill)
 		<-s.producerCountReplier
+		s.producerCountReplierKill = nil
 	}
 	return nil
 }
@@ -234,11 +237,11 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 	}
 
 	for _, sub := range subscribers {
-		receiverSub, err := m.createReadQueue(outputName, sub)
+		_, ch, err := m.createQueue(outputName, sub)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
 		}
-		receiverSub.Close()
+		ch.Close()
 	}
 
 	producerCountReq, err := createConsumer[T, CountProducerReq](m, producerCountReqExchangeName(outputName), "")
@@ -254,9 +257,9 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 	producerCountReplier := make(chan struct{})
 	producerCountReplierKill := make(chan struct{})
 	task := func() {
-		close(producerCountReplier)
-		producerCountRes.Close()
-		producerCountReq.Close()
+		defer close(producerCountReplier)
+		defer producerCountRes.Close()
+		defer producerCountReq.Close()
 		for {
 			select {
 			case msg := <-*producerCountReq.C:
@@ -302,6 +305,7 @@ func (s *SenderChannel[T]) Publish(ctx context.Context, msg T) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal reply: %v", err)
 	}
+	log.Debugf("PUBLISHING message '%s' in chan %s", string(buf), s.exchangeName)
 	err = s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
 		"",             // routing key
@@ -377,16 +381,19 @@ func (r *ReceiverRabbitmq[T]) nextHandleCloseMsg(ok bool, timeout *time.Timer) (
 }
 
 func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope[T], bool, error) {
+	log.Infof("nextIfNotifedClosed")
 	remaining := time.Millisecond*500 - time.Since(*r.depleteTimmerStartTime) // timeout until finish sending
 	var depleteTimmer *time.Timer
 	var depleteTimmerCh <-chan time.Time
 	if remaining > 0 {
+		log.Infof("remaining time: %v", remaining)
 		depleteTimmer = time.NewTimer(remaining)
 		defer depleteTimmer.Stop()
 		depleteTimmerCh = depleteTimmer.C
 	}
 
 	if timeout == nil {
+		log.Infof("timeout is nil")
 		if depleteTimmer == nil {
 			depleteTimmer = time.NewTimer(time.Millisecond * 500) // timeout until inflight reception
 			defer depleteTimmer.Stop()
@@ -404,8 +411,10 @@ func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope
 		}
 	}
 
+	log.Infof("timeout is not nil")
 	select {
 	case msg, ok := <-*r.input.C:
+		log.Infof("msg received: ok: %v, msg: %v", ok, msg)
 		if !ok {
 			return nil, false, fmt.Errorf("read channel was closed")
 		}
