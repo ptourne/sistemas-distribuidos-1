@@ -1,15 +1,12 @@
 package clean
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
@@ -67,37 +64,37 @@ func (f CleanMovies) process(row common.Row) *common.Row {
 	)
 
 	for _, field := range requiredFields {
-		if mustDropRow(field) {
+		if utils.MustDropRow(field) {
 			log.Debugf("warning: dropping row due to empty field: %s", field)
 			return nil
 		}
 	}
 
-	productionCountries, ok := dictionaryToListIso(row.Strings["production_countries"])
+	productionCountries, ok := utils.DictionaryToListIso(row.Strings["production_countries"])
 	if !ok {
 		log.Debugf("warning: could not parse production countries: %s", row.Strings["production_countries"])
 		return nil
 	}
 
-	genres, ok := dictionaryToListName(row.Strings["genres"])
-	if !ok {
+	genres, err := utils.DictionaryToListName(row.Strings["genres"])
+	if err != nil {
 		log.Warnf("could not parse genres: %s", row.Strings["genres"])
 		return nil
 	}
 
-	releaseYear, ok := extractYear(row.Strings["release_date"])
+	releaseYear, ok := utils.ExtractYear(row.Strings["release_date"])
 	if !ok {
 		log.Warnf("could not parse release date: %s", row.Strings["release_date"])
 		return nil
 	}
 
-	budget, ok := parseUint(row.Strings["budget"])
+	budget, ok := utils.ParseFloat(row.Strings["budget"])
 	if !ok {
 		log.Warnf("could not parse budget: %s", row.Strings["budget"])
 		return nil
 	}
 
-	revenue, ok := parseUint(row.Strings["revenue"])
+	revenue, ok := utils.ParseFloat(row.Strings["revenue"])
 	if !ok {
 		log.Warnf("could not parse revenue: %s", row.Strings["revenue"])
 		return nil
@@ -122,95 +119,6 @@ func (f CleanMovies) process(row common.Row) *common.Row {
 		},
 		Floats: map[string]float64{},
 	}
-}
-
-func mustDropRow(field string) bool {
-	return field == "" || field == "[]" || field == "null" // || field == "0" || field == "0.0"
-}
-
-func extractYear(dateStr string) (uint, bool) { // TODO: Handle empty strings
-	if dateStr == "" {
-		return 0, false
-	}
-	date, err := time.Parse(time.DateOnly, dateStr) // Formato Go: siempre 2006-01-02
-	if err != nil {
-		log.Warnf("could not parse date '%s': %v", dateStr, err)
-		return 0, false
-	}
-
-	return uint(date.Year()), true
-}
-
-type NameItem struct {
-	Name string `json:"name"`
-}
-
-type NameCountry struct {
-	ISO string `json:"iso_3166_1"`
-}
-
-func dictionaryToListName(input string) ([]string, bool) {
-	var result []string
-
-	if input == "" || input == "[]" {
-		return result, false
-	}
-
-	cleaned := strings.ReplaceAll(input, "'", "\"")
-	var items []NameItem
-	err := json.Unmarshal([]byte(cleaned), &items)
-	if err != nil {
-		var item NameItem
-		err := json.Unmarshal([]byte(cleaned), &item)
-		if err != nil {
-			log.Errorf("failed to unmarshal input %s: %v", input, err)
-			return result, false
-		}
-		return []string{item.Name}, true
-	}
-
-	for _, item := range items {
-		result = append(result, item.Name)
-	}
-	return result, true
-}
-
-func dictionaryToListIso(input string) ([]string, bool) {
-	var result []string
-
-	if input == "" || input == "[]" {
-		return result, false
-	}
-
-	cleaned := strings.ReplaceAll(input, "'", "\"")
-	var items []NameCountry
-	err := json.Unmarshal([]byte(cleaned), &items)
-	if err != nil {
-		var item NameCountry
-		err := json.Unmarshal([]byte(cleaned), &item)
-		if err != nil {
-			log.Errorf("failed to unmarshal input %s: %v", input, err)
-			return result, false
-		}
-		return []string{item.ISO}, true
-	}
-
-	for _, item := range items {
-		result = append(result, item.ISO)
-	}
-	return result, true
-}
-
-func parseUint(s string) (uint, bool) { // TODO: Handle empty strings
-	if s == "" {
-		return 0, false
-	}
-	value, err := strconv.ParseUint(s, 10, 64)
-	if err != nil {
-		log.Errorf("Failed to parse uint: %s", err)
-		return 0, false
-	}
-	return uint(value), true
 }
 
 func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) (chan middleware.Envelope[common.Row], error) {

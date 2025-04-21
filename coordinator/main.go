@@ -29,6 +29,7 @@ func main() {
 	q1Output := "filter_release_date_l_2010_and_include_es"
 	// q2Output := "reduce_top_5_by_budget"
 	nameWriteQueue := "movies_metadata"
+	q1fOutput := "filter_one_production_country"
 
 	q1Receiver, err := middlewareChan.ConsumeFrom(q1Output, "q1")
 	if err != nil {
@@ -36,11 +37,11 @@ func main() {
 	}
 	defer q1Receiver.Close()
 
-	// q1fReceiver, err := middlewareChan.ConsumeFrom(q1Output, "q1f")
-	// if err != nil {
-	// 	unwrap(err, "Failed to create read queue")
-	// }
-	// defer q1fReceiver.Close()
+	q1fReceiver, err := middlewareChan.ConsumeFrom(q1fOutput, "q1f")
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer q1fReceiver.Close()
 
 	// q2Receiver, err := middlewareChan.ConsumeFrom(q2Output, "q2")
 	// if err != nil {
@@ -133,8 +134,8 @@ func main() {
 			break
 		}
 		receivedMovie := envelope.Msg()
-		log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
-		log.Infof("Received film debug: %+v", receivedMovie)
+		// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
+		// log.Infof("Received film debug: %+v", receivedMovie)
 		expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedMovie)
 		if len(expectedOutputQ1) == 0 {
 			log.Infof("All expected films received")
@@ -148,6 +149,39 @@ func main() {
 	if len(expectedOutputQ1) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
 	}
+
+
+	timer2 := time.NewTimer(time.Second * 20)
+
+	log.Infof("Verifying Q1F")
+	cant := 0
+	sum:= 0
+	for {
+		envelope, ok, err := q1fReceiver.Next(timer2)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
+				continue
+			}
+		}
+		if !ok {
+			log.Infof("No more films IN")
+			break
+		}
+		receivedMovie := envelope.Msg()
+		log.Infof("Received film IN: %v", receivedMovie)
+		cant++
+		sum += int(receivedMovie.Numerics["budget"])
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+		timer2.Reset(time.Second * 20)
+	}
+	timer2.Stop()
+	log.Infof("Received %d films IN", cant)
+	log.Infof("Sum of budgets IN: %d", sum)
 
 	// timer = time.NewTimer(time.Second * 40)
 
@@ -192,6 +226,7 @@ func main() {
 	// 	{Numerics: map[string]uint{"budget_sum": 1165182787}, Strings: map[string]string{"country": "IN"}},
 	// 	{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	// }
+
 
 	// timer = time.NewTimer(time.Second * 400)
 

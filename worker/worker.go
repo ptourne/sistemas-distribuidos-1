@@ -114,7 +114,7 @@ func NewWorker() Worker {
 	movies_metadata_clean := clean.NewCleanMovies(movies_metadata)
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean, []string{"filter_release_date_l_2010_and_include_es"})
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar, []string{"q1"})
-	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean, []string{"reduce_by_country_sum_budget" /*, "q1f"*/})
+	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean, []string{"q1f"}/*[]string{"reduce_by_country_sum_budget" , "q1f"}*/)
 	return Worker{
 		Tasks: []task.Task{
 			movies_metadata_clean,
