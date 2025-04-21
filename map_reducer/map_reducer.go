@@ -84,6 +84,7 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 		partialResultReceiver: accIn,
 		mapReduce:             mapReducer,
 		output:                output,
+		inputClosed:           false,
 	}, nil
 }
 
@@ -148,10 +149,13 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 				}
 			}
 			log.Debugf("Batch read completed: len = %v", len(batch))
+			producerCount, err = mr.partialResultReceiver.CountProducers()
+			log.Infof("Producer count: %v", producerCount)
 			if mr.inputClosed && len(batch) == 0 {
 				log.Debugf("Retiring")
 				return
 			}
+			log.Infof("LLEGUE")
 			if producerCount == 1 && len(batch) == 1 {
 				log.Debugf("Last batch processed")
 				reduced := mr.mapReduce.Reduce(batch)
@@ -236,6 +240,7 @@ func (mr *MapReducer[I, A, R]) readInput() <-chan error {
 		var err error
 		defer func() {
 			mr.inputClosed = true
+			log.Debugf("Input closed")
 			res <- err
 		}()
 		for {
@@ -257,6 +262,7 @@ func (mr *MapReducer[I, A, R]) readInput() <-chan error {
 				err := mr.partialResultSender.Send(&a)
 				if err != nil {
 					err = fmt.Errorf("error sending partial result: %w", err)
+					res <- err
 					return
 				}
 			}

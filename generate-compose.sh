@@ -147,10 +147,10 @@ compose_coordinator >> $file_name
 for i in $(seq 1 $number_of_filters); do
     compose_filters $i >> $file_name
 done
-# for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
-#     compose_reduce_by_country_sum_budgets $i >> $file_name
-# done
-# for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
-#     compose_reduce_top_5_by_budgets $i >> $file_name
-# done
+for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
+    compose_reduce_by_country_sum_budgets $i >> $file_name
+done
+for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
+    compose_reduce_top_5_by_budgets $i >> $file_name
+done
 compose_network >> $file_name

@@ -27,7 +27,7 @@ func main() {
 	defer middlewareChan.Close()
 
 	q1Output := "filter_release_date_l_2010_and_include_es"
-	// q2Output := "reduce_top_5_by_budget"
+	q2Output := "reduce_top_5_by_budget"
 	nameWriteQueue := "movies_metadata"
 	q1fOutput := "filter_one_production_country"
 
@@ -43,11 +43,11 @@ func main() {
 	}
 	defer q1fReceiver.Close()
 
-	// q2Receiver, err := middlewareChan.ConsumeFrom(q2Output, "q2")
-	// if err != nil {
-	// 	unwrap(err, "Failed to create read queue")
-	// }
-	// defer q1Receiver.Close()
+	q2Receiver, err := middlewareChan.ConsumeFrom(q2Output, "q2")
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer q1Receiver.Close()
 
 	sender, err := middlewareChan.WriteTo(nameWriteQueue, []string{"clean_movies"})
 	if err != nil {
@@ -219,49 +219,49 @@ func main() {
 	// }
 
 	// Incorrect current answer
-	// expectedOutputQ2 := []common.Row{
-	// 	{Numerics: map[string]uint{"budget_sum": 120139833644}, Strings: map[string]string{"country": "US"}},
-	// 	{Numerics: map[string]uint{"budget_sum": 2249154073}, Strings: map[string]string{"country": "FR"}},
-	// 	{Numerics: map[string]uint{"budget_sum": 1609754610}, Strings: map[string]string{"country": "GB"}},
-	// 	{Numerics: map[string]uint{"budget_sum": 1165182787}, Strings: map[string]string{"country": "IN"}},
-	// 	{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
-	// }
+	expectedOutputQ2 := []common.Row{
+		{Numerics: map[string]uint{"budget_sum": 120153886644}, Strings: map[string]string{"country": "US"}},
+		{Numerics: map[string]uint{"budget_sum": 2256831838}, Strings: map[string]string{"country": "FR"}},
+		{Numerics: map[string]uint{"budget_sum": 1611604610}, Strings: map[string]string{"country": "GB"}},
+		{Numerics: map[string]uint{"budget_sum": 1169682797}, Strings: map[string]string{"country": "IN"}},
+		{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
+	}
 
 
-	// timer = time.NewTimer(time.Second * 400)
+	timer = time.NewTimer(time.Second * 40)
 
-	// log.Infof("Verifying Q2")
-	// for {
-	// 	envelope, ok, err := q2Receiver.Next(timer)
-	// 	if err != nil {
-	// 		if err.Error() == "timeout reached while waiting for message" {
-	// 			log.Infof("Timeout reached while waiting for message")
-	// 			break
-	// 		} else {
-	// 			log.Errorf("Failed to read message: %v", err)
-	// 			continue
-	// 		}
-	// 	}
-	// 	if !ok {
-	// 		log.Infof("No more countries")
-	// 		break
-	// 	}
-	// 	receivedCountry := envelope.Msg()
-	// 	log.Infof("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
-	// 	log.Infof("Received country debug: %+v", receivedCountry)
-	// 	expectedOutputQ2 = removeQ2(expectedOutputQ2, receivedCountry)
-	// 	if len(expectedOutputQ2) == 0 {
-	// 		log.Infof("All expected films received")
-	// 		break
-	// 	}
-	// 	err = envelope.Ack(true)
-	// 	unwrap(err, "Failed to ack message")
-	// 	timer.Reset(time.Second * 20)
-	// }
-	// timer.Stop()
-	// if len(expectedOutputQ2) > 0 {
-	// 	log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
-	// }
+	log.Infof("Verifying Q2")
+	for {
+		envelope, ok, err := q2Receiver.Next(timer)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
+				continue
+			}
+		}
+		if !ok {
+			log.Infof("No more countries")
+			break
+		}
+		receivedCountry := envelope.Msg()
+		log.Infof("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
+		log.Infof("Received country debug: %+v", receivedCountry)
+		expectedOutputQ2 = removeQ2(expectedOutputQ2, receivedCountry)
+		if len(expectedOutputQ2) == 0 {
+			log.Infof("All expected films received")
+			break
+		}
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+		timer.Reset(time.Second * 20)
+	}
+	timer.Stop()
+	if len(expectedOutputQ2) > 0 {
+		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
+	}
 }
 
 func removeQ1(slice []common.Row, movie common.Row) []common.Row {

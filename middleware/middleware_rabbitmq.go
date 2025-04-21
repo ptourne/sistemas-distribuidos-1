@@ -126,7 +126,7 @@ func (s *SenderRabbitmq[T]) Close() error {
 			if err != nil {
 				return fmt.Errorf("failed to publish a message: %v in chan %s", err, closeExchangeName(s.exchangeName))
 			}
-			log.Infof("CLOSEDDD message in chan %s", closeExchangeName(s.exchangeName))
+			log.Debugf("CLOSEDDD message in chan %s", closeExchangeName(s.exchangeName))
 		}
 		s.close.Close()
 		s.close = nil
@@ -343,7 +343,7 @@ func (s *SenderChannel[T]) Publish(ctx context.Context, msg T) error {
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
 	}
-	log.Infof("PUBLISHED message in chan %s", s.exchangeName)
+	log.Debugf("PUBLISHED message in chan %s", s.exchangeName)
 	return nil
 }
 
