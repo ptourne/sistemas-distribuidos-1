@@ -22,15 +22,15 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(3)
 
-	// go func() {
-	// 	defer wg.Done()
-	// 	processRatings()
-	// }()
-
 	go func() {
 		defer wg.Done()
-		processCredits()
+		processRatings()
 	}()
+
+	// go func() {
+	// 	defer wg.Done()
+	// 	processCredits()
+	// }()
 
 	go func() {
 		defer wg.Done()
@@ -150,7 +150,7 @@ func processRatings() {
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChan.Close()
 
-	nameReadQueue := "clean_ratings" // TODO: change
+	nameReadQueue := "joiner_ratings" // TODO: change
 	nameWriteQueue := "ratings"
 
 	receiver, err := middlewareChan.SuscribeTo(nameReadQueue)
@@ -180,7 +180,7 @@ func processRatings() {
 }
 
 func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.ConsoleLogger) {
-	timer := time.NewTimer(time.Hour * 1) // ToDo: change
+	timer := time.NewTimer(time.Minute * 5) // ToDo: change
 	ratings_received := 0
 	receiver.NotifyBlocked()
 	receiver.NotifyClose()
@@ -193,7 +193,7 @@ func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.Consol
 			log.Infof("Reconnected to middleware %s from ratings_consumer", MIDDLEWARE)
 			defer middlewareChan.Close()
 
-			nameReadQueue := "clean_ratings" // TODO: change
+			nameReadQueue := "joiner_ratings" // TODO: change
 
 			receiver, err = middlewareChan.SuscribeTo(nameReadQueue)
 			if err != nil {
@@ -224,19 +224,37 @@ func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.Consol
 		}
 		receivedRating := envelope.Msg()
 		ratings_received++
-		if ratings_received%100000 == 0 {
-			log.Infof("Received %d ratings", ratings_received)
-		}
-		if receivedRating.Strings["movieID"] == "" {
-			log.Debugf("Received empty rating: %v", receivedRating)
-			continue
-		}
+		log.Infof("Received %d ratings: %+v", ratings_received, receivedRating)
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Hour * 1)
+		// if ratings_received == 7 {
+		// 	break
+		// }
+		timer.Reset(time.Minute * 5)
 	}
 	timer.Stop()
 	log.Infof("Finished receiving. Received %d ratings", ratings_received)
+	// expected:
+	// 10000 ratings => 5 res
+	//	id: 16, avg: 3.6875
+	// 	id: 1653, avg: 3.8214285714285716
+	// 	id: 1956, avg: 4.25
+	// 	id: 45722, avg: 3.5
+	// 	id: 6636, avg: 5.0
+	// 50000 ratings => 6 res
+	// 	id: 16, avg: 3.787878787878788
+	// 	id: 1653, avg: 3.73
+	// 	id: 1956, avg: 3.75
+	// 	id: 45722, avg: 3.2777777777777777
+	// 	id: 6636, avg: 5.0
+	// 100000 ratings => 7 res
+	// 	id: 16, avg: 3.8732394366197185
+	// 	id: 1653, avg: 3.7666666666666666
+	// 	id: 1956, avg: 3.9038461538461537
+	// 	id: 45722, avg: 3.3706896551724137
+	// 	id: 48596, avg: 0.5
+	// 	id: 6636, avg: 4.333333333333333
+	// 	id: 69278, avg: 2.5
 }
 
 func cleanRatings(sender middleware.Sender[common.Row], log *logger.ConsoleLogger) {
@@ -256,8 +274,11 @@ func cleanRatings(sender middleware.Sender[common.Row], log *logger.ConsoleLogge
 	sender.NotifyClose()
 
 	for {
-		if ratings_count%100000 == 0 {
+		if ratings_count%10000 == 0 {
 			log.Infof("Processed %d lines from ratings", ratings_count)
+		}
+		if ratings_count == 50000 {
+			break
 		}
 		// if ratings_count%100000 == 0 {
 		// 	time.Sleep(1 * time.Second)

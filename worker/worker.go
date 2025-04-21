@@ -156,16 +156,20 @@ func NewWorker() Worker {
 	if err != nil {
 		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
 	}
-	var joiner_subscribers []string
+	var joiner_credits_subscribers []string
+	var joiner_ratings_subscribers []string
 	for i := range n_worker {
-		joiner_subscribers = append(joiner_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
+		joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
+		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
 	}
-	credits_clean := clean.NewCleanCredits(credits, joiner_subscribers)
-	ratings_clean := clean.NewCleanRatings(ratings, []string{})
+	credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers)
+	ratings_clean := clean.NewCleanRatings(ratings, joiner_ratings_subscribers)
+
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean, []string{"filter_release_date_l_2010_and_include_es"})
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar, []string{"q1"})
-	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean, []string{})
-	joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{})
+	// filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean, []string{})
+	// joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{})
+	joiner_ratings := joiner.NewJoinerRatings(filter_release_date_ge_2000_and_include_ar, ratings_clean, []string{})
 	return Worker{
 		Tasks: []task.Task{
 			movies_metadata_clean,
@@ -173,8 +177,9 @@ func NewWorker() Worker {
 			credits_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
-			filter_one_production_country,
-			joiner_credits,
+			// filter_one_production_country,
+			// joiner_credits,
+			joiner_ratings,
 		},
 	}
 }

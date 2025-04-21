@@ -78,6 +78,7 @@ compose_workers() {
                 condition: service_healthy
         volumes:
             - ${PWD}/joiner_credits:/joiner_credits
+            - ${PWD}/joiner_ratings:/joiner_ratings
 "
 }
 

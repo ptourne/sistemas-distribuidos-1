@@ -1,3 +1,5 @@
 datasets/credits.csv
 datasets/ratings.csv
 joiner_credits/joiner*/*.csv
+joiner_ratings/joiner*/*.csv
+

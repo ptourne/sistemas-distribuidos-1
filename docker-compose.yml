@@ -23,7 +23,7 @@ services:
         networks:
             - local_net
         environment:
-            - NUMBER_OF_WORKERS=7
+            - NUMBER_OF_WORKERS=30
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -38,7 +38,7 @@ services:
         entrypoint: /worker
         environment:
             - WORKER_ID=1
-            - N_JOINERS=7
+            - N_JOINERS=30
         networks:
             - local_net
         depends_on:
@@ -46,6 +46,7 @@ services:
                 condition: service_healthy
         volumes:
             - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker2:
         container_name: worker2
@@ -55,7 +56,7 @@ services:
         entrypoint: /worker
         environment:
             - WORKER_ID=2
-            - N_JOINERS=7
+            - N_JOINERS=30
         networks:
             - local_net
         depends_on:
@@ -63,6 +64,7 @@ services:
                 condition: service_healthy
         volumes:
             - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker3:
         container_name: worker3
@@ -72,7 +74,7 @@ services:
         entrypoint: /worker
         environment:
             - WORKER_ID=3
-            - N_JOINERS=7
+            - N_JOINERS=30
         networks:
             - local_net
         depends_on:
@@ -80,6 +82,7 @@ services:
                 condition: service_healthy
         volumes:
             - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker4:
         container_name: worker4
@@ -89,7 +92,7 @@ services:
         entrypoint: /worker
         environment:
             - WORKER_ID=4
-            - N_JOINERS=7
+            - N_JOINERS=30
         networks:
             - local_net
         depends_on:
@@ -97,6 +100,7 @@ services:
                 condition: service_healthy
         volumes:
             - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker5:
         container_name: worker5
@@ -106,7 +110,7 @@ services:
         entrypoint: /worker
         environment:
             - WORKER_ID=5
-            - N_JOINERS=7
+            - N_JOINERS=30
         networks:
             - local_net
         depends_on:
@@ -114,6 +118,7 @@ services:
                 condition: service_healthy
         volumes:
             - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker6:
         container_name: worker6
@@ -123,7 +128,7 @@ services:
         entrypoint: /worker
         environment:
             - WORKER_ID=6
-            - N_JOINERS=7
+            - N_JOINERS=30
         networks:
             - local_net
         depends_on:
@@ -131,6 +136,7 @@ services:
                 condition: service_healthy
         volumes:
             - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker7:
         container_name: worker7
@@ -140,7 +146,7 @@ services:
         entrypoint: /worker
         environment:
             - WORKER_ID=7
-            - N_JOINERS=7
+            - N_JOINERS=30
         networks:
             - local_net
         depends_on:
@@ -148,6 +154,421 @@ services:
                 condition: service_healthy
         volumes:
             - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker8:
+        container_name: worker8
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=8
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker9:
+        container_name: worker9
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=9
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker10:
+        container_name: worker10
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=10
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker11:
+        container_name: worker11
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=11
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker12:
+        container_name: worker12
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=12
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker13:
+        container_name: worker13
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=13
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker14:
+        container_name: worker14
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=14
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker15:
+        container_name: worker15
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=15
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker16:
+        container_name: worker16
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=16
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker17:
+        container_name: worker17
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=17
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker18:
+        container_name: worker18
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=18
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker19:
+        container_name: worker19
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=19
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker20:
+        container_name: worker20
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=20
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker21:
+        container_name: worker21
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=21
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker22:
+        container_name: worker22
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=22
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker23:
+        container_name: worker23
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=23
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker24:
+        container_name: worker24
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=24
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker25:
+        container_name: worker25
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=25
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker26:
+        container_name: worker26
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=26
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker27:
+        container_name: worker27
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=27
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker28:
+        container_name: worker28
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=28
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker29:
+        container_name: worker29
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=29
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker30:
+        container_name: worker30
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=30
+            - N_JOINERS=30
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
 networks:
     local_net:
