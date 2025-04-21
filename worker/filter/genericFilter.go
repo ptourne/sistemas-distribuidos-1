@@ -153,14 +153,14 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[c
 			envelope, ok, err := f.taskReceiver.Next(nil)
 			if err != nil {
 				if err.Error() == "read channel was closed" {
-					log.Infof("Channel closed: %v", f.Name())
+					log.Infof("Channel closed desde generic: %v", f.Name())
 					break
 				}
 				log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
 			if !ok {
-				log.Infof("Channel closed: %v", f.Name())
+				log.Infof("Channel closed desde generic2: %v", f.Name())
 				break
 			}
 			inputChannel <- envelope

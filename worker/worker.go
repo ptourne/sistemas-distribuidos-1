@@ -63,11 +63,12 @@ func (w Worker) Run() {
 			panic("Failed to cast to envelope")
 		}
 		row := envelope.Msg()
-		result := currentTask.ProcessAndSend(row)
-		if result == nil {
-			log.Debugf("Row filtered out: %v name: %v", row.Strings["title"], currentTask.Name())
+		err := currentTask.ProcessAndSend(row)
+		if err != nil {
+			log.Errorf("Failed to process message: %s", err)
 			continue
 		}
+		log.Debugf("TO ACK msg %v worker", envelope.Msg())
 		err = envelope.Ack(false)
 		unwrap(err, "Failed to ack message")
 		log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
@@ -114,7 +115,7 @@ func NewWorker() Worker {
 	movies_metadata_clean := clean.NewCleanMovies(movies_metadata)
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean, []string{"filter_release_date_l_2010_and_include_es"})
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar, []string{"q1"})
-	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean, []string{"q1f"}/*[]string{"reduce_by_country_sum_budget" , "q1f"}*/)
+	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata,[]string{"reduce_by_country_sum_budget" , "q1f"})
 	return Worker{
 		Tasks: []task.Task{
 			movies_metadata_clean,

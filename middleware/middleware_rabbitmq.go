@@ -118,14 +118,16 @@ func (s *SenderRabbitmq[T]) Close() error {
 	log.Debugf("CLOSING SENDER")
 	s.output.Close()
 	if s.close != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		err := s.close.Publish(ctx, CloseNotification{})
+		for range 100 {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err := s.close.Publish(ctx, CloseNotification{})
 
-		if err != nil {
-			return fmt.Errorf("failed to publish a message: %v in chan %s", err, closeExchangeName(s.exchangeName))
+			if err != nil {
+				return fmt.Errorf("failed to publish a message: %v in chan %s", err, closeExchangeName(s.exchangeName))
+			}
+			log.Infof("CLOSEDDD message in chan %s", closeExchangeName(s.exchangeName))
 		}
-		log.Infof("CLOSEDDD message in chan %s", closeExchangeName(s.exchangeName))
 		s.close.Close()
 		s.close = nil
 	}
@@ -255,12 +257,12 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
 		}
-		_,ch2, err := m.createQueue(closeExchangeName(outputName), sub)
+		_, ch2, err := m.createQueue(closeExchangeName(outputName), sub )
 		if err != nil {
 			return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
 		}
-		ch.Close()
 		ch2.Close()
+		ch.Close()
 	}
 
 	producerCountReq, err := createConsumer[T, CountProducerReq](m, producerCountReqExchangeName(outputName), "")
@@ -403,12 +405,15 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 			return processMsg[T](msg)
 
 		case _, ok := <-*r.close.C:
+			log.Debugf("A close channel was closed ARRIVE")
 			var err error
 			r.lastProducerCount, err = r.CountProducers()
+			log.Debugf("cant prod: %d", r.lastProducerCount)
 			if err != nil {
 				return nil, false, fmt.Errorf("failed to get producer count %v", err)
 			}
 			if r.lastProducerCount == 0 {
+				log.Infof("cant producers 0")
 				return r.nextHandleCloseMsg(ok, timeout)
 			}
 		case <-timeoutC:
@@ -433,7 +438,6 @@ func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope
 	const transmissionTime = time.Millisecond * 500
 	remaining := timeUntilArrivalToBroker - time.Since(*r.timeCloseNotificationArrived) // timeout until finish sending
 	remaining = max(remaining+transmissionTime, transmissionTime)
-	log.Infof("remaining time: %v", remaining)
 	depleteTimmer := time.NewTimer(remaining)
 	defer depleteTimmer.Stop()
 
@@ -442,15 +446,15 @@ func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope
 		timeoutC = timeout.C
 	}
 
-	log.Infof("timeout is not nil")
 	select {
 	case msg, ok := <-*r.input.C:
-		log.Infof("msg received: ok: %v, msg: %s", ok, string(msg.Body))
+		log.Debugf("msg received FROM nextIfNotifedClosed: msg: %s", string(msg.Body))
 		if !ok {
 			return nil, false, fmt.Errorf("read channel was closed")
 		}
 		return processMsg[T](msg)
 	case <-depleteTimmer.C:
+		log.Debugf("depleteTimmer reached")
 		r.asumeNoInFlightMsgs = true
 		return nil, false, nil
 	case <-timeoutC:
