@@ -70,6 +70,7 @@ compose_workers() {
         entrypoint: /worker
         environment:
             - WORKER_ID=$worker_id
+            - N_JOINERS=$number_of_workers
         networks:
             - local_net
         depends_on:

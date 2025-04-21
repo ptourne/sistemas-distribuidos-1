@@ -106,7 +106,42 @@ func DictionaryToListIso(input string) ([]string, bool) {
 		return result, false
 	}
 
-	cleaned := strings.ReplaceAll(input, "'", "\"")
+	// 'key' => "key"
+	reKey := regexp.MustCompile(`'([^']+)':`)
+	cleaned := reKey.ReplaceAllString(input, `"$1":`)
+	// values
+	reVal := regexp.MustCompile(`"\s*:\s*'(.+?)'[,}]`)
+	cleaned = reVal.ReplaceAllStringFunc(cleaned, func(match string) string {
+		start := strings.Index(match, "'") + 1
+		end := strings.LastIndex(match, "'")
+		if start <= 0 || end <= start {
+			return match
+		}
+		value := match[start:end]
+		value = strings.ReplaceAll(value, `\'`, `'`)
+
+		var escaped strings.Builder
+		for i := 0; i < len(value); i++ {
+			if value[i] == '"' {
+				if i == 0 || value[i-1] != '\\' {
+
+					escaped.WriteByte('\\')
+				}
+			}
+			escaped.WriteByte(value[i])
+		}
+
+		suffix := match[len(match)-1:]
+		return `" : "` + escaped.String() + `"` + suffix
+	})
+
+	reVal2 := regexp.MustCompile(`: ''`)
+	cleaned = reVal2.ReplaceAllString(cleaned, `: ""`)
+	cleaned = strings.ReplaceAll(cleaned, "\\xa0", " ")
+	cleaned = strings.ReplaceAll(cleaned, "\\xad", "-")
+	cleaned = strings.ReplaceAll(cleaned, "\\x92", "")
+
+	cleaned = strings.ReplaceAll(cleaned, "None", "null")
 	var items []NameCountry
 	err := json.Unmarshal([]byte(cleaned), &items)
 	if err != nil {

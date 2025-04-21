@@ -13,10 +13,11 @@ type CleanRatings struct {
 	input        task.Task
 	taskReceiver middleware.Receiver[common.Row]
 	taskSender   middleware.Sender[common.Row]
+	subscribers  []string
 }
 
-func NewCleanRatings(input task.Task) task.Task {
-	return &CleanRatings{input, nil, nil}
+func NewCleanRatings(input task.Task, subscribers []string) task.Task {
+	return &CleanRatings{input, nil, nil, subscribers}
 }
 
 func (f CleanRatings) Input() string {
@@ -77,7 +78,7 @@ func (f *CleanRatings) Connect(middlewareConnection middleware.MiddlewareCola[co
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middlewareConnection.WriteTo(f.Name())
+	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), f.subscribers)
 	f.taskReceiver.LimitUnacked(10000)
 
 	if err != nil {
@@ -90,7 +91,7 @@ func (f *CleanRatings) Connect(middlewareConnection middleware.MiddlewareCola[co
 		for {
 			envelope, ok, err := f.taskReceiver.Next(nil)
 			if err != nil {
-				if err.Error() == "read channel was closed" {
+				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
 					log.Infof("Channel closed: %v", f.Name())
 					break
 				}

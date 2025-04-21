@@ -136,7 +136,6 @@ func (m *MiddlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string)
 	}
 	return m.createReadQueue(sourceName, groupName)
 }
-
 func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueName string) (Receiver[T], error) {
 	inputQueue, ch, err := m.createQueue(readExchangeName, queueName)
 	if err != nil {
@@ -187,7 +186,7 @@ func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueNa
 	return receiver, nil
 }
 
-func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string) (Sender[T], error) {
+func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string) (Sender[T], error) {
 	outputCh, err := m.Conn.Channel()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open a channel: %v", err)
@@ -221,6 +220,15 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string) (Sender[T], error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
+
+	for _, sub := range subscribers {
+		_, ch, err := m.createQueue(outputName, sub)
+		if err != nil {
+			return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
+		}
+		ch.Close()
+	}
+
 	sender := &SenderRabbitmq[T]{
 		exchangeName: outputName,
 		outputCh:     outputCh,
@@ -412,7 +420,7 @@ func (s *SenderRabbitmq[T]) Send(row *T) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal film: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	err = s.outputCh.PublishWithContext(ctx,
 		s.exchangeName, // exchange

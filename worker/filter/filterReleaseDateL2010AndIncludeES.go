@@ -2,7 +2,7 @@ package filter
 
 import "github.com/ptourne/sistemas-distribuidos-1/worker/task"
 
-func NewFilterReleaseDateL2010AndIncludeES(input task.Task) task.Task {
+func NewFilterReleaseDateL2010AndIncludeES(input task.Task, subscribers []string) task.Task {
 	return &GenericFilter{
 		name:              "filter_release_date_l_2010_and_include_es",
 		input:             input,
@@ -12,5 +12,6 @@ func NewFilterReleaseDateL2010AndIncludeES(input task.Task) task.Task {
 		KeptFloatFields:   []string{},
 		KeptArrayFields:   []string{"genres"},
 		Maps:              []Map{MapProductionCountriesa{}},
+		subscribers:       subscribers,
 	}
 }

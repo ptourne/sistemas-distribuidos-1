@@ -5,6 +5,8 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
@@ -108,8 +110,12 @@ func (w *Worker) Run() {
 
 func unwrap(err error, msg string) {
 	if err != nil {
-		log.Fatalf("%s: %s", msg, err)
-		panic(err)
+		if strings.Contains(err.Error(), "channel/connection is not open") {
+			log.Warnf("%s: %s", msg, err)
+		} else {
+			log.Fatalf("%s: %s", msg, err)
+			panic(err)
+		}
 	}
 }
 
@@ -145,18 +151,26 @@ func NewWorker() Worker {
 	movies_metadata := NewSourceTask("movies_metadata")
 	credits := NewSourceTask("credits")
 	ratings := NewSourceTask("ratings")
-	movies_metadata_clean := clean.NewCleanMovies(movies_metadata)
-	credits_clean := clean.NewCleanCredits(credits)
-	ratings_clean := clean.NewCleanRatings(ratings)
-	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean)
-	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar)
-	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean)
-	joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean)
+	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country"})
+	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS")) // TODO: cambiar en el compose
+	if err != nil {
+		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
+	}
+	var joiner_subscribers []string
+	for i := range n_worker {
+		joiner_subscribers = append(joiner_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
+	}
+	credits_clean := clean.NewCleanCredits(credits, joiner_subscribers)
+	ratings_clean := clean.NewCleanRatings(ratings, []string{})
+	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean, []string{"filter_release_date_l_2010_and_include_es"})
+	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar, []string{"q1"})
+	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean, []string{})
+	joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{})
 	return Worker{
 		Tasks: []task.Task{
 			movies_metadata_clean,
-			credits_clean,
 			ratings_clean,
+			credits_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
 			filter_one_production_country,

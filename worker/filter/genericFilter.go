@@ -64,6 +64,7 @@ type GenericFilter struct {
 	Maps              []Map
 	taskReceiver      middleware.Receiver[common.Row]
 	taskSender        middleware.Sender[common.Row]
+	subscribers       []string
 }
 
 func (f *GenericFilter) Name() string {
@@ -140,7 +141,7 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[c
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middlewareConnection.WriteTo(f.Name())
+	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), f.subscribers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create write queue for task %s", f.Name())
 	}
@@ -151,7 +152,7 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[c
 		for {
 			envelope, ok, err := f.taskReceiver.Next(nil)
 			if err != nil {
-				if err.Error() == "read channel was closed" {
+				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
 					log.Infof("Channel closed: %v", f.Name())
 					break
 				}

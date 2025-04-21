@@ -5,7 +5,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterProductionCountriesLen1(input task.Task) task.Task {
+func NewFilterProductionCountriesLen1(input task.Task, subscribers []string) task.Task {
 	return &GenericFilter{
 		name:              "filter_one_production_country",
 		input:             input,
@@ -15,6 +15,7 @@ func NewFilterProductionCountriesLen1(input task.Task) task.Task {
 		KeptFloatFields:   []string{},
 		KeptArrayFields:   []string{},
 		Maps:              []Map{MapProductionCountries{}},
+		subscribers:       subscribers,
 	}
 }
 

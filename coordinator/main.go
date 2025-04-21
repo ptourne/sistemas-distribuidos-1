@@ -57,7 +57,7 @@ func processCredits() {
 	}
 	defer receiver.Close()
 
-	sender, err := middlewareChan.WriteTo(nameWriteQueue)
+	sender, err := middlewareChan.WriteTo(nameWriteQueue, []string{"clean_credits"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
@@ -119,11 +119,10 @@ func processCredits() {
 			log.Infof("No more credits")
 			break
 		}
-		if credits_received%100 == 0 {
-			log.Infof("Received %d credits", credits_received)
-		}
+
 		receivedCredit := envelope.Msg()
 		credits_received++
+		log.Infof("Received %d credits", credits_received)
 		actorsPerMovie[receivedCredit.Strings["movieID"]]++
 		//log.Debugf("Received credit: %v", receivedCredit)
 
@@ -136,7 +135,7 @@ func processCredits() {
 	}
 	timer.Stop()
 	//log.Infof("Actors per movie: %v", actorsPerMovie)
-	log.Infof("Processed %d credits, received %d flattened_actors", credits_count, credits_received) // Processed 45476 credits, received 45397 credits
+	log.Infof("Processed %d credits, received %d actors", credits_count, credits_received) // Processed 45476 credits, received 45397 credits
 	// if credits_received != 45397 {
 	// 	log.Errorf("Not all credits received. Expected 45397, got %d", credits_received)
 	// }
@@ -160,7 +159,7 @@ func processRatings() {
 	}
 	defer receiver.Close()
 
-	sender, err := middlewareChan.WriteTo(nameWriteQueue)
+	sender, err := middlewareChan.WriteTo(nameWriteQueue, []string{"clean_ratings"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
@@ -300,7 +299,7 @@ func cleanRatings(sender middleware.Sender[common.Row], log *logger.ConsoleLogge
 				}
 				defer middlewareChan.Close()
 				nameWriteQueue := "ratings"
-				sender, err = middlewareChan.WriteTo(nameWriteQueue)
+				sender, err = middlewareChan.WriteTo(nameWriteQueue, []string{"clean_ratings"})
 				if err != nil {
 					unwrap(err, "Failed to create write queue")
 				}
@@ -336,7 +335,7 @@ func processMovies() {
 	}
 	defer receiver.Close()
 
-	sender, err := middlewareChan.WriteTo(nameWriteQueue)
+	sender, err := middlewareChan.WriteTo(nameWriteQueue, []string{"clean_movies"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}

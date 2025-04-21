@@ -8,7 +8,7 @@ import (
 type MiddlewareCola[T any] interface {
 	ConsumeFrom(sourceName string, groupName string) (Receiver[T], error)
 	SuscribeTo(sourceName string) (Receiver[T], error)
-	WriteTo(writeExchangeName string) (Sender[T], error)
+	WriteTo(writeExchangeName string, subscribers []string) (Sender[T], error)
 	Close() error
 }
 

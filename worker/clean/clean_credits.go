@@ -13,10 +13,11 @@ type CleanCredits struct {
 	input        task.Task
 	taskReceiver middleware.Receiver[common.Row]
 	taskSender   middleware.Sender[common.Row]
+	subscribers  []string
 }
 
-func NewCleanCredits(input task.Task) task.Task {
-	return &CleanCredits{input, nil, nil}
+func NewCleanCredits(input task.Task, subscribers []string) task.Task {
+	return &CleanCredits{input, nil, nil, subscribers}
 }
 
 func (f CleanCredits) Input() string {
@@ -30,6 +31,7 @@ func (f CleanCredits) Name() string {
 func (f CleanCredits) ProcessAndSend(row common.Row) error {
 	output := f.process(row)
 	if output == nil {
+		log.Infof("Row dropped: %+v by cleaner", row)
 		return nil
 	}
 	return f.taskSender.Send(output)
@@ -55,7 +57,7 @@ func (f CleanCredits) process(row common.Row) *common.Row {
 
 	cast, err := utils.DictionaryToListName(row.Strings["cast"])
 	if err != nil {
-		log.Warnf("err: %v, could not parse cast for movie %s", err, row.Strings["ID"])
+		log.Warnf("err: %v, could not parse cast for movie %s", err, row.Strings["cast"])
 		return nil
 	}
 
@@ -77,7 +79,7 @@ func (f *CleanCredits) Connect(middlewareConnection middleware.MiddlewareCola[co
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middlewareConnection.WriteTo(f.Name())
+	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), f.subscribers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create write queue for task %s", f.Name())
 	}

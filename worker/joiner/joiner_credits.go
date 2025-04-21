@@ -25,10 +25,11 @@ type JoinerCredits struct {
 	doneCredits         atomic.Bool
 	pendingMovies       map[string]common.Row
 	pendingMoviesMu     sync.Mutex
+	subscribers         []string
 }
 
-func NewJoinerCredits(inputToProcess task.Task, inputToSave task.Task) task.Task {
-	joiner := JoinerCredits{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make(map[string]common.Row), sync.Mutex{}}
+func NewJoinerCredits(inputToProcess task.Task, inputToSave task.Task, subscribers []string) task.Task {
+	joiner := JoinerCredits{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make(map[string]common.Row), sync.Mutex{}, subscribers}
 	joiner.doneCredits.Store(false)
 	return &joiner
 }
@@ -53,7 +54,7 @@ func (f *JoinerCredits) ProcessAndSend(row common.Row) error {
 
 			return nil
 		}
-		err = f.processAndSendMovie(row)
+		err = f.processMovieAndSendActors(row)
 	} else if _, ok := row.Strings["ID"]; ok {
 		err = f.processCredit(row)
 	} else {
@@ -63,9 +64,17 @@ func (f *JoinerCredits) ProcessAndSend(row common.Row) error {
 	return err
 }
 
-func (f *JoinerCredits) processAndSendMovie(row common.Row) error {
+func (f *JoinerCredits) processMovieAndSendActors(row common.Row) error {
 
 	output, err := f.processMovie(row)
+	if err != nil {
+		//log.Errorf("Failed to process movie: %v", err)
+		return err
+	}
+	return f.sendActors(output, err)
+}
+
+func (f *JoinerCredits) sendActors(output []*common.Row, err error) error {
 	if err != nil {
 		//log.Errorf("Failed to process movie: %v", err)
 		return err
@@ -87,7 +96,7 @@ func (f *JoinerCredits) processCredit(row common.Row) error {
 	f.creditsProcessed++
 	movieID := row.Strings["ID"]
 	cast := row.Arrays["cast"]
-	log.Infof("Processing credit %v", f.creditsProcessed)
+	//log.Infof("Processing credit %v", f.creditsProcessed)
 	if f.creditsProcessed == 45476 && len(cast) == 0 { //TODO
 		f.notifyCreditsDone()
 	}
@@ -151,21 +160,24 @@ func (f *JoinerCredits) processCredit(row common.Row) error {
 		return err
 	}
 
-	// f.pendingMoviesMu.Lock()
-	// movie, found := f.pendingMovies[movieID]
-	// if found {
-	// 	delete(f.pendingMovies, movieID)
-	// }
-	// f.pendingMoviesMu.Unlock()
+	f.pendingMoviesMu.Lock()
+	_, found := f.pendingMovies[movieID]
+	if found {
+		//log.Infof("Found pending movie: %s in pending movies %v", movieID, f.pendingMovies)
+		delete(f.pendingMovies, movieID)
+	}
+	f.pendingMoviesMu.Unlock()
 
-	// if found {
-	// 	log.Infof("Processing pending movie: %s", movieID)
-	// 	if err := f.processAndSendMovie(movie); err != nil {
-	// 		log.Errorf("Failed to process pending movie: %v", err)
-	// 	}
-	// }
+	if found {
+		log.Infof("Processing pending movie: %s", movieID)
+		flattenCast := flattenCastList(cast, movieID)
+		err = f.sendActors(flattenCast, nil)
+		if err != nil {
+			log.Errorf("Failed to process pending movie: %v", err)
+		}
+	}
 
-	if f.creditsProcessed == 45476 { //TODO
+	if f.creditsProcessed == 45476 { //TODO: sacar cuando se mergee con los cambios del reducer
 		f.notifyCreditsDone()
 	}
 
@@ -175,7 +187,7 @@ func (f *JoinerCredits) processCredit(row common.Row) error {
 func (f *JoinerCredits) processMovie(row common.Row) ([]*common.Row, error) {
 	var flattenCast []*common.Row
 	movieID := row.Strings["movieID"]
-	log.Infof("Processing movie: %s", movieID)
+	//log.Infof("Processing movie: %s", movieID)
 	lastDigit := string(movieID[len(movieID)-1])
 	dirPath := fmt.Sprintf("joiner_credits/joiner%s", WORKER_ID)
 
@@ -225,6 +237,14 @@ func (f *JoinerCredits) processMovie(row common.Row) ([]*common.Row, error) {
 		return nil, err
 	}
 
+	flattenCast = flattenCastList(castList, movieID)
+	return flattenCast, nil
+
+}
+
+func flattenCastList(castList []string, movieID string) []*common.Row {
+	var flattenCast []*common.Row
+
 	for _, actor := range castList {
 		actor = strings.Trim(actor, " ")
 		if actor != "" {
@@ -236,14 +256,13 @@ func (f *JoinerCredits) processMovie(row common.Row) ([]*common.Row, error) {
 			})
 		}
 	}
-	return flattenCast, nil
-
+	return flattenCast
 }
 
 func (f *JoinerCredits) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
 	var err error
 	groupQueueName := fmt.Sprintf("joiner_%s_credits", WORKER_ID)
-	f.taskReceiverCredits, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName)
+	f.taskReceiverCredits, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName) //, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue clean_credits for task %s", f.Name())
 	}
@@ -253,7 +272,7 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.MiddlewareCola[c
 		return nil, fmt.Errorf("failed to create read queue %s for task %s", f.Input(), f.Name())
 	}
 
-	f.taskSender, err = middlewareConnection.WriteTo(f.Name())
+	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), f.subscribers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create write queue for task %s", f.Name())
 	}
@@ -270,11 +289,11 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.MiddlewareCola[c
 					log.Infof("Channel for credits closed from task: %v", f.Name())
 					break
 				}
-				log.Errorf("Error reading from middleware: %v", err)
+				log.Errorf("Error reading from middleware (joiner_credits): %v", err)
 				continue
 			}
 			if !ok {
-				//log.Infof("Channel closed: %v", f.Name())
+				log.Infof("Channel closed (credits): %v", f.Name())
 				break
 			}
 			inputChannelCredits <- envelope
@@ -295,7 +314,7 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.MiddlewareCola[c
 				continue
 			}
 			if !ok {
-				//log.Infof("Channel closed: %v", f.Name())
+				log.Infof("Channel closed (movies): %v", f.Name())
 				break
 			}
 			inputChannelMovies <- envelope
@@ -328,7 +347,7 @@ func (f *JoinerCredits) Finish() error {
 }
 
 func (f *JoinerCredits) notifyCreditsDone() {
-	log.Infof("Finished writing credits to file, have processed %d credits", f.creditsProcessed)
+	log.Infof("Finished writing credits to file by worker %v, have processed %d credits", WORKER_ID, f.creditsProcessed)
 	//f.taskReceiverCredits.Close()
 	f.doneCredits.Store(true)
 	f.pendingMoviesMu.Lock()
@@ -338,6 +357,6 @@ func (f *JoinerCredits) notifyCreditsDone() {
 
 	for _, row := range pendings {
 		//log.Infof("Process pending movie: %s", row.Strings["movieID"])
-		f.processAndSendMovie(row)
+		f.processMovieAndSendActors(row)
 	}
 }
