@@ -27,10 +27,10 @@ func main() {
 		processRatings()
 	}()
 
-	// go func() {
-	// 	defer wg.Done()
-	// 	processCredits()
-	// }()
+	go func() {
+		defer wg.Done()
+		processCredits()
+	}()
 
 	go func() {
 		defer wg.Done()
@@ -38,6 +38,7 @@ func main() {
 	}()
 
 	wg.Wait()
+	log.Infof("All tasks completed")
 }
 
 func processCredits() {
@@ -101,7 +102,7 @@ func processCredits() {
 	// sender.Close()
 	//log.Infof("Sender credits closed")
 
-	timer := time.NewTimer(time.Minute * 3)
+	timer := time.NewTimer(time.Minute * 5)
 	credits_received := 0
 	actorsPerMovie := make(map[string]int)
 	for {
@@ -122,23 +123,20 @@ func processCredits() {
 
 		receivedCredit := envelope.Msg()
 		credits_received++
-		log.Infof("Received %d credits", credits_received)
+		log.Infof("Received %d credits: %+v", credits_received, receivedCredit)
 		actorsPerMovie[receivedCredit.Strings["movieID"]]++
 		//log.Debugf("Received credit: %v", receivedCredit)
 
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Minute * 3)
-		if credits_received == 1515 {
-			break
-		}
+		timer.Reset(time.Minute * 1)
+		// if credits_received == 1515 {
+		// 	break
+		// }
 	}
 	timer.Stop()
 	//log.Infof("Actors per movie: %v", actorsPerMovie)
-	log.Infof("Processed %d credits, received %d actors", credits_count, credits_received) // Processed 45476 credits, received 45397 credits
-	// if credits_received != 45397 {
-	// 	log.Errorf("Not all credits received. Expected 45397, got %d", credits_received)
-	// }
+	log.Infof("Processed %d credits, received %d actors", credits_count, credits_received) // Expected 1515
 	// TODO: check expected results
 }
 
@@ -192,7 +190,7 @@ func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.Consol
 				unwrap(err, "Failed to create middleware")
 			}
 			log.Infof("Reconnected to middleware %s from ratings_consumer", MIDDLEWARE)
-			//defer middlewareChan.Close()
+			defer middlewareChan.Close()
 
 			nameReadQueue := "joiner_ratings" // TODO: change
 
@@ -200,7 +198,7 @@ func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.Consol
 			if err != nil {
 				unwrap(err, "Failed to create read queue")
 			}
-			//defer receiver.Close()
+			defer receiver.Close()
 			receiver.NotifyBlocked()
 			receiver.NotifyClose()
 		}
@@ -275,10 +273,10 @@ func cleanRatings(sender middleware.Sender[common.Row], log *logger.ConsoleLogge
 	sender.NotifyClose()
 
 	for {
-		if ratings_count%10000 == 0 {
+		if ratings_count%1000 == 0 {
 			log.Infof("Processed %d lines from ratings", ratings_count)
 		}
-		if ratings_count == 50000 {
+		if ratings_count == 10000 {
 			break
 		}
 		// if ratings_count%100000 == 0 {
@@ -427,7 +425,7 @@ func processMovies() {
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Minute * 3)
+		timer.Reset(time.Minute * 1)
 	}
 	timer.Stop()
 	if len(expected_output) > 0 {
@@ -467,7 +465,7 @@ func outputQueryOne() []common.Row {
 func remove(slice []common.Row, movie common.Row) []common.Row {
 	for i, v := range slice {
 		if v.Strings["title"] == movie.Strings["title"] && stringSlicesEqual(v.Arrays["genres"], movie.Arrays["genres"]) {
-			//log.Infof("Film matched expected")
+			log.Infof("Film matched expected")
 			return slices.Delete(slice, i, i+1)
 		}
 	}
