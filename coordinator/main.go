@@ -180,18 +180,19 @@ func processRatings() {
 }
 
 func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.ConsoleLogger) {
-	timer := time.NewTimer(time.Minute * 5) // ToDo: change
+	timer := time.NewTimer(time.Minute * 5) // ToDo: chan3e
 	ratings_received := 0
 	receiver.NotifyBlocked()
 	receiver.NotifyClose()
 	for {
 		if receiver.IsClosed() {
+			receiver.Close()
 			middlewareChan, err := middleware.NewRabbitmq[common.Row]()
 			if err != nil {
 				unwrap(err, "Failed to create middleware")
 			}
 			log.Infof("Reconnected to middleware %s from ratings_consumer", MIDDLEWARE)
-			defer middlewareChan.Close()
+			//defer middlewareChan.Close()
 
 			nameReadQueue := "joiner_ratings" // TODO: change
 
@@ -199,7 +200,7 @@ func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.Consol
 			if err != nil {
 				unwrap(err, "Failed to create read queue")
 			}
-			defer receiver.Close()
+			//defer receiver.Close()
 			receiver.NotifyBlocked()
 			receiver.NotifyClose()
 		}
@@ -230,7 +231,7 @@ func receiveRatings(receiver middleware.Receiver[common.Row], log *logger.Consol
 		// if ratings_received == 7 {
 		// 	break
 		// }
-		timer.Reset(time.Minute * 5)
+		timer.Reset(time.Minute * 1)
 	}
 	timer.Stop()
 	log.Infof("Finished receiving. Received %d ratings", ratings_received)
@@ -318,7 +319,7 @@ func cleanRatings(sender middleware.Sender[common.Row], log *logger.ConsoleLogge
 				} else {
 					log.Infof("Reconnected to middleware %s from ratings_producer", MIDDLEWARE)
 				}
-				defer middlewareChan.Close()
+				//defer middlewareChan.Close()
 				nameWriteQueue := "ratings"
 				sender, err = middlewareChan.WriteTo(nameWriteQueue, []string{"clean_ratings"})
 				if err != nil {
