@@ -23,9 +23,9 @@ services:
             - "50051:50051"
         networks:
             - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
+        environment:
+            - GRPC_PORT=50051
+            - GRPC_WORKERS=30
         healthcheck:
             test: ncat -zv localhost 50051
             interval: 10s
@@ -41,7 +41,7 @@ services:
         networks:
             - local_net
         environment:
-            - NUMBER_OF_WORKERS=1
+            - NUMBER_OF_WORKERS=10
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -58,7 +58,196 @@ services:
         entrypoint: /worker
         environment:
             - WORKER_ID=1
-            - N_JOINERS=1
+            - N_JOINERS=10
+            - NLP_GRPC_ADDR=sentiment_server:50051
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker2:
+        container_name: worker2
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=2
+            - N_JOINERS=10
+            - NLP_GRPC_ADDR=sentiment_server:50051
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker3:
+        container_name: worker3
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=3
+            - N_JOINERS=10
+            - NLP_GRPC_ADDR=sentiment_server:50051
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker4:
+        container_name: worker4
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=4
+            - N_JOINERS=10
+            - NLP_GRPC_ADDR=sentiment_server:50051
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker5:
+        container_name: worker5
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=5
+            - N_JOINERS=10
+            - NLP_GRPC_ADDR=sentiment_server:50051
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker6:
+        container_name: worker6
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=6
+            - N_JOINERS=10
+            - NLP_GRPC_ADDR=sentiment_server:50051
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker7:
+        container_name: worker7
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=7
+            - N_JOINERS=10
+            - NLP_GRPC_ADDR=sentiment_server:50051
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker8:
+        container_name: worker8
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=8
+            - N_JOINERS=10
+            - NLP_GRPC_ADDR=sentiment_server:50051
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker9:
+        container_name: worker9
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=9
+            - N_JOINERS=10
+            - NLP_GRPC_ADDR=sentiment_server:50051
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
+
+    worker10:
+        container_name: worker10
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=10
+            - N_JOINERS=10
             - NLP_GRPC_ADDR=sentiment_server:50051
         networks:
             - local_net

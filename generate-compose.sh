@@ -108,9 +108,9 @@ compose_sentiment_server() {
             - \"50051:50051\"
         networks:
             - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
+        environment:
+            - GRPC_PORT=50051
+            - GRPC_WORKERS=30
         healthcheck:
             test: ncat -zv localhost 50051
             interval: 10s

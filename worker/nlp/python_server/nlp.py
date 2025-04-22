@@ -1,7 +1,7 @@
 import grpc 
 # pip install grpcio grpcio-tools
 # python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. sentiment.proto
-
+import os
 from concurrent import futures
 from transformers import pipeline
 import sentiment_pb2 as sentiment_pb2
@@ -15,11 +15,12 @@ class SentimentServicer(sentiment_pb2_grpc.SentimentAnalyzerServicer):
         return sentiment_pb2.SentimentResponse(label=result['label'], score=result['score'])
 
 def serve():
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=5))
+    port = os.getenv("GRPC_PORT", "50051")
+    workers = int(os.getenv("GRPC_WORKERS", "5"))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=workers))
     sentiment_pb2_grpc.add_SentimentAnalyzerServicer_to_server(SentimentServicer(), server)
-    server.add_insecure_port('0.0.0.0:50051')
+    server.add_insecure_port(f"0.0.0.0:{port}")
     server.start()
-    print("Sentiment service running on port 50051")
     server.wait_for_termination()
 
 if __name__ == '__main__':

@@ -29,10 +29,11 @@ func (m *SentimentAndRateMap) Transform(row *common.Row, output *common.Row) err
 	resp, err := m.client.Analyze(context.Background(), &pb.SentimentRequest{Text: overview})
 	if err != nil {
 		log.Errorf("Error during sentiment analysis: %v", err)
+		// ToDo: Error during sentiment analysis: rpc error: code = Unknown desc = Exception calling application: The size of tensor a (649) must match the size of tensor b (512) at non-singleton dimension 1
 		return err
 	} else {
 		output.Strings["sentiment"] = resp.Label
-		log.Infof("Sentiment analysis result: %s", resp.Label)
+		//log.Infof("Sentiment analysis result: %s for movie %s", resp.Label, row.Strings["title"])
 	}
 
 	// Rate

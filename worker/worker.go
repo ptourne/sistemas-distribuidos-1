@@ -98,7 +98,7 @@ func (w *Worker) Run() {
 		row := envelope.Msg()
 		result := currentTask.ProcessAndSend(row)
 		if result != nil {
-			log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
+			log.Errorf("Failed to process row: %v by task: %v => err: %v", row, currentTask.Name(), result)
 			continue
 		}
 		err = envelope.Ack(false)
