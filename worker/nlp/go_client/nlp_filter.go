@@ -36,8 +36,8 @@ func (m *SentimentAndRateMap) Transform(row *common.Row, output *common.Row) err
 	}
 
 	// Rate
-	revenue, revenueOk := row.Numerics["revenue"]
-	budget, budgetOk := row.Numerics["budget"]
+	revenue, revenueOk := row.Floats["revenue"]
+	budget, budgetOk := row.Floats["budget"]
 	if revenueOk && budgetOk && budget != 0 {
 		output.Floats["rate"] = float64(revenue) / float64(budget)
 	}

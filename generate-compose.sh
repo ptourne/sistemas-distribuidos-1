@@ -112,11 +112,10 @@ compose_sentiment_server() {
             rabbitmq:
                 condition: service_healthy
         healthcheck:
-            test: "nc -z localhost 50051"
+            test: ncat -zv localhost 50051
             interval: 10s
             timeout: 10s
             retries: 10
-            start_period: 20s
 "
 }
 
