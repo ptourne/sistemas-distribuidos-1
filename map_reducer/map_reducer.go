@@ -179,8 +179,8 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			}
 			log.Debugf("Sent reduced partial result")
 		}
-		var producerCount int
-		countProducers := func() (int, error) {
+		var producerCount uint
+		countProducers := func() (uint, error) {
 			if WORKER_ID != "1" {
 				return 2, nil
 			}

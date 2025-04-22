@@ -150,7 +150,7 @@ func main() {
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
 	}
 
-	timer2 := time.NewTimer(time.Second * 20)
+	timer2 := time.NewTimer(time.Second * 120)
 
 	log.Infof("Verifying Q1F")
 	cant := 0
@@ -226,7 +226,7 @@ func main() {
 		{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	}
 
-	timer = time.NewTimer(time.Second * 40)
+	timer = time.NewTimer(time.Second * 120)
 
 	log.Infof("Verifying Q2")
 	for {

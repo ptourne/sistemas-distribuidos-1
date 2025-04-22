@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"time"
 
@@ -12,30 +13,43 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+const HEART_BEAT_INTERVAL = 1000 * time.Millisecond
+const HEART_BEAT_RTT = 500 * time.Millisecond
+
 type MiddlewareRabbitmq[T any] struct {
 	Conn *amqp.Connection
 }
 
 type ReceiverRabbitmq[T any] struct {
 	input                        ReceiverChannel[T]
-	close                        ReceiverChannel[CloseNotification]
-	producerCountReq             SenderChannel[CountProducerReq]
-	producerCountRes             ReceiverChannel[CountProducerReq]
+	close                        ReceiverChannel[HeartBeat]
 	asumeNoInFlightMsgs          bool
+	wereSomeProducers            bool
+	noMoreProducers              bool
+	heartBeatListener            ReceiverChannel[HeartBeat]
 	timeCloseNotificationArrived *time.Time
-	lastProducerCount            int
+	m                            *MiddlewareRabbitmq[T]
 }
 
 type ReceiverChannel[T any] struct {
 	exchangeName string
 	queueName    string
+	anonimous    bool
 	amqpCh       *amqp.Channel
 	C            *<-chan amqp.Delivery
+}
+
+func (r ReceiverChannel[T]) Purge() error {
+	_, err := r.amqpCh.QueuePurge(r.queueName, false)
+	return err
 }
 
 func (r *ReceiverChannel[T]) Close() {
 	if r.amqpCh != nil {
 		log.Debugf("Clossing channel '%s', '%s'", r.exchangeName, r.queueName)
+		if r.anonimous {
+			r.amqpCh.QueueDelete(r.queueName, false, false, false)
+		}
 		r.amqpCh.Close()
 		r.amqpCh = nil
 	}
@@ -47,11 +61,10 @@ type EnvelopeRabbitmq[T any] struct {
 }
 
 type SenderRabbitmq[T any] struct {
-	exchangeName             string
-	output                   SenderChannel[T]
-	close                    *SenderChannel[CloseNotification]
-	producerCountReplier     chan struct{}
-	producerCountReplierKill *chan struct{}
+	exchangeName string
+	output       SenderChannel[T]
+	heart        chan struct{}
+	killHeart    *chan struct{}
 }
 
 type SenderChannel[T any] struct {
@@ -67,7 +80,7 @@ func (s *SenderChannel[T]) Close() {
 	}
 }
 
-var log = logger.NewConsoleLogger("middleware", logger.Info)
+var log = logger.NewConsoleLogger("middleware", logger.Debug)
 
 func NewRabbitmq[T any]() (MiddlewareCola[T], error) {
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
@@ -107,34 +120,22 @@ func (r *ReceiverRabbitmq[T]) Close() error {
 	log.Debugf("CLOSING RECEIVER: '%s', '%s", r.input.exchangeName, r.input.queueName)
 	r.input.Close()
 	r.close.Close()
-	r.producerCountReq.Close()
-	r.producerCountRes.Close()
+	r.heartBeatListener.Close()
+	r.m = nil
 	return nil
 }
 
-type CloseNotification struct{}
+type HeartBeat struct {
+	ID uint `json:"id"`
+}
 
 func (s *SenderRabbitmq[T]) Close() error {
 	log.Debugf("CLOSING SENDER")
 	s.output.Close()
-	if s.close != nil {
-		for range 100 {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			err := s.close.Publish(ctx, CloseNotification{})
-
-			if err != nil {
-				return fmt.Errorf("failed to publish a message: %v in chan %s", err, closeExchangeName(s.exchangeName))
-			}
-			log.Debugf("CLOSEDDD message in chan %s", closeExchangeName(s.exchangeName))
-		}
-		s.close.Close()
-		s.close = nil
-	}
-	if s.producerCountReplierKill != nil {
-		close(*s.producerCountReplierKill)
-		<-s.producerCountReplier
-		s.producerCountReplierKill = nil
+	if s.killHeart != nil {
+		close(*s.killHeart)
+		<-s.heart
+		s.killHeart = nil
 	}
 	return nil
 }
@@ -165,36 +166,27 @@ func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueNa
 		return nil, err
 	}
 
-	close, err := createConsumer[T, CloseNotification](m, closeExchangeName(readExchangeName), "")
+	close, err := createConsumer[T, HeartBeat](m, heartBeatName(readExchangeName), "")
 	if err != nil {
 		return nil, err
 	}
 
-	producerCountRes, err := createConsumer[T, CountProducerReq](m, producerCountResExchangeName(readExchangeName), "")
+	heartBeatListener, err := createConsumer[T, HeartBeat](m, heartBeatName(readExchangeName), "")
 	if err != nil {
 		return nil, err
 	}
-
-	producerCountReq, err := CreateProducer[T, CountProducerReq](m, producerCountReqExchangeName(readExchangeName))
+	_, producerCount, err := getProducers(heartBeatListener)
 	if err != nil {
-		return nil, fmt.Errorf("failed to declare exchange %v", err)
+		return nil, err
 	}
-
 	receiver := &ReceiverRabbitmq[T]{
 		input:             input,
 		close:             close,
-		producerCountReq:  *producerCountReq,
-		producerCountRes:  producerCountRes,
-		lastProducerCount: -1,
+		wereSomeProducers: producerCount != 0,
+		heartBeatListener: heartBeatListener,
+		m:                 m,
 	}
-	// receiver.lastProducerCount, err = receiver.CountProducers()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to get producer count %v", err)
-	// }
-	// if receiver.lastProducerCount == 0 {
-	// 	receiver.lastProducerCount = -1
-	// }
-	log.Debugf("ReceiverRabbitmq: '%s', '%s', producer count: %d", receiver.input.exchangeName, receiver.input.queueName, receiver.lastProducerCount)
+	log.Debugf("ReceiverRabbitmq: '%s', '%s', producer count: %d", receiver.input.exchangeName, receiver.input.queueName, producerCount)
 	return receiver, nil
 }
 
@@ -223,7 +215,7 @@ func CreateProducer[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string)
 func createConsumer[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string, queueName string) (ReceiverChannel[I], error) {
 	inputQueue, inputCh, err := m.createQueue(readExchangeName, queueName)
 	if err != nil {
-		return ReceiverChannel[I]{}, nil
+		return ReceiverChannel[I]{}, err
 	}
 	msgs, err := inputCh.Consume(
 		inputQueue.Name, // queue
@@ -237,7 +229,7 @@ func createConsumer[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string,
 	if err != nil {
 		return ReceiverChannel[I]{}, fmt.Errorf("failed to register a consumer %v", err)
 	}
-	return ReceiverChannel[I]{readExchangeName, queueName, inputCh, &msgs}, nil
+	return ReceiverChannel[I]{readExchangeName, inputQueue.Name, queueName == "", inputCh, &msgs}, nil
 }
 
 func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string) (Sender[T], error) {
@@ -247,68 +239,46 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
 
-	closep, err := CreateProducer[T, CloseNotification](m, closeExchangeName(outputName))
+	// This could go inside the routine
+	// This is flawed as multiple writers could take the same ID.
+	// heartBeatListener, err := createConsumer[T, HeartBeat](m, heartBeatName(outputName), "")
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to declare exchange %v", err)
+	// }
+	// knownProducers, knownProducerCount, err := getProducers(heartBeatListener)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// heartBeatListener.Close()
+
+	// writerID := choseID(knownProducerCount, knownProducers)
+	writerID := rand.UintN(uint(math.Pow(2, 32)))
+
+	heartBeat, err := CreateProducer[T, HeartBeat](m, heartBeatName(outputName))
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
+	// end selection
 
-	for _, sub := range subscribers {
-		_, ch, err := m.createQueue(outputName, sub)
-		if err != nil {
-			return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
-		}
-		_, ch2, err := m.createQueue(closeExchangeName(outputName), sub)
-		if err != nil {
-			return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
-		}
-		ch2.Close()
-		ch.Close()
-	}
-
-	producerCountReq, err := createConsumer[T, CountProducerReq](m, producerCountReqExchangeName(outputName), "")
-	if err != nil {
-		return nil, fmt.Errorf("failed to register a consumer %v", err)
-	}
-
-	producerCountRes, err := CreateProducer[T, CountProducerReq](m, producerCountResExchangeName(outputName))
-	if err != nil {
-		return nil, fmt.Errorf("failed to declare exchange %v", err)
-	}
-
-	producerCountReplier := make(chan struct{})
+	heart := make(chan struct{})
 	producerCountReplierKill := make(chan struct{})
 	task := func() {
-		log.Debugf("Listening on producer count replier")
-		defer close(producerCountReplier)
-		defer producerCountRes.Close()
-		defer producerCountReq.Close()
+		defer close(heart)
+		defer heartBeat.Close()
+		pulse := time.After(HEART_BEAT_INTERVAL)
 		for {
-			log.Debugf("Waiting for producer count request: '%s' from '%s'", producerCountReq.exchangeName, producerCountReq.queueName)
 			select {
-			case msg := <-*producerCountReq.C:
-				log.Infof("RECEIVED producer count request: '%s' from '%s'", producerCountReq.exchangeName, producerCountReq.queueName)
-				req, ok, err := processMsg[CountProducerReq](msg)
-				if err != nil {
-					log.Errorf("error getting count producer request: %s when processing message '%s' from '%s' as '%s'", err, string(msg.Body), producerCountReq.exchangeName, producerCountReq.queueName)
-					return
-				}
-				if !ok {
-					log.Debugf("count producer request was closed")
-					return
-				}
-				log.Debugf("Received producer count request: '%s' from '%s' with id: %d", producerCountReq.exchangeName, producerCountReq.queueName, req.Msg().ID)
-				ctx, cancel := context.WithTimeout(context.Background(), 500*time.Second)
-				err = producerCountRes.Publish(ctx, req.Msg())
-				if err != nil {
-					log.Errorf("Error sending reply: %s", err)
-					req.Nack(false)
-					cancel()
-					return
-				}
+			case <-pulse:
+				pulse = time.After(HEART_BEAT_INTERVAL)
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(HEART_BEAT_INTERVAL))
+				err = heartBeat.Publish(ctx, HeartBeat{uint(writerID)})
 				cancel()
-				req.Ack(false)
+				if err != nil {
+					log.Errorf("Error sending heartbeat: %s", err)
+					return
+				}
 			case <-producerCountReplierKill:
-				log.Infof("kill go routine for producer count request: '%s' from '%s'", producerCountReq.exchangeName, producerCountReq.queueName)
+				log.Infof("kill go routine for producer heart beat: '%s'", heartBeat.exchangeName)
 				return
 			}
 		}
@@ -316,13 +286,55 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 	go task()
 
 	sender := &SenderRabbitmq[T]{
-		exchangeName:             outputName,
-		output:                   *output,
-		close:                    closep,
-		producerCountReplier:     producerCountReplier,
-		producerCountReplierKill: &producerCountReplierKill,
+		exchangeName: outputName,
+		output:       *output,
+		heart:        heart,
+		killHeart:    &producerCountReplierKill,
 	}
 	return sender, nil
+}
+
+func getProducers(heartBeatListener ReceiverChannel[HeartBeat]) (map[uint]bool, uint, error) {
+	timer := time.After(HEART_BEAT_INTERVAL + HEART_BEAT_RTT)
+	knownProducers := make(map[uint]bool)
+	count := uint(0)
+	err := heartBeatListener.Purge()
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to purge queue: %s", err)
+	}
+	for {
+		select {
+		case <-timer:
+			return knownProducers, count, nil
+		case msg := <-*heartBeatListener.C:
+			envelope, ok, err := processMsg[HeartBeat](msg)
+			if err != nil {
+				log.Errorf("Error processing message: %s", err)
+				continue
+			}
+			if !ok {
+				log.Errorf("Invalid message type")
+				continue
+			}
+			envelope.Ack(false)
+			cID := envelope.Msg().ID
+			if !knownProducers[cID] {
+				knownProducers[cID] = true
+				count++
+			}
+		}
+	}
+}
+
+func choseID(knownProducerCount uint, knownProducersCache map[uint]bool) uint {
+	idCandidate := uint(1)
+	for range knownProducerCount + 1 {
+		if !knownProducersCache[idCandidate] {
+			break
+		}
+		idCandidate++
+	}
+	return idCandidate
 }
 
 func (s *SenderChannel[T]) Publish(ctx context.Context, msg T) error {
@@ -347,10 +359,6 @@ func (s *SenderChannel[T]) Publish(ctx context.Context, msg T) error {
 	return nil
 }
 
-type CountProducerReq struct {
-	ID uint `json:"id"`
-}
-
 // Returns:
 // - Envelope[T]: The next message from the input channel.
 // - bool: True if the message was successfully processed, false otherwise.
@@ -366,28 +374,22 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 		panic("Should not call Next() when already received close notification")
 	}
 
-	// if r.lastProducerCount == -1 {
-	// 	log.Debugf("Waiting for producers to start in '%s'", r.input.exchangeName)
-	// 	for range 60 {
-	// 		producerCount, err := r.CountProducers()
-	// 		if err != nil {
-	// 			return nil, false, fmt.Errorf("failed to get producer count %v", err)
-	// 		}
-	// 		log.Debugf("Producer count: %d in %s", producerCount, r.input.exchangeName)
-	// 		if producerCount > 0 {
-	// 			r.lastProducerCount = int(producerCount)
-	// 			break
-	// 		}
-	// 		log.Infof("Waiting for producers to start...")
-	// 		time.Sleep(2 * time.Second)
-	// 	}
-	// 	if r.lastProducerCount == -1 {
-	// 		log.Infof("No producers found")
-	// 		r.lastProducerCount = 0
-	// 	}
-	// }
+	if !r.wereSomeProducers {
+		log.Debugf("Waiting for producers")
+		heartBeatListener, err := createConsumer[T, HeartBeat](r.m, heartBeatName(r.input.exchangeName), "")
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to declare exchange %v", err)
+		}
+		select {
+		case <-*heartBeatListener.C:
+			r.wereSomeProducers = true
+		case <-time.After(time.Minute):
+			return nil, false, fmt.Errorf("No producers on sight")
+		}
 
-	if r.lastProducerCount == 0 {
+	}
+
+	if r.noMoreProducers {
 		return r.nextIfNotifedClosed(timeout)
 	}
 
@@ -396,6 +398,11 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 		timeoutC = timeout.C
 	}
 
+	noMoreProducers, kill, err := r.monitorClose()
+	if err != nil {
+		return nil, false, err
+	}
+	defer close(kill)
 	for {
 		select {
 		case msg, ok := <-*r.input.C:
@@ -404,18 +411,8 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 			}
 			return processMsg[T](msg)
 
-		case _, ok := <-*r.close.C:
-			log.Debugf("A close channel was closed ARRIVE")
-			var err error
-			r.lastProducerCount, err = r.CountProducers()
-			log.Debugf("cant prod: %d", r.lastProducerCount)
-			if err != nil {
-				return nil, false, fmt.Errorf("failed to get producer count %v", err)
-			}
-			if r.lastProducerCount == 0 {
-				log.Infof("cant producers 0")
-				return r.nextHandleCloseMsg(ok, timeout)
-			}
+		case _, ok := <-noMoreProducers:
+			return r.nextHandleCloseMsg(ok, timeout)
 		case <-timeoutC:
 			return nil, false, fmt.Errorf("timeout reached while waiting for message")
 		}
@@ -427,6 +424,7 @@ func (r *ReceiverRabbitmq[T]) nextHandleCloseMsg(ok bool, timeout *time.Timer) (
 	if !ok {
 		return nil, false, fmt.Errorf("close channel was closed")
 	}
+	r.noMoreProducers = true
 	newVar := time.Now()
 	r.timeCloseNotificationArrived = &newVar
 	return r.nextIfNotifedClosed(timeout)
@@ -579,53 +577,41 @@ func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName strin
 	return &queue, ch, nil
 }
 
-func closeExchangeName(readExchangeName string) string {
-	return fmt.Sprintf("%s_close", readExchangeName)
+func heartBeatName(readExchangeName string) string {
+	return fmt.Sprintf("%s_hb", readExchangeName)
 }
 
-func producerCountReqExchangeName(readExchangeName string) string {
-	return fmt.Sprintf("%s_count_req", readExchangeName)
+func (r *ReceiverRabbitmq[T]) CountProducers() (uint, error) {
+	_, count, err := getProducers(r.heartBeatListener)
+	return count, err
 }
 
-func producerCountResExchangeName(readExchangeName string) string {
-	return fmt.Sprintf("%s_count_res", readExchangeName)
-}
-
-func (r *ReceiverRabbitmq[T]) CountProducers() (int, error) {
-	log.Infof("Calling count producers '%s'-'%s'", r.input.exchangeName, r.input.queueName)
-	producerCount := 0
-	reqID := rand.UintN(1000000000)
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Second)
-	err := r.producerCountReq.Publish(ctx, CountProducerReq{reqID})
-	if err != nil {
-		cancel()
-		return 0, err
-	}
-	cancel()
-	timer := time.NewTimer(time.Millisecond * 500)
-	shouldContinue := true
-	for shouldContinue {
-		select {
-		case <-timer.C:
-			shouldContinue = false
-		default:
+func (r *ReceiverRabbitmq[T]) monitorClose() (result <-chan bool, kill chan struct{}, err error) {
+	res := make(chan bool)
+	kill = make(chan struct{})
+	go func() {
+		for {
+			timer := time.After(HEART_BEAT_INTERVAL + HEART_BEAT_RTT)
 			select {
-			case msg := <-*r.producerCountRes.C:
-				rep, _, err := processMsg[CountProducerReq](msg)
+			case <-timer:
+				res <- true
+				return
+			case msg := <-*r.heartBeatListener.C:
+				envelope, ok, err := processMsg[HeartBeat](msg)
 				if err != nil {
-					rep.Nack(false)
-					return 0, err
+					log.Errorf("Error processing message: %s", err)
+					continue
 				}
-				if rep.Msg().ID == reqID {
-					producerCount++
+				if !ok {
+					log.Errorf("Invalid message type")
+					continue
 				}
-				rep.Ack(false)
-			case <-timer.C:
-				shouldContinue = false
-				break
+				envelope.Ack(false)
+			case <-kill:
+				res <- false
+				return
 			}
 		}
-	}
-
-	return producerCount, nil
+	}()
+	return res, kill, nil
 }
