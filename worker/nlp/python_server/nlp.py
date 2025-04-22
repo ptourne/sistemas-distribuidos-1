@@ -11,7 +11,7 @@ sentiment_analyzer = pipeline('sentiment-analysis', model='distilbert-base-uncas
 
 class SentimentServicer(sentiment_pb2_grpc.SentimentAnalyzerServicer):
     def Analyze(self, request, context):
-        result = sentiment_analyzer(request.text)[0]
+        result = sentiment_analyzer(request.text, truncation=True)[0]
         return sentiment_pb2.SentimentResponse(label=result['label'], score=result['score'])
 
 def serve():

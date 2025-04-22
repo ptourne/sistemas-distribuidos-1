@@ -91,6 +91,8 @@ type GenericFilter struct {
 	taskReceiver      middleware.Receiver[common.Row]
 	taskSender        middleware.Sender[common.Row]
 	subscribers       []string
+	linesProcessed    int // ToDo: sacar
+	linesFiltered     int // ToDo: sacar
 }
 
 func (f *GenericFilter) Name() string {
@@ -101,9 +103,13 @@ func (f *GenericFilter) Input() string {
 	return f.input.Name()
 }
 
-func (f GenericFilter) ProcessAndSend(row common.Row) error {
+func (f *GenericFilter) ProcessAndSend(row common.Row) error {
 	output := f.process(row)
+	f.linesProcessed++
+	log.Infof("Processing row n°: %v have filtered: %v", f.linesProcessed, f.linesFiltered)
 	if output == nil {
+		f.linesFiltered++
+		//log.Infof("Row n°: %v failed to pass conditions", f.i)
 		return nil
 	}
 	return f.taskSender.Send(output)
@@ -118,6 +124,7 @@ func (f GenericFilter) process(row common.Row) *common.Row {
 		}
 		if !passes {
 			f.Logf("Row %+v failed condition: %+v", row, condition)
+			log.Infof("Row %+v failed condition: %+v", row, condition)
 			return nil
 		}
 	}
@@ -148,7 +155,11 @@ func (f GenericFilter) process(row common.Row) *common.Row {
 		}
 	}
 	for _, mapf := range f.Maps {
-		mapf.Transform(&row, res)
+		err := mapf.Transform(&row, res)
+		if err != nil {
+			log.Errorf("Error during map transformation: %v", err)
+			return nil
+		}
 	}
 	return res
 }

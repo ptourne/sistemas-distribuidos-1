@@ -91,12 +91,22 @@ print(f"movies cleaned: {movies_df_cleaned.shape}")
 # Q5
 
 q5_input_df = movies_df_cleaned.copy()
+print(f"q5_input_df shape: {q5_input_df.shape}") # (5370, 9)
 q5_input_df = q5_input_df.loc[q5_input_df['budget'] != 0]
 q5_input_df = q5_input_df.loc[q5_input_df['revenue'] != 0]
 print(f"q5_input_df shape: {q5_input_df.shape}") # (5370, 9)
 sentiment_analyzer = pipeline('sentiment-analysis', model='distilbert-base-uncased-finetuned-sst-2-english')
-q5_input_df['sentiment'] = q5_input_df['overview'].fillna('').apply(lambda x: sentiment_analyzer(x)[0]['label'])
+q5_input_df['sentiment'] = q5_input_df['overview'].fillna('').apply(
+    lambda x: sentiment_analyzer(x, truncation=True)[0]['label']
+)
 q5_input_df["rate_revenue_budget"] = q5_input_df["revenue"] / q5_input_df["budget"]
-print(q5_input_df.sample(10))    
-                                                                    
+#print(q5_input_df.sample(10))    
+print("cant by sentiment: ", q5_input_df['sentiment'].value_counts())
+# cant by sentiment:  
+# POSITIVE    3091
+# NEGATIVE    2279
+average_rate_by_sentiment = q5_input_df.groupby("sentiment")["rate_revenue_budget"].mean()
+print(average_rate_by_sentiment)                                                                   
 
+# NEGATIVE    5453.397595
+# POSITIVE    5668.650541

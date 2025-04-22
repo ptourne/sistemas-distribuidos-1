@@ -440,6 +440,12 @@ func processMovies() {
 
 	cant := 0
 	timer := time.NewTimer(time.Minute * 3)
+
+	sum_sentiment_pos := 0.0
+	cant_sentiment_pos := 0
+	sum_sentiment_neg := 0.0
+	cant_sentiment_neg := 0
+
 	for {
 		envelope, ok, err := receiverQ5.Next(timer)
 		if err != nil {
@@ -459,19 +465,35 @@ func processMovies() {
 			log.Infof("No more films")
 			break
 		}
-		//receivedMovie := envelope.Msg()
+		receivedMovie := envelope.Msg()
 		//log.Infof("Received film debug: %+v", receivedMovie)
 		cant++
 		if cant%100 == 0 {
 			log.Infof("Received: %v", cant)
+		}
+		if receivedMovie.Strings["sentiment"] == "POSITIVE" {
+			cant_sentiment_pos++
+			sum_sentiment_pos += receivedMovie.Floats["rate"]
+		} else if receivedMovie.Strings["sentiment"] == "NEGATIVE" {
+			cant_sentiment_neg++
+			sum_sentiment_neg += receivedMovie.Floats["rate"]
+		} else {
+			log.Errorf("Unknown sentiment: %s", receivedMovie.Strings["sentiment"])
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
 		timer.Reset(time.Minute * 1)
 	}
 	timer.Stop()
+	avg_sentiment_pos := float64(sum_sentiment_pos) / float64(cant_sentiment_pos)
+	avg_sentiment_neg := float64(sum_sentiment_neg) / float64(cant_sentiment_neg)
 	log.Infof("Received %d films from sentiment and rate", cant)
-	// expected 5370 films, got 5311
+	log.Infof("Received %d positive sentiments", cant_sentiment_pos)
+	log.Infof("Received %d negative sentiments", cant_sentiment_neg)
+	log.Infof("Average sentiment positive: %f, negative: %f", avg_sentiment_pos, avg_sentiment_neg)
+	// Expected:
+	// NEGATIVE    5453.397595
+	// POSITIVE    5668.650541
 
 }
 
