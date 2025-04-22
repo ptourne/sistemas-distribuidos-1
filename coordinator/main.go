@@ -22,15 +22,15 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(3)
 
-	// go func() {
-	// 	defer wg.Done()
-	// 	processRatings()
-	// }()
+	go func() {
+		defer wg.Done()
+		processRatings()
+	}()
 
-	// go func() {
-	// 	defer wg.Done()
-	// 	processCredits()
-	// }()
+	go func() {
+		defer wg.Done()
+		processCredits()
+	}()
 
 	go func() {
 		defer wg.Done()
@@ -347,13 +347,13 @@ func processMovies() {
 	defer middlewareChan.Close()
 
 	nameWriteQueue := "movies_metadata"
-	// nameReadQueueQ1 := "filter_release_date_l_2010_and_include_es"
+	nameReadQueueQ1 := "filter_release_date_l_2010_and_include_es"
 
-	// receiverQ1, err := middlewareChan.SuscribeTo(nameReadQueueQ1)
-	// if err != nil {
-	// 	unwrap(err, "Failed to create read queue")
-	// }
-	// defer receiverQ1.Close()
+	receiverQ1, err := middlewareChan.SuscribeTo(nameReadQueueQ1)
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer receiverQ1.Close()
 
 	nameReadQueueQ5 := "map_sentiment_rate"
 	receiverQ5, err := middlewareChan.SuscribeTo(nameReadQueueQ5)
@@ -404,42 +404,42 @@ func processMovies() {
 	}
 	log.Debugf("CSV processing completed (movies_metadata)")
 
-	//expected_output := outputQueryOne()
-	// timer := time.NewTimer(time.Minute * 3)
-	// for {
-	// 	envelope, ok, err := receiverQ1.Next(timer)
-	// 	if err != nil {
-	// 		if err.Error() == "timeout reached while waiting for message" {
-	// 			log.Infof("Timeout reached while waiting for message")
-	// 			break
-	// 		} else {
-	// 			log.Errorf("Failed to read message: %v", err)
-	// 			continue
-	// 		}
-	// 	}
-	// 	if !ok {
-	// 		log.Infof("No more films")
-	// 		break
-	// 	}
-	// 	receivedMovie := envelope.Msg()
-	// 	log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
-	// 	log.Infof("Received film debug: %+v", receivedMovie)
-	// 	expected_output = remove(expected_output, receivedMovie)
-	// 	if len(expected_output) == 0 {
-	// 		log.Infof("All expected films received")
-	// 		break
-	// 	}
-	// 	err = envelope.Ack(true)
-	// 	unwrap(err, "Failed to ack message")
-	// 	timer.Reset(time.Minute * 1)
-	// }
-	// timer.Stop()
-	// if len(expected_output) > 0 {
-	// 	log.Errorf("Not all expected films received. Missing %v", expected_output)
-	// }
+	expected_output := outputQueryOne()
+	timer := time.NewTimer(time.Minute * 3)
+	for {
+		envelope, ok, err := receiverQ1.Next(timer)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
+				continue
+			}
+		}
+		if !ok {
+			log.Infof("No more films")
+			break
+		}
+		receivedMovie := envelope.Msg()
+		log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
+		log.Infof("Received film debug: %+v", receivedMovie)
+		expected_output = remove(expected_output, receivedMovie)
+		if len(expected_output) == 0 {
+			log.Infof("All expected films received")
+			break
+		}
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+		timer.Reset(time.Minute * 1)
+	}
+	timer.Stop()
+	if len(expected_output) > 0 {
+		log.Errorf("Not all expected films received. Missing %v", expected_output)
+	}
 
 	cant := 0
-	timer := time.NewTimer(time.Minute * 3)
+	timer = time.NewTimer(time.Minute * 3)
 
 	sum_sentiment_pos := 0.0
 	cant_sentiment_pos := 0
