@@ -159,7 +159,7 @@ func DictionaryToListIso(input string) ([]string, bool) {
 	return result, true
 }
 
-func ParseFloat(s string) (uint, bool) { // TODO: Handle empty strings
+func ParseInt(s string) (uint, bool) { // TODO: Handle empty strings
 	if s == "" {
 		return 0, false
 	}
@@ -168,4 +168,15 @@ func ParseFloat(s string) (uint, bool) { // TODO: Handle empty strings
 		return 0, false
 	}
 	return uint(value), true
+}
+
+func ParseFloat(s string) (float64, bool) { // TODO: Handle empty strings
+	if s == "" {
+		return 0.0, false
+	}
+	value, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0.0, false
+	}
+	return value, true
 }

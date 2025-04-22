@@ -5,6 +5,8 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
@@ -23,24 +25,40 @@ type Worker struct {
 var WORKER_ID = os.Getenv("WORKER_ID")
 var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
 
-func (w Worker) Run() {
+func (w *Worker) Run() {
 	middlewareConnection, err := middleware.NewRabbitmq[common.Row]()
 	if err != nil {
 		unwrap(err, "Failed to create middleware")
 	}
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareConnection.Close()
-	cases := make([]reflect.SelectCase, len(w.Tasks))
-	for i, task := range w.Tasks {
-		inputChannel, err := task.Connect(middlewareConnection)
+	var cases []reflect.SelectCase
+	//cases := make([]reflect.SelectCase, len(w.Tasks))
+	var taskRefs []task.Task
+	taskClosedChannels := map[string]int{}
+	taskChannelCounts := map[string]int{}
+
+	for _, task := range w.Tasks {
+		inputChannels, err := task.Connect(middlewareConnection)
 		if err != nil {
 			log.Fatalf("Failed to create channel for task %s: %s", task.Name(), err)
 		}
 
-		cases[i] = reflect.SelectCase{
-			Dir:  reflect.SelectRecv,
-			Chan: reflect.ValueOf(inputChannel),
+		taskChannelCounts[task.Name()] = len(inputChannels)
+		taskClosedChannels[task.Name()] = 0
+
+		for _, ch := range inputChannels {
+			cases = append(cases, reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(ch),
+			})
+			taskRefs = append(taskRefs, task)
 		}
+
+		// cases[i] = reflect.SelectCase{
+		// 	Dir:  reflect.SelectRecv,
+		// 	Chan: reflect.ValueOf(inputChannel),
+		// }
 	}
 
 	for {
@@ -49,23 +67,38 @@ func (w Worker) Run() {
 			break
 		}
 		i, val, ok := reflect.Select(cases)
-		currentTask := w.Tasks[i]
+		//currentTask := w.Tasks[i]
+		currentTask := taskRefs[i]
 		if !ok {
-			log.Infof("Channel closed: %s", currentTask.Name())
+			log.Infof("Channel closed from task: %s", currentTask.Name())
 			cases = slices.Delete(cases, i, i+1)
-			w.Tasks = slices.Delete(w.Tasks, i, i+1)
-			currentTask.Finish()
+			taskClosedChannels[currentTask.Name()]++
+			taskRefs = slices.Delete(taskRefs, i, i+1)
+			if taskClosedChannels[currentTask.Name()] == taskChannelCounts[currentTask.Name()] {
+				log.Infof("All channels closed for task: %s", currentTask.Name())
+				currentTask.Finish()
+				for j, task := range w.Tasks {
+
+					if task.Name() == currentTask.Name() {
+						w.Tasks = slices.Delete(w.Tasks, j, j+1)
+						break
+					}
+				}
+				//currentTask.Finish()
+
+			}
 			continue
 		}
+
 		log.Debugf("Received message from channel %d", i)
 		envelope, ok := val.Interface().(middleware.Envelope[common.Row])
 		if !ok {
 			panic("Failed to cast to envelope")
 		}
 		row := envelope.Msg()
-		err := currentTask.ProcessAndSend(row)
-		if err != nil {
-			log.Errorf("Failed to process message: %s", err)
+		result := currentTask.ProcessAndSend(row)
+		if result != nil {
+			log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
 			continue
 		}
 		log.Debugf("TO ACK msg %v worker", envelope.Msg())
@@ -77,8 +110,12 @@ func (w Worker) Run() {
 
 func unwrap(err error, msg string) {
 	if err != nil {
-		log.Fatalf("%s: %s", msg, err)
-		panic(err)
+		if strings.Contains(err.Error(), "channel/connection is not open") {
+			log.Warnf("%s: %s", msg, err)
+		} else {
+			log.Fatalf("%s: %s", msg, err)
+			panic(err)
+		}
 	}
 }
 
@@ -106,22 +143,49 @@ func (t *SourceTask) Finish() error {
 	return nil
 }
 
-func (t *SourceTask) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) (chan middleware.Envelope[common.Row], error) {
+func (t *SourceTask) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
 	return nil, nil
 }
 
 func NewWorker() Worker {
 	movies_metadata := NewSourceTask("movies_metadata")
-	movies_metadata_clean := clean.NewCleanMovies(movies_metadata)
+	// credits := NewSourceTask("credits")
+	// ratings := NewSourceTask("ratings")
+	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country", "map_sentiment_rate"})
+	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS")) // TODO: cambiar en el compose
+	if err != nil {
+		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
+	}
+	var joiner_credits_subscribers []string
+	var joiner_ratings_subscribers []string
+	for i := range n_worker {
+		joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
+		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
+	}
+	// credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers)
+	// ratings_clean := clean.NewCleanRatings(ratings, joiner_ratings_subscribers)
+
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean, []string{"filter_release_date_l_2010_and_include_es"})
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar, []string{"q1"})
-	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean, []string{"reduce_by_country_sum_budget", "q1f"})
+	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean, []string{})
+	// joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{})
+	// joiner_ratings := joiner.NewJoinerRatings(filter_release_date_ge_2000_and_include_ar, ratings_clean, []string{})
+
+	//grpcAddress := os.Getenv("NLP_GRPC_ADDR")
+
+	//map_nlp := filter.NewFilterSentimentAndRate(movies_metadata_clean, []string{}, grpcAddress)
+
 	return Worker{
 		Tasks: []task.Task{
 			movies_metadata_clean,
+			// ratings_clean,
+			// credits_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
 			filter_one_production_country,
+			//joiner_credits,
+			//joiner_ratings,
+			//map_nlp,
 		},
 	}
 }

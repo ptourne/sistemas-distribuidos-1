@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
+	"sync/atomic"
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
@@ -24,6 +25,8 @@ type ReceiverRabbitmq[T any] struct {
 	asumeNoInFlightMsgs          bool
 	timeCloseNotificationArrived *time.Time
 	lastProducerCount            int
+	// isBlocked           atomic.Bool
+	// isClosed            atomic.Bool
 }
 
 type ReceiverChannel[T any] struct {
@@ -52,6 +55,8 @@ type SenderRabbitmq[T any] struct {
 	close                    *SenderChannel[CloseNotification]
 	producerCountReplier     chan struct{}
 	producerCountReplierKill *chan struct{}
+	isBlocked    atomic.Bool
+	isClosed     atomic.Bool
 }
 
 type SenderChannel[T any] struct {
@@ -158,7 +163,6 @@ func (m *MiddlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string)
 	}
 	return m.createReadQueue(sourceName, groupName)
 }
-
 func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueName string) (Receiver[T], error) {
 	input, err := createConsumer[T, T](m, readExchangeName, queueName)
 	if err != nil {
@@ -322,6 +326,8 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 		producerCountReplier:     producerCountReplier,
 		producerCountReplierKill: &producerCountReplierKill,
 	}
+	sender.isBlocked.Store(false)
+	sender.isClosed.Store(false)
 	return sender, nil
 }
 
@@ -475,6 +481,57 @@ func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope
 // 	}
 // }
 
+/* func (r *ReceiverRabbitmq[T]) LimitUnacked(limit int) error {
+	if r.inputCh == nil {
+		return fmt.Errorf("read channel is not initialized")
+	}
+	return r.inputCh.Qos(
+		limit, // prefetch count
+		0,     // prefetch size
+		false, // global
+	)
+}
+
+func (r *ReceiverRabbitmq[T]) NotifyBlocked() {
+	blockedCh := make(chan amqp.Blocking)
+	r.conn.NotifyBlocked(blockedCh)
+
+	go func() {
+		for block := range blockedCh {
+			if block.Active {
+				r.isBlocked.Store(true)
+				log.Warnf("Conexión bloqueada por RabbitMQ: %s (receiver)", block.Reason)
+			} else {
+				r.isBlocked.Store(false)
+				log.Infof("Conexión desbloqueada por RabbitMQ (receiver)")
+			}
+		}
+	}()
+}
+
+func (s *ReceiverRabbitmq[T]) IsBlocked() bool {
+	return s.isBlocked.Load()
+}
+
+func (r *ReceiverRabbitmq[T]) NotifyClose() {
+	if r.inputCh == nil {
+		return
+	}
+	connCloseChan := make(chan *amqp.Error)
+	r.conn.NotifyClose(connCloseChan)
+
+	go func() {
+		err := <-connCloseChan
+		if err != nil {
+			r.isClosed.Store(true)
+			log.Warnf("Conexión cerrada por RabbitMQ: %s (receiver)", err)
+		}
+	}()
+}
+func (r *ReceiverRabbitmq[T]) IsClosed() bool {
+	return r.isClosed.Load()
+} */
+
 func processMsg[T any](msg amqp.Delivery) (Envelope[T], bool, error) {
 	var receivedMovie T
 	err := json.Unmarshal(msg.Body, &receivedMovie)
@@ -529,6 +586,55 @@ func (s *SenderRabbitmq[T]) Send(row *T) error {
 	cancel()
 	return nil
 }
+
+// func (s *SenderRabbitmq[T]) LimitUnacked(limit int) error {
+// 	if s.outputCh == nil {
+// 		return fmt.Errorf("write channel is not initialized")
+// 	}
+// 	return s.outputCh.Qos(
+// 		limit, // prefetch count
+// 		0,     // prefetch size
+// 		false, // global
+// 	)
+// }
+
+// func (s *SenderRabbitmq[T]) NotifyBlocked() {
+// 	blockedCh := make(chan amqp.Blocking)
+// 	s.conn.NotifyBlocked(blockedCh)
+
+// 	go func() {
+// 		for block := range blockedCh {
+// 			if block.Active {
+// 				s.isBlocked.Store(true)
+// 				log.Warnf("Conexión bloqueada por RabbitMQ: %s (sender)", block.Reason)
+// 			} else {
+// 				s.isBlocked.Store(false)
+// 				log.Infof("Conexión desbloqueada por RabbitMQ (sender)")
+// 			}
+// 		}
+// 	}()
+// }
+
+// func (s *SenderRabbitmq[T]) IsBlocked() bool {
+// 	return s.isBlocked.Load()
+// }
+
+// func (s *SenderRabbitmq[T]) NotifyClose() {
+// 	connCloseChan := make(chan *amqp.Error)
+// 	s.conn.NotifyClose(connCloseChan)
+
+// 	go func() {
+// 		err := <-connCloseChan
+// 		if err != nil {
+// 			s.isClosed.Store(true)
+// 			log.Warnf("Conexión cerrada por RabbitMQ: %s (sender)", err)
+// 		}
+// 	}()
+// }
+
+// func (s *SenderRabbitmq[T]) IsClosed() bool {
+// 	return s.isClosed.Load()
+// }
 
 func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName string) (*amqp.Queue, *amqp.Channel, error) {
 	ch, err := m.Conn.Channel()

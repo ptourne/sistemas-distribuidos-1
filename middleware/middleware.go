@@ -17,6 +17,11 @@ type Receiver[T any] interface {
 	CountProducers() (int, error)
 	Qos(int, int) error
 	Close() error
+	/* LimitUnacked(limit int) error
+	NotifyBlocked()
+	IsBlocked() bool
+	NotifyClose()
+	IsClosed() bool */
 }
 
 type Envelope[T any] interface {
@@ -28,4 +33,9 @@ type Envelope[T any] interface {
 type Sender[T any] interface {
 	Send(row *T) error
 	Close() error
+	/* LimitUnacked(limit int) error
+	NotifyBlocked()
+	IsBlocked() bool
+	NotifyClose()
+	IsClosed() bool */
 }
