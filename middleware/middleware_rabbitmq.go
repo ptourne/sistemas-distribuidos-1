@@ -257,7 +257,7 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
 		}
-		_, ch2, err := m.createQueue(closeExchangeName(outputName), sub )
+		_, ch2, err := m.createQueue(closeExchangeName(outputName), sub)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
 		}
@@ -592,6 +592,7 @@ func producerCountResExchangeName(readExchangeName string) string {
 }
 
 func (r *ReceiverRabbitmq[T]) CountProducers() (int, error) {
+	log.Infof("Calling count producers '%s'-'%s'", r.input.exchangeName, r.input.queueName)
 	producerCount := 0
 	reqID := rand.UintN(1000000000)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Second)

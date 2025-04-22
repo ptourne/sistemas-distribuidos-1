@@ -97,7 +97,7 @@ type MapReduce[T, A, R any] interface {
 	Output(A) []R
 }
 
-const INITIAL_TIMEOUT_DURATION = 500
+const INITIAL_TIMEOUT_DURATION = 3000
 const WATING_JITTER = 100
 
 func ExponentialBackoffDuration(step uint) (nextStep uint, duration uint) {
@@ -180,7 +180,14 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			log.Debugf("Sent reduced partial result")
 		}
 		var producerCount int
-		producerCount, err = mr.partialResultReceiver.CountProducers()
+		countProducers := func() (int, error) {
+			if WORKER_ID != "1" {
+				return 2, nil
+			}
+			log.Infof("Calling count producers from worker '%s'", WORKER_ID)
+			return mr.partialResultReceiver.CountProducers()
+		}
+		producerCount, err = countProducers()
 		if err != nil {
 			err = fmt.Errorf("failed to get producer count")
 			return
@@ -198,11 +205,16 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 				}
 			}
 			if len(batch) == 0 {
-				log.Debugf("Retiring")
-				return
+				log.Debugf("WorkerID: %s", WORKER_ID)
+				if WORKER_ID != "1" {
+					log.Debugf("Retiring")
+					return
+				}
+				log.Debugf("Must no retire")
+				continue
 			}
 			if len(batch) < int(mr.batchSize) {
-				producerCount, err = mr.partialResultReceiver.CountProducers()
+				producerCount, err = countProducers()
 				log.Infof("cant producers %v", producerCount)
 				if err != nil {
 					err = fmt.Errorf("failed to get producer count")
