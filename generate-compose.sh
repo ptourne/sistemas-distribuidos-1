@@ -54,6 +54,8 @@ compose_coordinator() {
         depends_on:
             rabbitmq:
                 condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
         volumes:
             - ${PWD}/datasets:/datasets
 "
@@ -71,10 +73,13 @@ compose_workers() {
         environment:
             - WORKER_ID=$worker_id
             - N_JOINERS=$number_of_workers
+            - NLP_GRPC_ADDR=sentiment_server:50051
         networks:
             - local_net
         depends_on:
             rabbitmq:
+                condition: service_healthy
+            sentiment_server:
                 condition: service_healthy
         volumes:
             - ${PWD}/joiner_credits:/joiner_credits
@@ -93,8 +98,32 @@ compose_network() {
 "
 }
 
+compose_sentiment_server() {
+    echo "    sentiment_server:
+        container_name: sentiment_server
+        build:
+            context: .
+            dockerfile: worker/nlp/python_server/Dockerfile
+        ports:
+            - \"50051:50051\"
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        healthcheck:
+            test: "nc -z localhost 50051"
+            interval: 10s
+            timeout: 10s
+            retries: 10
+            start_period: 20s
+"
+}
+
+
 compose_header > $file_name
 compose_rabbitmq >> $file_name
+compose_sentiment_server >> $file_name
 compose_coordinator >> $file_name
 for i in $(seq 1 $number_of_workers); do
     compose_workers $i >> $file_name

@@ -25,6 +25,32 @@ type NumericCondition struct {
 	Value    uint
 }
 
+type FloatCondition struct {
+	Column   string
+	Operator NumericOperator
+	Value    float64
+}
+
+func (c FloatCondition) Passes(row common.Row) (bool, error) {
+	if val, ok := row.Floats[c.Column]; ok {
+		switch c.Operator {
+		case Equal:
+			return val == c.Value, nil
+		case NotEqual:
+			return val != c.Value, nil
+		case GreaterThan:
+			return val > c.Value, nil
+		case LessThan:
+			return val < c.Value, nil
+		case GreaterThanOrEqual:
+			return val >= c.Value, nil
+		case LessThanOrEqual:
+			return val <= c.Value, nil
+		}
+	}
+	return false, &MissingFieldError{c.Column}
+}
+
 func (c NumericCondition) Passes(row common.Row) (bool, error) {
 	if val, ok := row.Numerics[c.Column]; ok {
 		switch c.Operator {

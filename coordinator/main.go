@@ -22,15 +22,15 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(3)
 
-	go func() {
-		defer wg.Done()
-		processRatings()
-	}()
+	// go func() {
+	// 	defer wg.Done()
+	// 	processRatings()
+	// }()
 
-	go func() {
-		defer wg.Done()
-		processCredits()
-	}()
+	// go func() {
+	// 	defer wg.Done()
+	// 	processCredits()
+	// }()
 
 	go func() {
 		defer wg.Done()
@@ -346,7 +346,7 @@ func processMovies() {
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChan.Close()
 
-	nameReadQueue := "filter_release_date_l_2010_and_include_es"
+	nameReadQueue := "map_sentiment_rate" //"filter_release_date_l_2010_and_include_es"
 	nameWriteQueue := "movies_metadata"
 
 	receiver, err := middlewareChan.SuscribeTo(nameReadQueue)
@@ -372,7 +372,7 @@ func processMovies() {
 	for {
 		line++
 		if line%10000 == 0 {
-			log.Infof("Processed %d lines from movies_metadata", line)
+			//log.Infof("Processed %d lines from movies_metadata", line)
 		}
 
 		data, err := reader.Read()
@@ -418,11 +418,12 @@ func processMovies() {
 		receivedMovie := envelope.Msg()
 		// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
 		// log.Infof("Received film debug: %+v", receivedMovie)
-		expected_output = remove(expected_output, receivedMovie)
-		if len(expected_output) == 0 {
-			log.Infof("All expected films received")
-			break
-		}
+		// expected_output = remove(expected_output, receivedMovie)
+		// if len(expected_output) == 0 {
+		// 	log.Infof("All expected films received")
+		// 	break
+		// }
+		log.Infof("Received film: %+v", receivedMovie)
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
 		timer.Reset(time.Minute * 1)
