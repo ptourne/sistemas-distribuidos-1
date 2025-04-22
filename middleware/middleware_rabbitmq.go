@@ -118,7 +118,7 @@ func (s *SenderRabbitmq[T]) Close() error {
 	log.Debugf("CLOSING SENDER")
 	s.output.Close()
 	if s.close != nil {
-		for range 100 {
+		for range 20 {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			err := s.close.Publish(ctx, CloseNotification{})
@@ -433,7 +433,7 @@ func (r *ReceiverRabbitmq[T]) nextHandleCloseMsg(ok bool, timeout *time.Timer) (
 }
 
 func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope[T], bool, error) {
-	log.Infof("nextIfNotifedClosed")
+	// log.Infof("nextIfNotifedClosed")
 	const timeUntilArrivalToBroker = time.Millisecond * 500
 	const transmissionTime = time.Millisecond * 500
 	remaining := timeUntilArrivalToBroker - time.Since(*r.timeCloseNotificationArrived) // timeout until finish sending

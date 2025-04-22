@@ -71,8 +71,6 @@ compose_coordinator() {
         depends_on:
             rabbitmq:
                 condition: service_healthy
-        volumes:
-            - ${PWD}/datasets:/datasets
 "
 }
 
@@ -86,6 +84,42 @@ compose_filters() {
         entrypoint: /worker
         environment:
             - WORKER_ID=$worker_id
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+"
+}
+
+compose_client() {
+    echo "    client:
+        container_name: client
+        build:
+            context: .
+            dockerfile: client/Dockerfile
+        entrypoint: /client
+        environment:
+            - SERVER_PORT=endpoint:9876
+        networks:
+            - local_net
+        depends_on:
+            - endpoint
+        volumes:
+            - ${PWD}/client/datasets:/datasets
+"
+}
+
+compose_endpoint() {
+    echo "    endpoint:
+        container_name: endpoint
+        build:
+            context: .
+            dockerfile: endpoint/Dockerfile
+        entrypoint: /endpoint
+        environment:
+            - ENDPOINT_PORT=9876
         networks:
             - local_net
         depends_on:
@@ -153,4 +187,6 @@ done
 for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
     compose_reduce_top_5_by_budgets $i >> $file_name
 done
+compose_client >> $file_name
+compose_endpoint >> $file_name
 compose_network >> $file_name

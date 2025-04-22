@@ -1,9 +1,9 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/csv"
-	"io"
-	"os"
+	"fmt"
 	"time"
 
 	"slices"
@@ -22,15 +22,28 @@ func main() {
 	if err != nil {
 		unwrap(err, "Failed to create middleware")
 	}
+	middlewareChanByte, err := middleware.NewRabbitmq[[]byte]()
+	if err != nil {
+		unwrap(err, "Failed to create middleware")
+	}
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 
 	defer middlewareChan.Close()
 
+	readFileByteQueue := "file_bytes"
+	moviesMetadataName := "movies_metadata"
+	creditsName := "credits"
+	ratingsName := "ratings"
 	q1Output := "filter_release_date_l_2010_and_include_es"
 	q2Output := "reduce_top_5_by_budget"
-	nameWriteQueue := "movies_metadata"
 	q1fOutput := "filter_one_production_country"
 
+	receiverFileByte, err := middlewareChanByte.SuscribeTo(readFileByteQueue)
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer receiverFileByte.Close()
+	
 	q1Receiver, err := middlewareChan.ConsumeFrom(q1Output, "q1")
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
@@ -49,44 +62,115 @@ func main() {
 	}
 	defer q1Receiver.Close()
 
-	sender, err := middlewareChan.WriteTo(nameWriteQueue, []string{"clean_movies"})
+	moviesMetadataSender, err := middlewareChan.WriteTo(moviesMetadataName, []string{"clean_movies"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
 
-	file, err := os.Open("/datasets/movies_metadata.csv")
-	unwrap(err, "Failed to open CSV file")
-	defer file.Close()
+	creditsSender, err := middlewareChan.WriteTo(creditsName, []string{})
+	if err != nil {
+		unwrap(err, "Failed to create write queue")
+	}
+	ratingsSender, err := middlewareChan.WriteTo(ratingsName, []string{})
+	if err != nil {
+		unwrap(err, "Failed to create write queue")
+	}
 
-	reader := csv.NewReader(file)
-	_, err = reader.Read()
-	unwrap(err, "Failed to read CSV header")
-	line := 0
-	log.Debugf("Starting CSV processing")
-	for {
-		line++
-		if line%1000 == 0 {
-			log.Infof("Processed %d lines", line)
-		}
-		data, err := reader.Read()
-		if err != nil {
-			if err == io.EOF {
+	//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+	inputChannel := make(chan middleware.Envelope[[]byte], 0)
+
+	
+	go func() {
+		for {
+			envelope, ok, err := receiverFileByte.Next(nil)
+			if err != nil {
+				if err.Error() == "read channel was closed" {
+					log.Infof("Channel closed: %v", readFileByteQueue)
+					break
+				}
+				log.Errorf("Error reading from middleware: %v", err)
+				continue
+			}
+			if !ok {
+				log.Infof("Channel closed: %v", readFileByteQueue)
 				break
 			}
-			log.Errorf("Error reading CSV line: %v", err)
-			continue
+			inputChannel <- envelope
 		}
-		if len(data) < 24 {
-			continue
+		close(inputChannel)
+	}()
+	OuterLoop:
+	for {
+		msgEnvelope := <-inputChannel
+		msg := msgEnvelope.Msg() 
+		typeMsgRaw := binary.BigEndian.Uint32(msg[0:4])
+		tipo := common.TypeMsg(typeMsgRaw)
+		log.Infof("Received message type: %v", tipo)
+		msgEnvelope.Ack(false)
+		switch tipo{
+		case common.FileName:
+			fileName := string(msg[4:])
+			var sender middleware.Sender[common.Row] 
+			var amount int
+			switch fileName {
+			case moviesMetadataName:
+				log.Infof("Received file: %s", fileName)
+				sender = moviesMetadataSender
+				amount = 10000
+			case creditsName:
+				log.Infof("Received file: %s", fileName)
+				sender = creditsSender
+				amount = 10000
+			case ratingsName:
+				log.Infof("Received file: %s", fileName)
+				sender = ratingsSender
+				amount = 1000000
+			default:
+				panic(fmt.Sprintf("Unknown file name: %s", fileName))
+			}
+
+			connReader := &ConnReader{ch: inputChannel, lastReadNotIncluded: make([]byte, 0)}
+			reader := csv.NewReader(connReader) 
+		
+			d, err := reader.Read()
+			log.Infof("Received header file: %v", d)
+			unwrap(err, "Failed to read CSV header")
+			line := 0
+			log.Infof("Starting CSV processing")
+			for {
+				line++
+				if line%amount == 0 {
+					log.Infof("Processed %d lines from %s", line, fileName)
+				}	
+				data, err := reader.Read()
+				if err != nil {
+					if err.Error() == "EOF" {
+						log.Infof("Processed %d lines from %s", line, fileName)
+						log.Infof("End of file reached")
+						break
+					}
+					log.Errorf("Error reading CSV line: %v", err)
+					// panic(fmt.Sprintf("Error reading CSV line: %v", err))
+					continue
+				}
+				if len(data) < 24 {
+					continue
+				}
+
+				film := Film(data)
+
+				sender.Send(&film)
+
+			}
+			log.Infof("CSV %s processing completed, closing", fileName)
+			sender.Close()
+		
+		case common.AllFilesSent:
+			log.Infof("Received ALL FILES SENT")
+			break OuterLoop
 		}
-
-		film := Film(data)
-
-		sender.Send(&film)
-
 	}
-	sender.Close()
-	log.Debugf("CSV processing completed")
+	log.Infof("CSV processing completed")
 
 	expectedOutputQ1 := []common.Row{
 		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
@@ -327,4 +411,50 @@ func unwrap(err error, msg string) {
 	if err != nil {
 		log.Fatalf("%s: %s", msg, err)
 	}
+}
+
+
+type ConnReader struct {
+	ch chan middleware.Envelope[[]byte]
+	lastReadNotIncluded []byte
+}
+
+func (cr *ConnReader) Read(buff []byte) (n int, err error) {
+	capacity :=cap(buff)
+	cantCopyFromLast := min(capacity, len(cr.lastReadNotIncluded))
+	copy(buff, cr.lastReadNotIncluded[:cantCopyFromLast])
+	cr.lastReadNotIncluded = cr.lastReadNotIncluded[cantCopyFromLast:]
+	remainingCapacity := capacity - cantCopyFromLast
+	if remainingCapacity ==0 {
+		return cantCopyFromLast, nil
+	}
+	
+    msgEnvelope := <-cr.ch
+	if msgEnvelope == nil {
+		return 0, fmt.Errorf("invalid message es NIL")
+	}
+	msg := msgEnvelope.Msg() 
+	if len(msg) < 4 {
+		return 0, fmt.Errorf("invalid message length")
+	}
+	typeMsgRaw := binary.BigEndian.Uint32(msg[0:4])
+	tipo := common.TypeMsg(typeMsgRaw)
+	data := msg[4:]
+	log.Debugf("Received message data: %v", string(data))
+	cantCopyFromData := min(remainingCapacity, len(data))
+    switch tipo {
+	case common.FileData:
+		copy(buff[cantCopyFromLast:], data[:cantCopyFromData])
+		cr.lastReadNotIncluded = append(cr.lastReadNotIncluded, data[cantCopyFromData:]...)
+		n = cantCopyFromLast+cantCopyFromData
+		err = nil    
+	case common.FinishFile:
+		n = 0
+		err = fmt.Errorf("EOF")
+	default:
+		n = 0
+		err = fmt.Errorf("invalid message type: %v", tipo)
+	}
+	msgEnvelope.Ack(false)
+	return n, err
 }
