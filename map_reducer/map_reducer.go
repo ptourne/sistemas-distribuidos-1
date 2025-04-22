@@ -131,20 +131,36 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 		timeoutStep, backoff := ExponentialBackoffDuration(0)
 		log.Debugf("reduceBattchess(%d)", backoff)
 		var err error
+		var lastMsg *middleware.Envelope[A]
+		nack := func() error {
+			if lastMsg != nil {
+				nerr := (*lastMsg).Nack(true)
+				lastMsg = nil
+				return nerr
+			}
+			return nil
+		}
+		ack := func() error {
+			if lastMsg != nil {
+				aerr := (*lastMsg).Ack(true)
+				lastMsg = nil
+				return aerr
+			}
+			return nil
+		}
 		defer func() {
+			nack()
 			res <- err
 		}()
+		var batch []A
 		for !mr.inputClosed {
+			nack()
 			<-time.NewTimer(time.Millisecond * time.Duration(backoff)).C
-			batch, lastMsg, err_ := mr.readBatch()
-			err = err_
+			batch, lastMsg, err = mr.readBatch()
 			if err != nil {
 				if err.Error() == "timeout reached while waiting for message" {
 					err = nil
 					timeoutStep, backoff = ExponentialBackoffDuration(timeoutStep)
-					if lastMsg != nil {
-						(*lastMsg).Nack(true)
-					}
 					continue
 				} else {
 					err = fmt.Errorf("error reading partial result: %w", err)
@@ -152,7 +168,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 				}
 			}
 			log.Debugf("Batch read completed: len = %v", len(batch))
-			err = (*lastMsg).Ack(true)
+			err = ack()
 			timeoutStep, backoff = ExponentialBackoffDuration(0)
 			reduced := mr.mapReduce.Reduce(batch)
 			log.Debugf("Reduced partial result: %v", reduced)
@@ -170,9 +186,9 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			return
 		}
 		for {
+			nack()
 			<-time.NewTimer(time.Millisecond * time.Duration(backoff)).C
-			batch, lastMsg, err_ := mr.readBatch()
-			err = err_
+			batch, lastMsg, err = mr.readBatch()
 			if err != nil {
 				if err.Error() == "timeout reached while waiting for message" {
 					err = nil
@@ -187,13 +203,13 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			}
 			if len(batch) < int(mr.batchSize) {
 				producerCount, err = mr.partialResultReceiver.CountProducers()
+				log.Infof("cant producers %v", producerCount)
 				if err != nil {
 					err = fmt.Errorf("failed to get producer count")
 					return
 				}
 				if producerCount > 1 {
 					timeoutStep, backoff = ExponentialBackoffDuration(timeoutStep)
-					(*lastMsg).Nack(true)
 					continue
 				}
 			}
@@ -214,7 +230,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 				return
 			}
 			log.Debugf("Batch read completed: len = %v", len(batch))
-			err = (*lastMsg).Ack(true)
+			err = ack()
 			timeoutStep, backoff = ExponentialBackoffDuration(0)
 			reduced := mr.mapReduce.Reduce(batch)
 			log.Debugf("Reduced partial result: %v", reduced)
@@ -243,7 +259,6 @@ func (mr *MapReducer[I, A, R]) readBatch() (batch []A, lastMsg *middleware.Envel
 			if err.Error() == "timeout reached while waiting for message" {
 				return batch, lastMsg, err
 			}
-			(*lastMsg).Nack(true)
 			return nil, nil, err
 		}
 		if !ok {
