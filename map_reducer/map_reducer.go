@@ -84,7 +84,6 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 		partialResultReceiver: accIn,
 		mapReduce:             mapReducer,
 		output:                output,
-		inputClosed:           false,
 	}, nil
 }
 
@@ -135,7 +134,41 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 		defer func() {
 			res <- err
 		}()
+		for !mr.inputClosed {
+			<-time.NewTimer(time.Millisecond * time.Duration(backoff)).C
+			batch, lastMsg, err_ := mr.readBatch()
+			err = err_
+			if err != nil {
+				if err.Error() == "timeout reached while waiting for message" {
+					err = nil
+					timeoutStep, backoff = ExponentialBackoffDuration(timeoutStep)
+					if lastMsg != nil {
+						(*lastMsg).Nack(true)
+					}
+					continue
+				} else {
+					err = fmt.Errorf("error reading partial result: %w", err)
+					return
+				}
+			}
+			log.Debugf("Batch read completed: len = %v", len(batch))
+			err = (*lastMsg).Ack(true)
+			timeoutStep, backoff = ExponentialBackoffDuration(0)
+			reduced := mr.mapReduce.Reduce(batch)
+			log.Debugf("Reduced partial result: %v", reduced)
+			err = mr.partialResultSender.Send(&reduced)
+			if err != nil {
+				err = fmt.Errorf("error sending partial result: %w", err)
+				return
+			}
+			log.Debugf("Sent reduced partial result")
+		}
 		var producerCount int
+		producerCount, err = mr.partialResultReceiver.CountProducers()
+		if err != nil {
+			err = fmt.Errorf("failed to get producer count")
+			return
+		}
 		for {
 			<-time.NewTimer(time.Millisecond * time.Duration(backoff)).C
 			batch, lastMsg, err_ := mr.readBatch()
@@ -148,14 +181,23 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 					return
 				}
 			}
-			log.Debugf("Batch read completed: len = %v", len(batch))
-			producerCount, err = mr.partialResultReceiver.CountProducers()
-			log.Infof("Producer count: %v", producerCount)
-			if mr.inputClosed && len(batch) == 0 {
+			if len(batch) == 0 {
 				log.Debugf("Retiring")
 				return
 			}
-			log.Infof("LLEGUE")
+			if len(batch) < int(mr.batchSize) {
+				producerCount, err = mr.partialResultReceiver.CountProducers()
+				if err != nil {
+					err = fmt.Errorf("failed to get producer count")
+					return
+				}
+				if producerCount > 1 {
+					timeoutStep, backoff = ExponentialBackoffDuration(timeoutStep)
+					(*lastMsg).Nack(true)
+					continue
+				}
+			}
+
 			if producerCount == 1 && len(batch) == 1 {
 				log.Debugf("Last batch processed")
 				reduced := mr.mapReduce.Reduce(batch)
@@ -171,31 +213,11 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 				log.Debugf("Sent output")
 				return
 			}
-			if len(batch) < int(mr.batchSize) && producerCount > 1 {
-				timeoutStep, backoff = ExponentialBackoffDuration(timeoutStep)
-				if lastMsg != nil {
-					(*lastMsg).Nack(true)
-				}
-
-				if mr.inputClosed {
-					log.Debugf("Input closed")
-					producerCount, err = mr.partialResultReceiver.CountProducers()
-					if err != nil {
-						err = fmt.Errorf("failed to get producer count")
-						return
-					}
-					log.Debugf("Producer count: %v", producerCount)
-					if producerCount == 1 {
-						log.Debugf("Im the last one")
-					}
-				}
-				continue
-			}
+			log.Debugf("Batch read completed: len = %v", len(batch))
 			err = (*lastMsg).Ack(true)
 			timeoutStep, backoff = ExponentialBackoffDuration(0)
 			reduced := mr.mapReduce.Reduce(batch)
 			log.Debugf("Reduced partial result: %v", reduced)
-
 			err = mr.partialResultSender.Send(&reduced)
 			if err != nil {
 				err = fmt.Errorf("error sending partial result: %w", err)
@@ -259,10 +281,9 @@ func (mr *MapReducer[I, A, R]) readInput() <-chan error {
 			log.Debugf("Mapping row: %v", msg)
 			acc := mr.mapReduce.Map(msg)
 			for _, a := range acc {
-				err := mr.partialResultSender.Send(&a)
+				err = mr.partialResultSender.Send(&a)
 				if err != nil {
 					err = fmt.Errorf("error sending partial result: %w", err)
-					res <- err
 					return
 				}
 			}

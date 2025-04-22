@@ -15,7 +15,7 @@ import (
 
 const MIDDLEWARE = "rabbitmq"
 
-var log = logger.NewConsoleLogger("coordinator", logger.Debug)
+var log = logger.NewConsoleLogger("coordinator", logger.Info)
 
 func main() {
 	middlewareChan, err := middleware.NewRabbitmq[common.Row]()
