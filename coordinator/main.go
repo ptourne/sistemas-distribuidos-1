@@ -150,38 +150,37 @@ func main() {
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
 	}
 
+	timer2 := time.NewTimer(time.Second * 20)
 
-	// timer2 := time.NewTimer(time.Second * 20)
-
-	// log.Infof("Verifying Q1F")
-	// cant := 0
-	// sum:= 0
-	// for {
-	// 	envelope, ok, err := q1fReceiver.Next(timer2)
-	// 	if err != nil {
-	// 		if err.Error() == "timeout reached while waiting for message" {
-	// 			log.Infof("Timeout reached while waiting for message")
-	// 			break
-	// 		} else {
-	// 			log.Errorf("Failed to read message: %v", err)
-	// 			continue
-	// 		}
-	// 	}
-	// 	if !ok {
-	// 		log.Infof("No more films IN")
-	// 		break
-	// 	}
-	// 	receivedMovie := envelope.Msg()
-	// 	// log.Infof("Received film: %v", receivedMovie)
-	// 	cant++
-	// 	sum += int(receivedMovie.Numerics["budget"])
-	// 	err = envelope.Ack(true)
-	// 	unwrap(err, "Failed to ack message")
-	// 	timer2.Reset(time.Second * 20)
-	// }
-	// timer2.Stop()
-	// log.Infof("Received %d films", cant)
-	// log.Infof("Sum of budgets IN: %d", sum)
+	log.Infof("Verifying Q1F")
+	cant := 0
+	sum := 0
+	for {
+		envelope, ok, err := q1fReceiver.Next(timer2)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
+				continue
+			}
+		}
+		if !ok {
+			log.Infof("No more films IN")
+			break
+		}
+		receivedMovie := envelope.Msg()
+		// log.Infof("Received film: %v", receivedMovie)
+		cant++
+		sum += int(receivedMovie.Numerics["budget"])
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+		timer2.Reset(time.Second * 20)
+	}
+	timer2.Stop()
+	log.Infof("Received %d films", cant)
+	log.Infof("Sum of budgets IN: %d", sum)
 
 	// timer = time.NewTimer(time.Second * 40)
 
@@ -226,7 +225,6 @@ func main() {
 		{Numerics: map[string]uint{"budget_sum": 1169682797}, Strings: map[string]string{"country": "IN"}},
 		{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	}
-
 
 	timer = time.NewTimer(time.Second * 40)
 
