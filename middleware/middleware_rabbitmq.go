@@ -15,6 +15,8 @@ import (
 
 const HEART_BEAT_INTERVAL = 1000 * time.Millisecond
 const HEART_BEAT_RTT = 500 * time.Millisecond
+const TIME_UNTIL_ARRIVAL_TO_BROKER = time.Millisecond * 1500
+const TRANSMISSION_TIME = time.Millisecond * 1500
 
 type MiddlewareRabbitmq[T any] struct {
 	Conn *amqp.Connection
@@ -436,10 +438,8 @@ func (r *ReceiverRabbitmq[T]) nextHandleCloseMsg(ok bool, timeout *time.Timer) (
 
 func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope[T], bool, error) {
 	log.Infof("nextIfNotifedClosed")
-	const timeUntilArrivalToBroker = time.Millisecond * 500
-	const transmissionTime = time.Millisecond * 500
-	remaining := timeUntilArrivalToBroker - time.Since(*r.timeCloseNotificationArrived) // timeout until finish sending
-	remaining = max(remaining+transmissionTime, transmissionTime)
+	remaining := TIME_UNTIL_ARRIVAL_TO_BROKER - time.Since(*r.timeCloseNotificationArrived) // timeout until finish sending
+	remaining = max(remaining+TRANSMISSION_TIME, TRANSMISSION_TIME)
 	depleteTimmer := time.NewTimer(remaining)
 	defer depleteTimmer.Stop()
 
