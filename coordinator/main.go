@@ -36,7 +36,7 @@ func main() {
 	ratingsName := "ratings"
 	q1Output := "filter_release_date_l_2010_and_include_es"
 	q2Output := "reduce_top_5_by_budget"
-	//q3Output := "joiner_credits"
+	q3Output := "joiner_credits"
 	q5Output := "map_sentiment_rate"
 	//q1fOutput := "filter_one_production_country"
 
@@ -58,11 +58,13 @@ func main() {
 	}
 	defer q2Receiver.Close()
 
-	/*
+	q3Receiver, err := middlewareChan.ConsumeFrom(q3Output, "q3")
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer q3Receiver.Close()
 
-	 */
-
-	q5Receiver, err := middlewareChan.SuscribeTo(q5Output)
+	q5Receiver, err := middlewareChan.ConsumeFrom(q5Output, "q5")
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
@@ -117,19 +119,27 @@ OuterLoop:
 			fileName := string(msg[4:])
 			var sender middleware.Sender[common.Row]
 			var amount int
+			var expectedLen int
+			var create func([]string) common.Row
 			switch fileName {
 			case moviesMetadataName:
 				log.Infof("Received file: %s", fileName)
 				sender = moviesMetadataSender
 				amount = 10000
+				expectedLen = 24
+				create = Film
 			case creditsName:
 				log.Infof("Received file: %s", fileName)
 				sender = creditsSender
 				amount = 10000
+				expectedLen = 3
+				create = Credit
 			case ratingsName:
 				log.Infof("Received file: %s", fileName)
 				sender = ratingsSender
 				amount = 1000000
+				expectedLen = 3
+				create = Rating
 			default:
 				panic(fmt.Sprintf("Unknown file name: %s", fileName))
 			}
@@ -158,13 +168,13 @@ OuterLoop:
 					// panic(fmt.Sprintf("Error reading CSV line: %v", err))
 					continue
 				}
-				if len(data) < 24 {
+				if len(data) < expectedLen {
 					continue
 				}
 
-				film := Film(data)
+				row := create(data)
 
-				sender.Send(&film)
+				sender.Send(&row)
 
 			}
 			log.Infof("CSV %s processing completed, closing", fileName)
@@ -283,18 +293,13 @@ OuterLoop:
 	// 	log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
 	// }
 
-	log.Infof("Verifying Q5")
+	log.Infof("Verifying Q3")
 
-	cant := 0
+	countCredit := 0
 	timer := time.NewTimer(time.Minute * 1)
 
-	sum_sentiment_pos := 0.0
-	cant_sentiment_pos := 0
-	sum_sentiment_neg := 0.0
-	cant_sentiment_neg := 0
-
 	for {
-		envelope, ok, err := q5Receiver.Next(timer)
+		envelope, ok, err := q3Receiver.Next(timer)
 		if err != nil {
 			if err.Error() == "close channel was closed" {
 				log.Infof("Channel was closed")
@@ -309,35 +314,80 @@ OuterLoop:
 			}
 		}
 		if !ok {
-			log.Infof("No more films")
+			log.Infof("No more actors")
 			break
 		}
-		receivedMovie := envelope.Msg()
-		//log.Infof("Received film debug: %+v", receivedMovie)
-		cant++
-		if cant%100 == 0 {
-			log.Infof("Received: %v", cant)
+		receivedCredit := envelope.Msg()
+		//log.Infof("Received film debug: %+v", receivedCredit)
+		countCredit++
+		if countCredit%100 == 0 {
+			log.Infof("Received %d credits: %+v", countCredit, receivedCredit)
 		}
-		if receivedMovie.Strings["sentiment"] == "POSITIVE" {
-			cant_sentiment_pos++
-			sum_sentiment_pos += receivedMovie.Floats["rate"]
-		} else if receivedMovie.Strings["sentiment"] == "NEGATIVE" {
-			cant_sentiment_neg++
-			sum_sentiment_neg += receivedMovie.Floats["rate"]
-		} else {
-			log.Errorf("Unknown sentiment: %s", receivedMovie.Strings["sentiment"])
+		if receivedCredit.Strings["actor"] == "" {
+			log.Errorf("Actor not matched expected")
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Minute * 1)
+		timer.Reset(time.Second * 40)
 	}
 	timer.Stop()
-	avg_sentiment_pos := float64(sum_sentiment_pos) / float64(cant_sentiment_pos)
-	avg_sentiment_neg := float64(sum_sentiment_neg) / float64(cant_sentiment_neg)
-	log.Infof("Received %d films from sentiment and rate", cant)
-	log.Infof("Received %d positive sentiments", cant_sentiment_pos)
-	log.Infof("Received %d negative sentiments", cant_sentiment_neg)
-	log.Infof("Average sentiment positive: %f, negative: %f", avg_sentiment_pos, avg_sentiment_neg)
+	log.Infof("Finished receiving credits: received %d actors", countCredit) // Expected 1515
+
+	// log.Infof("Verifying Q5")
+
+	// cant := 0
+	// timer := time.NewTimer(time.Minute * 1)
+
+	// sum_sentiment_pos := 0.0
+	// cant_sentiment_pos := 0
+	// sum_sentiment_neg := 0.0
+	// cant_sentiment_neg := 0
+
+	// for {
+	// 	envelope, ok, err := q5Receiver.Next(timer)
+	// 	if err != nil {
+	// 		if err.Error() == "close channel was closed" {
+	// 			log.Infof("Channel was closed")
+	// 			break
+	// 		}
+	// 		if err.Error() == "timeout reached while waiting for message" {
+	// 			log.Infof("Timeout reached while waiting for message")
+	// 			break
+	// 		} else {
+	// 			log.Errorf("Failed to read message: %v", err)
+	// 			continue
+	// 		}
+	// 	}
+	// 	if !ok {
+	// 		log.Infof("No more films")
+	// 		break
+	// 	}
+	// 	receivedMovie := envelope.Msg()
+	// 	//log.Infof("Received film debug: %+v", receivedMovie)
+	// 	cant++
+	// 	if cant%100 == 0 {
+	// 		log.Infof("Received: %v", cant)
+	// 	}
+	// 	if receivedMovie.Strings["sentiment"] == "POSITIVE" {
+	// 		cant_sentiment_pos++
+	// 		sum_sentiment_pos += receivedMovie.Floats["rate"]
+	// 	} else if receivedMovie.Strings["sentiment"] == "NEGATIVE" {
+	// 		cant_sentiment_neg++
+	// 		sum_sentiment_neg += receivedMovie.Floats["rate"]
+	// 	} else {
+	// 		log.Errorf("Unknown sentiment: %s", receivedMovie.Strings["sentiment"])
+	// 	}
+	// 	err = envelope.Ack(true)
+	// 	unwrap(err, "Failed to ack message")
+	// 	timer.Reset(time.Minute * 1)
+	// }
+	// timer.Stop()
+	// avg_sentiment_pos := float64(sum_sentiment_pos) / float64(cant_sentiment_pos)
+	// avg_sentiment_neg := float64(sum_sentiment_neg) / float64(cant_sentiment_neg)
+	// log.Infof("Received %d films from sentiment and rate", cant)
+	// log.Infof("Received %d positive sentiments", cant_sentiment_pos)
+	// log.Infof("Received %d negative sentiments", cant_sentiment_neg)
+	// log.Infof("Average sentiment positive: %f, negative: %f", avg_sentiment_pos, avg_sentiment_neg)
 	// Expected:
 	// NEGATIVE    5453.397595
 	// POSITIVE    5668.650541
@@ -402,6 +452,24 @@ func Film(data []string) common.Row {
 			"release_date":         release_date,
 			"budget":               budget,
 			"revenue":              revenue,
+		},
+	}
+}
+
+func Credit(data []string) common.Row {
+	return common.Row{
+		Strings: map[string]string{
+			"ID":   data[2],
+			"cast": data[0],
+		},
+	}
+}
+
+func Rating(data []string) common.Row {
+	return common.Row{
+		Strings: map[string]string{
+			"movieID": data[1],
+			"rating":  data[2],
 		},
 	}
 }
