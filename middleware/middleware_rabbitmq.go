@@ -379,6 +379,12 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 			return nil, false, fmt.Errorf("failed to declare exchange %v", err)
 		}
 		select {
+		case msg, ok := <-*r.input.C:
+			if !ok {
+				return nil, false, fmt.Errorf("read channel was closed")
+			}
+			r.wereSomeProducers = true
+			return processMsg[T](msg)
 		case <-*heartBeatListener.C:
 			r.wereSomeProducers = true
 		case <-time.After(time.Minute):
