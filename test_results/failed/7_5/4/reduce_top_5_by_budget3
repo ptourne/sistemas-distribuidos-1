@@ -1,0 +1,347 @@
+21:32:56.854437  middleware   INFO   Creating ConsumeFrom exchange 'reduce_by_country_sum_budget' with groupName 'reduce_top_5_by_budget' 
+21:32:56.855042  middleware   DEBUG  createQueue: Creating queue 'reduce_by_country_sum_budget_reduce_top_5_by_budget' for exchange 'reduce_by_country_sum_budget'
+21:32:56.856101  middleware   DEBUG  createQueue: Creating queue '' for exchange 'reduce_by_country_sum_budget_hb'
+21:32:56.858865  middleware   DEBUG  createQueue: Creating queue '' for exchange 'reduce_by_country_sum_budget_hb'
+21:32:56.860859  middleware   DEBUG  ReceiverRabbitmq: 'reduce_by_country_sum_budget', 'reduce_by_country_sum_budget_reduce_top_5_by_budget'
+21:32:56.863117  middleware   INFO   Creating WriteTo exchange 'reduce_top_5_by_budget'
+21:32:56.863618  middleware   DEBUG  exchangeDeclare: 'reduce_top_5_by_budget'
+21:32:56.864174  middleware   DEBUG  exchangeDeclare: 'reduce_top_5_by_budget_hb'
+21:32:56.866166  middleware   INFO   Creating ConsumeFrom exchange 'reduce_top_5_by_budget_acc' with groupName 'reduce_top_5_by_budget' 
+21:32:56.866758  middleware   DEBUG  createQueue: Creating queue 'reduce_top_5_by_budget_acc_reduce_top_5_by_budget' for exchange 'reduce_top_5_by_budget_acc'
+21:32:56.868605  middleware   DEBUG  createQueue: Creating queue '' for exchange 'reduce_top_5_by_budget_acc_hb'
+21:32:56.871379  middleware   DEBUG  createQueue: Creating queue '' for exchange 'reduce_top_5_by_budget_acc_hb'
+21:32:56.873691  middleware   DEBUG  ReceiverRabbitmq: 'reduce_top_5_by_budget_acc', 'reduce_top_5_by_budget_acc_reduce_top_5_by_budget'
+21:32:56.873833  middleware   INFO   Creating WriteTo exchange 'reduce_top_5_by_budget_acc'
+21:32:56.874363  middleware   DEBUG  exchangeDeclare: 'reduce_top_5_by_budget_acc'
+21:32:56.876375  middleware   DEBUG  exchangeDeclare: 'reduce_top_5_by_budget_acc_hb'
+21:32:56.876577  worker_3     DEBUG  Creating map-reduce operation with name: reduce_top_5_by_budget, input: reduce_by_country_sum_budget, batchSize: 2
+input: &{input:{exchangeName:reduce_by_country_sum_budget queueName:reduce_by_country_sum_budget_reduce_top_5_by_budget anonimous:false amqpCh:0xc00021a000 C:0xc000206010} close:{exchangeName:reduce_by_country_sum_budget_hb queueName:amq.gen-fmolPWm6H2aldt32erU5PQ anonimous:true amqpCh:0xc00021a120 C:0xc000076138} asumeNoInFlightMsgs:false wereSomeProducers:false noMoreProducers:false heartBeatListener:{exchangeName:reduce_by_country_sum_budget_hb queueName:amq.gen-74Ktn7Qv2nZyKGLaVTFV1g anonimous:true amqpCh:0xc00021a240 C:0xc000206028} timeCloseNotificationArrived:<nil> m:0xc000206000}
+output: &{reduce_top_5_by_budget {reduce_top_5_by_budget 0xc000138480} 0xc00014c2a0 0xc00013e030}
+accIn: &{input:{exchangeName:reduce_top_5_by_budget_acc queueName:reduce_top_5_by_budget_acc_reduce_top_5_by_budget anonimous:false amqpCh:0xc000290480 C:0xc000298028} close:{exchangeName:reduce_top_5_by_budget_acc_hb queueName:amq.gen-mvtF7VScuiFky-ag3mUJYg anonimous:true amqpCh:0xc0002905a0 C:0xc000076148} asumeNoInFlightMsgs:false wereSomeProducers:false noMoreProducers:false heartBeatListener:{exchangeName:reduce_top_5_by_budget_acc_hb queueName:amq.gen-oCAhCiadPXgcSP9uQPUkXA anonimous:true amqpCh:0xc0000c85a0 C:0xc000076158} timeCloseNotificationArrived:<nil> m:0xc000298018}
+accOut: &{exchangeName:reduce_top_5_by_budget_acc output:{exchangeName:reduce_top_5_by_budget_acc ch:0xc0000c86c0} heart:0xc0000a2d20 killHeart:0xc000076170}
+21:32:56.876634  worker_3     DEBUG  Starting map-reduce operation
+21:32:56.876649  worker_3     DEBUG  reduceBattchess(0)
+21:32:56.876658  worker_3     DEBUG  Initial batch: []
+21:32:56.876664  worker_3     DEBUG  Batch state: []
+21:32:56.876669  middleware   DEBUG  Waiting for producers
+21:32:56.876723  middleware   DEBUG  Waiting for producers
+21:32:56.877277  middleware   DEBUG  createQueue: Creating queue '' for exchange 'reduce_top_5_by_budget_acc_hb'
+21:32:56.877497  middleware   DEBUG  createQueue: Creating queue '' for exchange 'reduce_by_country_sum_budget_hb'
+21:32:57.846942  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:32:57.865263  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:32:57.871167  worker_3     DEBUG  Initial batch: []
+21:32:57.871278  worker_3     DEBUG  Batch state: []
+21:32:57.877211  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:32:58.371595  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:32:58.648582  worker_3     DEBUG  Initial batch: []
+21:32:58.648608  worker_3     DEBUG  Batch state: []
+21:32:58.866595  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:32:58.877610  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:32:59.150569  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:32:59.390578  worker_3     DEBUG  Initial batch: []
+21:32:59.390594  worker_3     DEBUG  Batch state: []
+21:32:59.866663  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:32:59.879609  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:32:59.892566  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:32:59.938567  worker_3     DEBUG  Initial batch: []
+21:32:59.938580  worker_3     DEBUG  Batch state: []
+21:33:00.438593  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:00.701585  worker_3     DEBUG  Initial batch: []
+21:33:00.701606  worker_3     DEBUG  Batch state: []
+21:33:00.868632  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:00.879624  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:01.203585  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:01.272589  worker_3     DEBUG  Initial batch: []
+21:33:01.272601  worker_3     DEBUG  Batch state: []
+21:33:01.773594  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:01.833563  worker_3     DEBUG  Initial batch: []
+21:33:01.833573  worker_3     DEBUG  Batch state: []
+21:33:01.870592  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:01.880617  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:02.333583  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:02.872594  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:02.881635  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:02.995565  worker_3     DEBUG  Initial batch: []
+21:33:02.995583  worker_3     DEBUG  Batch state: []
+21:33:03.495609  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:03.872644  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:03.883644  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:04.287583  worker_3     DEBUG  Initial batch: []
+21:33:04.287595  worker_3     DEBUG  Batch state: []
+21:33:04.787599  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:04.874601  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:04.884621  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:05.402581  worker_3     DEBUG  Initial batch: []
+21:33:05.402593  worker_3     DEBUG  Batch state: []
+21:33:05.874638  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:05.886625  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:05.904576  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:06.876602  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:06.887612  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:06.894566  worker_3     DEBUG  Initial batch: []
+21:33:06.894578  worker_3     DEBUG  Batch state: []
+21:33:07.394599  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:07.569601  worker_3     DEBUG  Initial batch: []
+21:33:07.569630  worker_3     DEBUG  Batch state: []
+21:33:07.876633  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:07.887620  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:08.071585  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:08.878607  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:08.888623  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:09.031572  worker_3     DEBUG  Initial batch: []
+21:33:09.031584  worker_3     DEBUG  Batch state: []
+21:33:09.531597  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:09.878644  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:09.888642  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:10.262589  worker_3     DEBUG  Initial batch: []
+21:33:10.262605  worker_3     DEBUG  Batch state: []
+21:33:10.764582  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:10.880640  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:10.890584  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:11.639591  worker_3     DEBUG  Initial batch: []
+21:33:11.639610  worker_3     DEBUG  Batch state: []
+21:33:11.882625  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:11.890624  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:12.140571  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:12.858599  worker_3     DEBUG  Initial batch: []
+21:33:12.858613  worker_3     DEBUG  Batch state: []
+21:33:12.884616  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:12.892601  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:13.358612  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:13.644589  worker_3     DEBUG  Initial batch: []
+21:33:13.644612  worker_3     DEBUG  Batch state: []
+21:33:13.886622  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:13.894639  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:14.144610  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:14.886652  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:14.894641  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:15.618602  worker_3     DEBUG  Initial batch: []
+21:33:15.618627  worker_3     DEBUG  Batch state: []
+21:33:15.888651  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:15.896606  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:16.120573  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:16.890600  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:16.897636  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:17.594584  worker_3     DEBUG  Initial batch: []
+21:33:17.594598  worker_3     DEBUG  Batch state: []
+21:33:17.890644  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:17.899588  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:18.096564  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:18.892624  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:18.899629  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:19.816586  worker_3     DEBUG  Initial batch: []
+21:33:19.816597  worker_3     DEBUG  Batch state: []
+21:33:19.892643  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:19.901621  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:20.316597  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:20.626502  worker_3     DEBUG  Received input
+21:33:20.626522  worker_3     DEBUG  Mapping row: {map[budget_sum:9700000] map[country:IS] map[] map[]}
+21:33:20.626634  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.626647  worker_3     DEBUG  Sent mapped partial result: [{[{IS 9700000}]}]
+21:33:20.626684  worker_3     DEBUG  Received input
+21:33:20.626692  worker_3     DEBUG  Mapping row: {map[budget_sum:5796442] map[country:BG] map[] map[]}
+21:33:20.626721  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.626729  worker_3     DEBUG  Sent mapped partial result: [{[{BG 5796442}]}]
+21:33:20.626768  worker_3     DEBUG  Received input
+21:33:20.626775  worker_3     DEBUG  Mapping row: {map[budget_sum:3204460] map[country:PT] map[] map[]}
+21:33:20.626801  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.626809  worker_3     DEBUG  Sent mapped partial result: [{[{PT 3204460}]}]
+21:33:20.626828  worker_3     DEBUG  Received input
+21:33:20.626839  worker_3     DEBUG  Mapping row: {map[budget_sum:1169682797] map[country:IN] map[] map[]}
+21:33:20.626861  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.626867  worker_3     DEBUG  Sent mapped partial result: [{[{IN 1169682797}]}]
+21:33:20.626894  worker_3     DEBUG  Received input
+21:33:20.626898  worker_3     DEBUG  Mapping row: {map[budget_sum:25825000] map[country:TH] map[] map[]}
+21:33:20.626915  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.626923  worker_3     DEBUG  Sent mapped partial result: [{[{TH 25825000}]}]
+21:33:20.626943  worker_3     DEBUG  Received input
+21:33:20.626950  worker_3     DEBUG  Mapping row: {map[budget_sum:200] map[country:UG] map[] map[]}
+21:33:20.626970  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.626977  worker_3     DEBUG  Sent mapped partial result: [{[{UG 200}]}]
+21:33:20.627016  worker_3     DEBUG  Received input
+21:33:20.627022  worker_3     DEBUG  Mapping row: {map[budget_sum:12545000] map[country:BE] map[] map[]}
+21:33:20.627046  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.627052  worker_3     DEBUG  Sent mapped partial result: [{[{BE 12545000}]}]
+21:33:20.627071  worker_3     DEBUG  Received input
+21:33:20.627077  worker_3     DEBUG  Mapping row: {map[budget_sum:43512027] map[country:NZ] map[] map[]}
+21:33:20.627093  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.627100  worker_3     DEBUG  Sent mapped partial result: [{[{NZ 43512027}]}]
+21:33:20.627124  worker_3     DEBUG  Received input
+21:33:20.627130  worker_3     DEBUG  Mapping row: {map[budget_sum:1233974] map[country:EE] map[] map[]}
+21:33:20.627163  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.627170  worker_3     DEBUG  Sent mapped partial result: [{[{EE 1233974}]}]
+21:33:20.627366  worker_3     DEBUG  Received input
+21:33:20.627377  worker_3     DEBUG  Mapping row: {map[budget_sum:39340473] map[country:BR] map[] map[]}
+21:33:20.627405  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.627413  worker_3     DEBUG  Sent mapped partial result: [{[{BR 39340473}]}]
+21:33:20.627439  worker_3     DEBUG  Received input
+21:33:20.627445  worker_3     DEBUG  Mapping row: {map[budget_sum:1500000] map[country:DO] map[] map[]}
+21:33:20.627466  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.627474  worker_3     DEBUG  Sent mapped partial result: [{[{DO 1500000}]}]
+21:33:20.627528  worker_3     DEBUG  Received input
+21:33:20.627536  worker_3     DEBUG  Mapping row: {map[budget_sum:7720000] map[country:RS] map[] map[]}
+21:33:20.627574  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:20.627581  worker_3     DEBUG  Sent mapped partial result: [{[{RS 7720000}]}]
+21:33:20.894616  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:20.901635  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:21.896610  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:21.902616  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:22.062573  worker_3     DEBUG  Initial batch: []
+21:33:22.062587  worker_3     DEBUG  Batch state: []
+21:33:22.062681  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.062692  worker_3     DEBUG  Batch state: [{[{DK 44558534}]}]
+21:33:22.062726  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.062736  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.062761  worker_3     DEBUG  Reduced partial result: {[{NO 65033814} {DK 44558534}]}
+21:33:22.062794  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.062801  worker_3     DEBUG  Sent reduced partial result
+21:33:22.062807  worker_3     DEBUG  Initial batch: []
+21:33:22.062812  worker_3     DEBUG  Batch state: []
+21:33:22.062823  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.062831  worker_3     DEBUG  Batch state: [{[{PT 3204460}]}]
+21:33:22.062943  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.062949  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.062961  worker_3     DEBUG  Reduced partial result: {[{PT 3204460} {KZ 800010}]}
+21:33:22.062981  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.062985  worker_3     DEBUG  Sent reduced partial result
+21:33:22.062989  worker_3     DEBUG  Initial batch: []
+21:33:22.062993  worker_3     DEBUG  Batch state: []
+21:33:22.062998  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063001  worker_3     DEBUG  Batch state: [{[{NG 2}]}]
+21:33:22.063023  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063030  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.063050  worker_3     DEBUG  Reduced partial result: {[{NL 23971367} {NG 2}]}
+21:33:22.063086  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.063095  worker_3     DEBUG  Sent reduced partial result
+21:33:22.063101  worker_3     DEBUG  Initial batch: []
+21:33:22.063106  worker_3     DEBUG  Batch state: []
+21:33:22.063117  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063122  worker_3     DEBUG  Batch state: [{[{MX 53513456}]}]
+21:33:22.063147  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063152  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.063168  worker_3     DEBUG  Reduced partial result: {[{MX 53513456} {PK 2143149}]}
+21:33:22.063183  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.063187  worker_3     DEBUG  Sent reduced partial result
+21:33:22.063191  worker_3     DEBUG  Initial batch: []
+21:33:22.063194  worker_3     DEBUG  Batch state: []
+21:33:22.063200  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063204  worker_3     DEBUG  Batch state: [{[{LA 5000}]}]
+21:33:22.063227  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063235  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.063256  worker_3     DEBUG  Reduced partial result: {[{AR 20500000} {LA 5000}]}
+21:33:22.063295  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.063301  worker_3     DEBUG  Sent reduced partial result
+21:33:22.063307  worker_3     DEBUG  Initial batch: []
+21:33:22.063312  worker_3     DEBUG  Batch state: []
+21:33:22.063331  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063340  worker_3     DEBUG  Batch state: [{[{ID 6700000}]}]
+21:33:22.063360  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063364  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.063383  worker_3     DEBUG  Reduced partial result: {[{ID 6700000} {CZ 2030000}]}
+21:33:22.063404  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.063409  worker_3     DEBUG  Sent reduced partial result
+21:33:22.063444  worker_3     DEBUG  Initial batch: []
+21:33:22.063454  worker_3     DEBUG  Batch state: []
+21:33:22.063473  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063485  worker_3     DEBUG  Batch state: [{[{LT 400000}]}]
+21:33:22.063524  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063537  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.063592  worker_3     DEBUG  Reduced partial result: {[{FI 73748444} {NZ 43512027} {TR 23934900} {RS 7720000} {LT 400000}]}
+21:33:22.063632  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.063642  worker_3     DEBUG  Sent reduced partial result
+21:33:22.063648  worker_3     DEBUG  Initial batch: []
+21:33:22.063653  worker_3     DEBUG  Batch state: []
+21:33:22.063665  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063673  worker_3     DEBUG  Batch state: [{[{AU 606783711} {MY 1220000}]}]
+21:33:22.063689  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063695  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.063710  worker_3     DEBUG  Reduced partial result: {[{AU 606783711} {IE 27310000} {MY 1220000} {CL 250}]}
+21:33:22.063725  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.063729  worker_3     DEBUG  Sent reduced partial result
+21:33:22.063732  worker_3     DEBUG  Initial batch: []
+21:33:22.063736  worker_3     DEBUG  Batch state: []
+21:33:22.063742  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063746  worker_3     DEBUG  Batch state: [{[{FR 2230466838} {CN 739707658}]}]
+21:33:22.063758  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063765  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.063777  worker_3     DEBUG  Reduced partial result: {[{FR 2230466838} {CN 739707658} {ZA 61147487} {BE 12545000} {HU 5450000}]}
+21:33:22.063788  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.063792  worker_3     DEBUG  Sent reduced partial result
+21:33:22.063796  worker_3     DEBUG  Initial batch: []
+21:33:22.063799  worker_3     DEBUG  Batch state: []
+21:33:22.063806  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.063810  worker_3     DEBUG  Batch state: [{[{CA 602576454} {KR 368504762} {NO 65033814} {DK 44558534}]}]
+21:33:22.064116  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.064133  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.064173  worker_3     DEBUG  Reduced partial result: {[{US 117303690153} {IN 1169682797} {CA 602576454} {KR 368504762} {IT 240907475}]}
+21:33:22.064218  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.064228  worker_3     DEBUG  Sent reduced partial result
+21:33:22.064238  worker_3     DEBUG  Initial batch: []
+21:33:22.064246  worker_3     DEBUG  Batch state: []
+21:33:22.064894  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.064905  worker_3     DEBUG  Batch state: [{[{FR 2230466838} {CN 739707658} {AU 606783711} {ZA 61147487} {IE 27310000}]}]
+21:33:22.129573  middleware   INFO   nextIfNotifedClosed
+21:33:22.459266  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.459284  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.459324  worker_3     DEBUG  Reduced partial result: {[{US 117303690153} {FR 2230466838} {IN 1169682797} {CN 739707658} {AU 606783711}]}
+21:33:22.459414  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.459432  worker_3     DEBUG  Sent reduced partial result
+21:33:22.459446  worker_3     DEBUG  Initial batch: []
+21:33:22.459453  worker_3     DEBUG  Batch state: []
+21:33:22.459647  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.459660  worker_3     DEBUG  Batch state: [{[{GB 1607604610} {SE 156396211} {IS 9700000} {BG 5796442} {UY 6000}]}]
+21:33:22.460103  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.460113  worker_3     DEBUG  Batch read completed: len = 2
+21:33:22.460138  worker_3     DEBUG  Reduced partial result: {[{US 117303690153} {FR 2230466838} {GB 1607604610} {IN 1169682797} {JP 832585873}]}
+21:33:22.460164  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc
+21:33:22.460171  worker_3     DEBUG  Sent reduced partial result
+21:33:22.460177  worker_3     DEBUG  Initial batch: []
+21:33:22.460183  worker_3     DEBUG  Batch state: []
+21:33:22.460647  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:22.460658  worker_3     DEBUG  Batch state: [{[{US 117303690153} {FR 2230466838} {GB 1607604610} {IN 1169682797} {JP 832585873}]}]
+21:33:22.896651  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:22.902634  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:22.960587  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:23.024596  worker_3     DEBUG  Initial batch: []
+21:33:23.024610  worker_3     DEBUG  Batch state: []
+21:33:23.524607  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:23.703599  worker_3     DEBUG  Initial batch: []
+21:33:23.703617  worker_3     DEBUG  Batch state: []
+21:33:23.898587  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:23.904571  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:24.159925  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:24.159939  worker_3     DEBUG  Batch state: [{[{US 117303690153} {FR 2230466838} {GB 1607604610} {IN 1169682797} {JP 832585873}]}]
+21:33:24.205571  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:24.586592  worker_3     DEBUG  Initial batch: []
+21:33:24.586605  worker_3     DEBUG  Batch state: []
+21:33:24.898636  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:24.904611  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:24.924933  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:24.924947  worker_3     DEBUG  Batch state: [{[{DE 403795958} {ES 344177350} {TW 50332503} {RO 8603912} {PH 1443972}]}]
+21:33:25.088576  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:25.129618  middleware   DEBUG  depleteTimmer reached
+21:33:25.129653  worker_3     DEBUG  Input closed
+21:33:25.425593  worker_3     DEBUG  Initial batch: []
+21:33:25.425607  worker_3     DEBUG  Batch state: []
+21:33:25.900634  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:25.904630  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:25.927592  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:26.902624  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:26.906607  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:27.429586  worker_3     DEBUG  Initial batch: []
+21:33:27.429621  worker_3     DEBUG  Batch state: []
+21:33:27.429683  worker_3     DEBUG  Received message len ok: true, err: %!s(<nil>)
+21:33:27.429693  worker_3     DEBUG  Batch state: [{[{DE 403795958} {ES 344177350} {TW 50332503} {RO 8603912} {PH 1443972}]}]
+21:33:27.904599  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_hb
+21:33:27.908600  middleware   DEBUG  PUBLISHED message in chan reduce_top_5_by_budget_acc_hb
+21:33:27.929601  worker_3     DEBUG  Received message len ok: false, err: timeout reached while waiting for message
+21:33:27.929635  worker_3     DEBUG  Retiring
+21:33:27.929716  middleware   DEBUG  CLOSING SENDER
+21:33:27.929726  middleware   DEBUG  Clossing channel 'reduce_top_5_by_budget'
+21:33:27.930071  middleware   INFO   kill go routine for producer heart beat: 'reduce_top_5_by_budget_hb'
+21:33:27.930086  middleware   DEBUG  Clossing channel 'reduce_top_5_by_budget_hb'
+21:33:27.930286  middleware   DEBUG  CLOSING SENDER
+21:33:27.930303  middleware   DEBUG  Clossing channel 'reduce_top_5_by_budget_acc'
+21:33:27.930594  middleware   INFO   kill go routine for producer heart beat: 'reduce_top_5_by_budget_acc_hb'
+21:33:27.930610  middleware   DEBUG  Clossing channel 'reduce_top_5_by_budget_acc_hb'
+21:33:27.930799  reduce_top_5_by_budget_3  INFO   map reducer finished
