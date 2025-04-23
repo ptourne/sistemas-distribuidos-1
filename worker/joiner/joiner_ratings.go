@@ -91,10 +91,7 @@ func (f *JoinerRatings) processRating(row common.Row) error {
 	f.ratingsProcessed++
 	movieID := row.Strings["movieID"]
 	rating := row.Floats["rating"]
-	//log.Infof("Processing rating %v", f.ratingsProcessed)
-	// if f.ratingsProcessed == 45476{ //TODO
-	// 	f.notifyRatingsDone()
-	// }
+	log.Infof("Processing rating %v", f.ratingsProcessed)
 
 	lastDigit := string(movieID[len(movieID)-1])
 

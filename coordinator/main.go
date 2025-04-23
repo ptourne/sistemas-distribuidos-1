@@ -37,6 +37,7 @@ func main() {
 	q1Output := "filter_release_date_l_2010_and_include_es"
 	q2Output := "reduce_top_5_by_budget"
 	q3Output := "joiner_credits"
+	q4Output := "joiner_ratings"
 	q5Output := "map_sentiment_rate"
 	//q1fOutput := "filter_one_production_country"
 
@@ -63,6 +64,12 @@ func main() {
 		unwrap(err, "Failed to create read queue")
 	}
 	defer q3Receiver.Close()
+
+	q4Receiver, err := middlewareChan.ConsumeFrom(q4Output, "q4")
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer q4Receiver.Close()
 
 	q5Receiver, err := middlewareChan.ConsumeFrom(q5Output, "q5")
 	if err != nil {
@@ -175,6 +182,13 @@ OuterLoop:
 				row := create(data)
 
 				sender.Send(&row)
+				if fileName == ratingsName && line == 10000 {
+					log.Infof("Processed %d lines from %s", line, fileName)
+					log.Infof("Received ALL FILES SENT")
+					sender.Close()
+					break OuterLoop
+					//break
+				}
 
 			}
 			log.Infof("CSV %s processing completed, closing", fileName)
@@ -293,13 +307,53 @@ OuterLoop:
 	// 	log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
 	// }
 
-	log.Infof("Verifying Q3")
+	// log.Infof("Verifying Q3")
 
-	countCredit := 0
+	// countCredit := 0
+	// timer := time.NewTimer(time.Minute * 1)
+
+	// for {
+	// 	envelope, ok, err := q3Receiver.Next(timer)
+	// 	if err != nil {
+	// 		if err.Error() == "close channel was closed" {
+	// 			log.Infof("Channel was closed")
+	// 			break
+	// 		}
+	// 		if err.Error() == "timeout reached while waiting for message" {
+	// 			log.Infof("Timeout reached while waiting for message")
+	// 			break
+	// 		} else {
+	// 			log.Errorf("Failed to read message: %v", err)
+	// 			continue
+	// 		}
+	// 	}
+	// 	if !ok {
+	// 		log.Infof("No more actors")
+	// 		break
+	// 	}
+	// 	receivedCredit := envelope.Msg()
+	// 	//log.Infof("Received film debug: %+v", receivedCredit)
+	// 	countCredit++
+	// 	if countCredit%100 == 0 {
+	// 		log.Infof("Received %d credits: %+v", countCredit, receivedCredit)
+	// 	}
+	// 	if receivedCredit.Strings["actor"] == "" {
+	// 		log.Errorf("Actor not matched expected")
+	// 	}
+	// 	err = envelope.Ack(true)
+	// 	unwrap(err, "Failed to ack message")
+	// 	timer.Reset(time.Second * 40)
+	// }
+	// timer.Stop()
+	// log.Infof("Finished receiving credits: received %d actors", countCredit) // Expected 1515
+
+	log.Infof("Verifying Q4")
+
+	countRatings := 0
 	timer := time.NewTimer(time.Minute * 1)
 
 	for {
-		envelope, ok, err := q3Receiver.Next(timer)
+		envelope, ok, err := q4Receiver.Next(timer)
 		if err != nil {
 			if err.Error() == "close channel was closed" {
 				log.Infof("Channel was closed")
@@ -314,24 +368,40 @@ OuterLoop:
 			}
 		}
 		if !ok {
-			log.Infof("No more actors")
+			log.Infof("No more ratings")
 			break
 		}
-		receivedCredit := envelope.Msg()
+		receivedRating := envelope.Msg()
 		//log.Infof("Received film debug: %+v", receivedCredit)
-		countCredit++
-		if countCredit%100 == 0 {
-			log.Infof("Received %d credits: %+v", countCredit, receivedCredit)
-		}
-		if receivedCredit.Strings["actor"] == "" {
-			log.Errorf("Actor not matched expected")
-		}
+		countRatings++
+		log.Infof("Received %d ratings: %+v", countRatings, receivedRating)
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
 		timer.Reset(time.Second * 40)
 	}
 	timer.Stop()
-	log.Infof("Finished receiving credits: received %d actors", countCredit) // Expected 1515
+	log.Infof("Finished receiving ratings: received %d ratings", countRatings)
+	// expected:
+	// 10000 ratings => 5 res
+	//	id: 16, avg: 3.6875
+	// 	id: 1653, avg: 3.8214285714285716
+	// 	id: 1956, avg: 4.25
+	// 	id: 45722, avg: 3.5
+	// 	id: 6636, avg: 5.0
+	// 50000 ratings => 6 res
+	// 	id: 16, avg: 3.787878787878788
+	// 	id: 1653, avg: 3.73
+	// 	id: 1956, avg: 3.75
+	// 	id: 45722, avg: 3.2777777777777777
+	// 	id: 6636, avg: 5.0
+	// 100000 ratings => 7 res
+	// 	id: 16, avg: 3.8732394366197185
+	// 	id: 1653, avg: 3.7666666666666666
+	// 	id: 1956, avg: 3.9038461538461537
+	// 	id: 45722, avg: 3.3706896551724137
+	// 	id: 48596, avg: 0.5
+	// 	id: 6636, avg: 4.333333333333333
+	// 	id: 69278, avg: 2.5
 
 	// log.Infof("Verifying Q5")
 
