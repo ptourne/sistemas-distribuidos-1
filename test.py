@@ -10,7 +10,8 @@ MIN_FILTERS = 1
 MAX_FILTERS = 20
 MIN_REDUCERS = 1
 MAX_REDUCERS = 20
-ITERATIONS = 20
+ITERATIONS = 10
+TEST_RESULTS = "./test_results"
 FAILED_TEST_LOGS = "./test_results/failed"
 PASSED_TEST_RESULTS = "./test_results/summary.csv"
 
@@ -137,6 +138,7 @@ def process_results(filters, reducers, iteration):
 
 
 def main():
+    os.makedirs(f"{TEST_RESULTS}", exist_ok=True)
     docker_down()
     for filters in range(MIN_FILTERS, MAX_FILTERS + 1):
         for reducers in range(MIN_REDUCERS, MAX_REDUCERS + 1):

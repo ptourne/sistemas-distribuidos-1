@@ -194,6 +194,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			}
 			return producerCount, nil
 		}
+		defer nack()
 		for {
 			nack()
 			batch, lastMsg, err = mr.readBatch()
