@@ -61,3 +61,8 @@ nix develop ./path_to_project -c code ./path_to_project
 ```bash
 nix develop ./path_to_project -c zed ./path_to_project
 ```
+
+# Testing
+
+./python-create-venv.sh
+source ./.venv/bin/activate

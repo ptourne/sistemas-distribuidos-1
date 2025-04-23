@@ -10,36 +10,38 @@ MIN_FILTERS = 1
 MAX_FILTERS = 20
 MIN_REDUCERS = 1
 MAX_REDUCERS = 20
-ITERATIONS = 10
+ITERATIONS = 20
 FAILED_TEST_LOGS = "./test_results/failed"
-PASSED_TEST_RESULTS = "./test_results/success.csv"
+PASSED_TEST_RESULTS = "./test_results/summary.csv"
 
+def run_cmd(cmd):
+    return subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True)
 
 def docker_down():
-    subprocess.check_output(
+    run_cmd(
         ["docker", "compose", "down", "--volumes", "--remove-orphans"])
 
 
 def generate_compose_file(filters, reducers):
     # call command in shell
-    subprocess.check_output(
+    run_cmd(
         ["./generate-compose.sh", str(filters), str(reducers), str(reducers)])
 
 
 def docker_build():
-    subprocess.check_output(["docker", "compose", "build"])
+    run_cmd(["docker", "compose", "build"])
 
 
 def docker_up():
-    subprocess.check_output(["docker", "compose", "up", "-d"])
+    run_cmd(["docker", "compose", "up", "-d"])
 
 
 def get_logs(container_name):
-    return subprocess.check_output(["docker", "logs", container_name]).decode()
+    return run_cmd(["docker", "logs", container_name])
 
 
 def docker_wait():
-    subprocess.check_output(["docker", "compose", "wait", "coordinator"])
+    run_cmd(["docker", "compose", "wait", "coordinator"])
 
 
 class LogLine:
@@ -72,7 +74,6 @@ def all_succeded():
     # Check if all containers exited with code 0
     print("checking if all containers exited with code 0")
     for line in res.splitlines():
-        print(f"docker ps line: {line}")
         container_name = line.split(' ')[0]
         if container_name == "rabbitmq":
             continue
@@ -84,7 +85,6 @@ def all_succeded():
     passed = False
     print("reading coordinator logs")
     for line in lines:
-        print("coordinator log line: ", line)
         msg = log_message(line)
         if "TESTING ALL | End | Passed" in msg:
             passed = True
