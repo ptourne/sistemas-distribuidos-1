@@ -38,7 +38,7 @@ func main() {
 	q2Output := "reduce_top_5_by_budget"
 	q3Output := "joiner_credits"
 	q4Output := "joiner_ratings"
-	q5Output := "map_sentiment_rate"
+	q5Output := "filter_avg_rate"
 	allQuerysToEndpointName :="all_querys_to_endpoint"
 
 	receiverFileByte, err := middlewareChanByte.ConsumeFrom(readFileByteQueue, readFileByteQueue)

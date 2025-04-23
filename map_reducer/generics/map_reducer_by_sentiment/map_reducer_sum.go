@@ -25,8 +25,8 @@ func (r SumMapReduce) Map(in In) []Acc {
 	rate := in.Floats["rate"]
 	sentiment := in.Strings["sentiment"]
 	return []Acc{
-		{Sums: map[string]float64{sentiment: rate}},
-		{Count: map[string]uint{sentiment: 1}},
+		{Sums: map[string]float64{sentiment: rate},
+		Count: map[string]uint{sentiment: 1}},
 	}
 }
 
