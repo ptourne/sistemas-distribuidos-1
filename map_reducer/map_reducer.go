@@ -180,21 +180,22 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			log.Debugf("Sent reduced partial result")
 		}
 		var producerCount uint
-		countProducers := func() (uint, error) {
-			if WORKER_ID != "1" {
-				return 2, nil
-			}
-			log.Infof("Calling count producers from worker '%s'", WORKER_ID)
-			return mr.partialResultReceiver.CountProducers()
-		}
-		producerCount, err = countProducers()
+		var lastProducerCount time.Time = time.Now()
+		producerCount, err = mr.partialResultReceiver.CountProducers()
 		if err != nil {
 			err = fmt.Errorf("failed to get producer count")
 			return
 		}
+		countProducers := func() (uint, error) {
+			if time.Since(lastProducerCount) > time.Second {
+				lastProducerCount = time.Now()
+				log.Infof("Calling count producers from worker '%s'", WORKER_ID)
+				return mr.partialResultReceiver.CountProducers()
+			}
+			return producerCount, nil
+		}
 		for {
 			nack()
-			<-time.NewTimer(time.Millisecond * time.Duration(backoff)).C
 			batch, lastMsg, err = mr.readBatch()
 			if err != nil {
 				if err.Error() == "timeout reached while waiting for message" {
@@ -205,27 +206,18 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 				}
 			}
 			if len(batch) < int(mr.batchSize) {
-				log.Debugf("WorkerID: %s", WORKER_ID)
 				if WORKER_ID != "1" {
 					log.Debugf("Retiring")
 					return
 				}
-				log.Debugf("Must no retire")
-				if len(batch) == 0 {
-					continue
-				}
-			}
-			if len(batch) < int(mr.batchSize) {
 				producerCount, err = countProducers()
-				log.Infof("cant producers %v", producerCount)
 				if err != nil {
 					err = fmt.Errorf("failed to get producer count")
 					return
 				}
-				if producerCount > 1 {
-					timeoutStep, backoff = ExponentialBackoffDuration(timeoutStep)
-					continue
-				}
+			}
+			if len(batch) == 0 {
+				continue
 			}
 
 			if producerCount == 1 && len(batch) == 1 {
