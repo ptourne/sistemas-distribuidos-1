@@ -24,13 +24,13 @@ services:
             - local_net
         environment:
             - NUMBER_OF_FILTERS=5
-            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=5
-            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=5
+            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=1
+            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=1
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/user/Documents/Archive/UBA/Cuatrimestres/10mo-cuatrimestre/distribuidos/tp-repo/datasets:/datasets
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/datasets:/datasets
 
     filter1:
         container_name: filter1
@@ -116,62 +116,6 @@ services:
             rabbitmq:
                 condition: service_healthy
 
-    reduce_by_country_sum_budget2:
-        container_name: reduce_by_country_sum_budget2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_by_country_sum_budget3:
-        container_name: reduce_by_country_sum_budget3
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=3
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_by_country_sum_budget4:
-        container_name: reduce_by_country_sum_budget4
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=4
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_by_country_sum_budget5:
-        container_name: reduce_by_country_sum_budget5
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=5
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
     reduce_top_5_by_budget1:
         container_name: reduce_top_5_by_budget1
         build:
@@ -180,62 +124,6 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_top_5_by_budget2:
-        container_name: reduce_top_5_by_budget2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_top_5_by_budget3:
-        container_name: reduce_top_5_by_budget3
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=3
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_top_5_by_budget4:
-        container_name: reduce_top_5_by_budget4
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=4
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_top_5_by_budget5:
-        container_name: reduce_top_5_by_budget5
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=5
         networks:
             - local_net
         depends_on:

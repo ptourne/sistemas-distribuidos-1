@@ -119,7 +119,8 @@ func main() {
 
 	timer := time.NewTimer(time.Second * 40)
 
-	log.Infof("Verifying Q1")
+	log.Infof("TESTING Q1 | Start")
+	testQ1Passed := true
 	for {
 		envelope, ok, err := q1Receiver.Next(timer)
 		if err != nil {
@@ -138,7 +139,8 @@ func main() {
 		receivedMovie := envelope.Msg()
 		// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
 		// log.Infof("Received film debug: %+v", receivedMovie)
-		expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedMovie)
+		expectedOutputQ1, ok = removeQ1(expectedOutputQ1, receivedMovie)
+		testQ1Passed = testQ1Passed && ok
 		if len(expectedOutputQ1) == 0 {
 			log.Infof("All expected films received")
 			break
@@ -149,12 +151,20 @@ func main() {
 	}
 	timer.Stop()
 	if len(expectedOutputQ1) > 0 {
+		testQ1Passed = false
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
+	}
+
+	if testQ1Passed {
+		log.Infof("TESTING Q1 | End | Passed")
+	} else {
+		log.Infof("TESTING Q1 | End | Failed")
 	}
 
 	timer2 := time.NewTimer(time.Second * 120)
 
-	log.Infof("Verifying Q1F")
+	log.Infof("TESTING Q1F | Start")
+	testQ1fPassed := true
 	cant := 0
 	sum := 0
 	for {
@@ -183,6 +193,12 @@ func main() {
 	timer2.Stop()
 	log.Infof("Received %d films", cant)
 	log.Infof("Sum of budgets IN: %d", sum)
+	testQ1fPassed = cant == 6484 && sum == 131359558864
+	if testQ1fPassed {
+		log.Infof("TESTING Q1F | End | Passed")
+	} else {
+		log.Infof("TESTING Q1F | End | Failed")
+	}
 
 	// timer = time.NewTimer(time.Second * 40)
 
@@ -230,7 +246,8 @@ func main() {
 
 	timer = time.NewTimer(time.Second * 120)
 
-	log.Infof("Verifying Q2")
+	log.Infof("TESTING Q2 | Start")
+	testq2Passed := true
 	for {
 		envelope, ok, err := q2Receiver.Next(timer)
 		if err != nil {
@@ -249,7 +266,8 @@ func main() {
 		receivedCountry := envelope.Msg()
 		log.Infof("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
 		log.Infof("Received country debug: %+v", receivedCountry)
-		expectedOutputQ2 = removeQ2(expectedOutputQ2, receivedCountry)
+		expectedOutputQ2, ok = removeQ2(expectedOutputQ2, receivedCountry)
+		testq2Passed = testq2Passed && ok
 		if len(expectedOutputQ2) == 0 {
 			log.Infof("All expected films received")
 			break
@@ -260,37 +278,48 @@ func main() {
 	}
 	timer.Stop()
 	if len(expectedOutputQ2) > 0 {
+		testq2Passed = false
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
 	}
-
+	if testq2Passed {
+		log.Infof("TESTING Q2 | End | Passed")
+	} else {
+		log.Infof("TESTING Q2 | End | Failed")
+	}
+	if testQ1Passed && testQ1fPassed && testq2Passed {
+		log.Infof("TESTING ALL | End | Passed")
+	} else {
+		log.Infof("TESTING ALL | End | Failed")
+	}
 	log.Infof("Execution time: %v", time.Since(stopwatch))
 }
 
-func removeQ1(slice []common.Row, movie common.Row) []common.Row {
+func removeQ1(slice []common.Row, movie common.Row) ([]common.Row, bool) {
 	for i, v := range slice {
 		if v.Strings["title"] == movie.Strings["title"] && stringSlicesEqual(v.Arrays["genres"], movie.Arrays["genres"]) {
 			log.Infof("Film matched expected")
-			return slices.Delete(slice, i, i+1)
+			return slices.Delete(slice, i, i+1), true
 		}
 	}
 	log.Errorf("Film not matched expected")
-	return slice
+	return slice, false
 }
 
-func removeQ2(slice []common.Row, country common.Row) []common.Row {
+func removeQ2(slice []common.Row, country common.Row) ([]common.Row, bool) {
 	for i, v := range slice {
 		if v.Strings["country"] == country.Strings["country"] {
 			if v.Numerics["budget_sum"] == country.Numerics["budget_sum"] {
 				log.Infof("Country matched expected 🟢")
+				return slices.Delete(slice, i, i+1), true
 			} else {
 				log.Errorf("Budget sum not matched expected:😔 %d != %d", country.Numerics["budget_sum"], v.Numerics["budget_sum"])
+				return slices.Delete(slice, i, i+1), false
 			}
-			return slices.Delete(slice, i, i+1)
 
 		}
 	}
 	log.Errorf("Country not matched expected 🛑")
-	return slice
+	return slice, false
 }
 
 func stringSlicesEqual(a, b []string) bool {
