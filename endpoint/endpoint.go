@@ -83,7 +83,7 @@ func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
 func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[[]byte]) error{
 	fileBytes := "file_bytes"
 	time.Sleep(10 * time.Second)
-	fileBytesSender, err := middlewareChan.WriteTo(fileBytes, []string{"movies_metadata"})
+	fileBytesSender, err := middlewareChan.WriteTo(fileBytes, []string{"file_bytes"})
 	if err != nil {
 		return fmt.Errorf("failed to create write queue %s: %v", fileBytes, err)
 	}

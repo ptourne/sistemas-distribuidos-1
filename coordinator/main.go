@@ -36,9 +36,12 @@ func main() {
 	ratingsName := "ratings"
 	q1Output := "filter_release_date_l_2010_and_include_es"
 	q2Output := "reduce_top_5_by_budget"
-	q1fOutput := "filter_one_production_country"
+	// q3Output := "joiner_credits"
+	// q4Output := "joiner_ratings"
+	q5Output := "map_sentiment_rate"
 
-	receiverFileByte, err := middlewareChanByte.SuscribeTo(readFileByteQueue)
+
+	receiverFileByte, err := middlewareChanByte.ConsumeFrom(readFileByteQueue, readFileByteQueue)
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
@@ -50,28 +53,29 @@ func main() {
 	}
 	defer q1Receiver.Close()
 
-	q1fReceiver, err := middlewareChan.ConsumeFrom(q1fOutput, "q1f")
-	if err != nil {
-		unwrap(err, "Failed to create read queue")
-	}
-	defer q1fReceiver.Close()
 
 	q2Receiver, err := middlewareChan.ConsumeFrom(q2Output, "q2")
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
-	defer q1Receiver.Close()
+	defer q2Receiver.Close()
+
+	q5Receiver, err := middlewareChan.ConsumeFrom(q5Output, "q5")
+	if err != nil {
+		unwrap(err, "Failed to create read queue")
+	}
+	defer q5Receiver.Close()
 
 	moviesMetadataSender, err := middlewareChan.WriteTo(moviesMetadataName, []string{"clean_movies"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
 
-	creditsSender, err := middlewareChan.WriteTo(creditsName, []string{})
+	creditsSender, err := middlewareChan.WriteTo(creditsName, []string{"clean_credits"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
-	ratingsSender, err := middlewareChan.WriteTo(ratingsName, []string{})
+	ratingsSender, err := middlewareChan.WriteTo(ratingsName, []string{"clean_ratings"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
@@ -234,72 +238,7 @@ func main() {
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
 	}
 
-	// timer2 := time.NewTimer(time.Second * 20)
-	// log.Infof("Verifying Q1F")
-	// cant := 0
-	// sum := 0
-	// for {
-	// 	envelope, ok, err := q1fReceiver.Next(timer2)
-	// 	if err != nil {
-	// 		if err.Error() == "timeout reached while waiting for message" {
-	// 			log.Infof("Timeout reached while waiting for message")
-	// 			break
-	// 		} else {
-	// 			log.Errorf("Failed to read message: %v", err)
-	// 			continue
-	// 		}
-	// 	}
-	// 	if !ok {
-	// 		log.Infof("No more films IN")
-	// 		break
-	// 	}
-	// 	receivedMovie := envelope.Msg()
-	// 	// log.Infof("Received film: %v", receivedMovie)
-	// 	cant++
-	// 	sum += int(receivedMovie.Numerics["budget"])
-	// 	err = envelope.Ack(true)
-	// 	unwrap(err, "Failed to ack message")
-	// 	timer2.Reset(time.Second * 20)
-	// }
-	// timer2.Stop()
-	// log.Infof("Received %d films", cant)
-	// log.Infof("Sum of budgets IN: %d", sum)
-
-	// timer = time.NewTimer(time.Second * 40)
-
-	// log.Infof("Verifying Q2f")
-
-	// i := 0
-	// for {
-	// 	e, ok, err := q1fReceiver.Next(timer)
-	// 	if err != nil {
-	// 		if err.Error() == "timeout reached while waiting for message" {
-	// 			log.Infof("Timeout reached while waiting for message")
-	// 			break
-	// 		} else {
-	// 			log.Errorf("Failed to read message: %v", err)
-	// 			continue
-	// 		}
-	// 	}
-	// 	if !ok {
-	// 		log.Infof("No more countries")
-	// 		break
-	// 	}
-	// 	log.Infof("IN film %v", e.Msg())
-	// 	i++
-	// }
-	// log.Infof("INDIANCOUNT:%d", i)
-	// panic("")
-
-	// Correct answer
-	// expectedOutputQ2 := []common.Row{
-	// 	{Strings: map[string]string{"country": "US"}, Numerics: map[string]uint{"budget_sum": 120153886644}},
-	// 	{Strings: map[string]string{"country": "FR"}, Numerics: map[string]uint{"budget_sum": 2256831838}},
-	// 	{Strings: map[string]string{"country": "GB"}, Numerics: map[string]uint{"budget_sum": 1611604610}},
-	// 	{Strings: map[string]string{"country": "IN"}, Numerics: map[string]uint{"budget_sum": 1169682797}},
-	// 	{Strings: map[string]string{"country": "JP"}, Numerics: map[string]uint{"budget_sum": 832585873}},
-	// }
-
+	log.Infof("Verifying Q2")
 	// Incorrect current answer
 	expectedOutputQ2 := []common.Row{
 		{Numerics: map[string]uint{"budget_sum": 120153886644}, Strings: map[string]string{"country": "US"}},
@@ -310,8 +249,6 @@ func main() {
 	}
 
 	timer = time.NewTimer(time.Second * 40)
-
-	log.Infof("Verifying Q2")
 	for {
 		envelope, ok, err := q2Receiver.Next(nil)
 		if err != nil {
@@ -343,6 +280,65 @@ func main() {
 	if len(expectedOutputQ2) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
 	}
+
+	log.Infof("Verifying Q5")
+
+	cant := 0
+	timer = time.NewTimer(time.Second * 40)
+
+	sum_sentiment_pos := 0.0
+	cant_sentiment_pos := 0
+	sum_sentiment_neg := 0.0
+	cant_sentiment_neg := 0
+
+	for {
+		envelope, ok, err := q5Receiver.Next(timer)
+		if err != nil {
+			if err.Error() == "close channel was closed" {
+				log.Infof("Channel was closed")
+				break
+			}
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
+				continue
+			}
+		}
+		if !ok {
+			log.Infof("No more films")
+			break
+		}
+		receivedMovie := envelope.Msg()
+		//log.Infof("Received film debug: %+v", receivedMovie)
+		cant++
+		if cant%100 == 0 {
+			log.Infof("Received: %v", cant)
+		}
+		if receivedMovie.Strings["sentiment"] == "POSITIVE" {
+			cant_sentiment_pos++
+			sum_sentiment_pos += receivedMovie.Floats["rate"]
+		} else if receivedMovie.Strings["sentiment"] == "NEGATIVE" {
+			cant_sentiment_neg++
+			sum_sentiment_neg += receivedMovie.Floats["rate"]
+		} else {
+			log.Errorf("Unknown sentiment: %s", receivedMovie.Strings["sentiment"])
+		}
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+		timer.Reset(time.Second * 40)
+	}
+	timer.Stop()
+	avg_sentiment_pos := float64(sum_sentiment_pos) / float64(cant_sentiment_pos)
+	avg_sentiment_neg := float64(sum_sentiment_neg) / float64(cant_sentiment_neg)
+	//log.Infof("Received %d films from sentiment and rate", cant)
+	//log.Infof("Received %d positive sentiments", cant_sentiment_pos)
+	//log.Infof("Received %d negative sentiments", cant_sentiment_neg)
+	log.Infof("Average sentiment positive: %f, negative: %f", avg_sentiment_pos, avg_sentiment_neg)
+	// Expected:
+	// NEGATIVE    5453.397595
+	// POSITIVE    5668.650541
 }
 
 func removeQ1(slice []common.Row, movie common.Row) []common.Row {

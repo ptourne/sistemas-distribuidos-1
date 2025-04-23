@@ -2,26 +2,22 @@ package clean
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
-	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
-
 type CleanMovies struct {
 	input        task.Task
 	taskReceiver middleware.Receiver[common.Row]
 	taskSender   middleware.Sender[common.Row]
+	subscribers  []string
 }
 
-func NewCleanMovies(input task.Task) task.Task {
-	return &CleanMovies{input, nil, nil}
+func NewCleanMovies(input task.Task, subscribers []string) task.Task {
+	return &CleanMovies{input, nil, nil, subscribers}
 }
 
 func (f CleanMovies) Input() string {
@@ -88,13 +84,13 @@ func (f CleanMovies) process(row common.Row) *common.Row {
 		return nil
 	}
 
-	budget, ok := utils.ParseFloat(row.Strings["budget"])
+	budget, ok := utils.ParseInt(row.Strings["budget"])
 	if !ok {
 		log.Warnf("could not parse budget: %s", row.Strings["budget"])
 		return nil
 	}
 
-	revenue, ok := utils.ParseFloat(row.Strings["revenue"])
+	revenue, ok := utils.ParseInt(row.Strings["revenue"])
 	if !ok {
 		log.Warnf("could not parse revenue: %s", row.Strings["revenue"])
 		return nil
@@ -121,13 +117,13 @@ func (f CleanMovies) process(row common.Row) *common.Row {
 	}
 }
 
-func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) (chan middleware.Envelope[common.Row], error) {
+func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
 	var err error
 	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), []string{"filter_one_production_country", "filter_release_date_ge_2000_and_include_ar"})
+	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), f.subscribers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create write queue for task %s", f.Name())
 	}
@@ -138,7 +134,7 @@ func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[com
 		for {
 			envelope, ok, err := f.taskReceiver.Next(nil)
 			if err != nil {
-				if err.Error() == "read channel was closed" {
+				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
 					log.Infof("Channel closed: %v", f.Name())
 					break
 				}
@@ -153,7 +149,9 @@ func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[com
 		}
 		close(inputChannel)
 	}()
-	return inputChannel, nil
+	channels := []chan middleware.Envelope[common.Row]{inputChannel}
+
+	return channels, nil
 }
 
 func (f *CleanMovies) Finish() error {

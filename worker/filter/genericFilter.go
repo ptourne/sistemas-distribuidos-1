@@ -25,6 +25,32 @@ type NumericCondition struct {
 	Value    uint
 }
 
+type FloatCondition struct {
+	Column   string
+	Operator NumericOperator
+	Value    float64
+}
+
+func (c FloatCondition) Passes(row common.Row) (bool, error) {
+	if val, ok := row.Floats[c.Column]; ok {
+		switch c.Operator {
+		case Equal:
+			return val == c.Value, nil
+		case NotEqual:
+			return val != c.Value, nil
+		case GreaterThan:
+			return val > c.Value, nil
+		case LessThan:
+			return val < c.Value, nil
+		case GreaterThanOrEqual:
+			return val >= c.Value, nil
+		case LessThanOrEqual:
+			return val <= c.Value, nil
+		}
+	}
+	return false, &MissingFieldError{c.Column}
+}
+
 func (c NumericCondition) Passes(row common.Row) (bool, error) {
 	if val, ok := row.Numerics[c.Column]; ok {
 		switch c.Operator {
@@ -135,7 +161,7 @@ func (f GenericFilter) String() string {
 	return fmt.Sprintf("GenericFilter{Conditions: %v}", f.Conditions)
 }
 
-func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) (chan middleware.Envelope[common.Row], error) {
+func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
 	var err error
 	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
@@ -152,8 +178,8 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[c
 		for {
 			envelope, ok, err := f.taskReceiver.Next(nil)
 			if err != nil {
-				if err.Error() == "read channel was closed" {
-					log.Infof("Channel closed desde generic: %v", f.Name())
+				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
+					log.Infof("Channel closed: %v", f.Name())
 					break
 				}
 				log.Errorf("Error reading from middleware: %v", err)
@@ -167,7 +193,9 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[c
 		}
 		close(inputChannel)
 	}()
-	return inputChannel, nil
+	channels := []chan middleware.Envelope[common.Row]{inputChannel}
+
+	return channels, nil
 }
 
 func (f *GenericFilter) Finish() error {

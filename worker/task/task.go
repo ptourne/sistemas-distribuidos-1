@@ -13,6 +13,6 @@ type Task interface {
 	ProcessAndSend(row common.Row) error
 	Input() string
 	Name() string
-	Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) (chan middleware.Envelope[common.Row], error)
+	Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error)
 	Finish() error
 }

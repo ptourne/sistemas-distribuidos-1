@@ -2,23 +2,23 @@
 
 if [ "$#" -eq 3 ]; then
     file_name=./docker-compose.yml
-    number_of_filters=$1
+    number_of_workers=$1
     number_of_reduce_by_country_sum_budgets=$2
     number_of_reduce_top_5_by_budgets=$3
 elif [ "$#" -eq 4 ]; then
     file_name=$1
-    number_of_filters=$2
+    number_of_workers=$2
     number_of_reduce_by_country_sum_budgets=$3
     number_of_reduce_top_5_by_budgets=$4
 
 else
     echo "Error: Incorrect number of arguments"
-    echo "Use: ./generar-compose.sh [file_name] <number_of_filters>"
+    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>"
     exit 1
 fi
 
-# Verify number_of_filters is a positive integer
-if ! [[ "$number_of_filters" =~ ^[0-9]+$ ]] || [ "$number_of_filters" -le -1 ]; then
+# Verify number_of_workers is a positive integer
+if ! [[ "$number_of_workers" =~ ^[0-9]+$ ]] || [ "$number_of_workers" -le -1 ]; then
     echo "Error: Number of filters must be a positive integer"
     exit 1
 fi
@@ -65,16 +65,40 @@ compose_coordinator() {
         networks:
             - local_net
         environment:
-            - NUMBER_OF_FILTERS=$number_of_filters
+            - NUMBER_OF_WORKERS=$number_of_workers
             - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=$number_of_reduce_by_country_sum_budgets
             - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=$number_of_reduce_top_5_by_budgets
         depends_on:
             rabbitmq:
                 condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
 "
 }
 
-compose_filters() {
+
+compose_sentiment_server() {
+    echo "    sentiment_server:
+        container_name: sentiment_server
+        build:
+            context: .
+            dockerfile: worker/nlp/python_server/Dockerfile
+        ports:
+            - \"50051:50051\"
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        healthcheck:
+            test: ncat -zv localhost 50051
+            interval: 10s
+            timeout: 10s
+            retries: 10
+"
+} 
+
+compose_workers() {
     local worker_id=$1
     echo "    filter$worker_id:
         container_name: filter$worker_id
@@ -83,6 +107,8 @@ compose_filters() {
             dockerfile: worker/Dockerfile
         entrypoint: /worker
         environment:
+            - N_JOINERS=$number_of_workers
+            - NLP_GRPC_ADDR=sentiment_server:50051 
             - WORKER_ID=$worker_id
             - SERVER_PORT=1234
         networks:
@@ -90,6 +116,11 @@ compose_filters() {
         depends_on:
             rabbitmq:
                 condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - ${PWD}/joiner_credits:/joiner_credits
+            - ${PWD}/joiner_ratings:/joiner_ratings
 "
 }
 
@@ -178,8 +209,9 @@ compose_network() {
 compose_header > $file_name
 compose_rabbitmq >> $file_name
 compose_coordinator >> $file_name
-for i in $(seq 1 $number_of_filters); do
-    compose_filters $i >> $file_name
+compose_sentiment_server >> $file_name 
+for i in $(seq 1 $number_of_workers); do
+    compose_workers $i >> $file_name
 done
 for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
     compose_reduce_by_country_sum_budgets $i >> $file_name
