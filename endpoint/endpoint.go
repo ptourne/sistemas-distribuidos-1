@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -38,13 +39,19 @@ func NewEndpoint() (*Endpoint, error) {
 }
 
 func (e *Endpoint) Run() error{
-	middlewareChan, err := middleware.NewRabbitmq[[]byte]()
+	middlewareChanByte, err := middleware.NewRabbitmq[[]byte]()
 	if err != nil {
 		return fmt.Errorf("failed to create middleware connection: %v", err)
 	}
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+	defer middlewareChanByte.Close()
 
-	defer middlewareChan.Close()
+	middlewareChanRow, err := middleware.NewRabbitmq[common.Row]()
+	if err != nil {
+		return fmt.Errorf("failed to create middleware connection: %v", err)
+	}
+	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+	defer middlewareChanRow.Close()
 
 	for e.Running {
 		conn, ip, err := e.acceptNewConnection()
@@ -58,14 +65,25 @@ func (e *Endpoint) Run() error{
 		}
 		// s.wg.Add(1)
 		// go s.handleClientConnection(conn, ip)
-		err = e.ReceiveFilesFromClient(conn, ip, middlewareChan)
+		err = e.handleClient(conn, ip, middlewareChanByte, middlewareChanRow)
 		if err != nil {
-			log.Errorf("error recibiendo archivos: %v", err)
+			log.Errorf("error handling client: %v", err)
 			continue
 		}
-		// s.canRevealWinners()
 	}
 	// s.wg.Wait()
+	return nil
+}
+
+func (e *Endpoint) handleClient(conn net.Conn, ip string, middlewareChanByte middleware.MiddlewareCola[[]byte], middlewareChanRow middleware.MiddlewareCola[common.Row]) error {
+	err := e.ReceiveFilesFromClient(conn, ip, middlewareChanByte)
+	if err != nil {
+		return fmt.Errorf("error recibiendo archivos: %v", err)
+	}
+	err = e.ReceiveAndSendQuerysResults(conn, ip, middlewareChanRow)
+	if err != nil {
+		return fmt.Errorf("error recibiendo o enviando querys: %v", err)
+	}
 	return nil
 }
 
@@ -80,24 +98,69 @@ func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
 	return conn, remoteAddr, nil
 }
 
+func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[common.Row]) error{
+	allQuerysToEndpointName :="all_querys_to_endpoint"
+	receiverAllQuerysToEndpoint, err := middlewareChan.ConsumeFrom(allQuerysToEndpointName, allQuerysToEndpointName)
+	if err != nil {
+		return fmt.Errorf("failed to create read queue %s: %v", allQuerysToEndpointName, err)
+	}
+	defer receiverAllQuerysToEndpoint.Close()
+
+	timer := time.NewTimer(time.Second * 100)
+	for {
+		envelope, ok, err := receiverAllQuerysToEndpoint.Next(timer)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
+				continue
+			}
+		}
+		if !ok {
+			log.Infof("No more querys")
+			bufAck := []byte("FinishQuerys")
+			err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), common.FinishQuerys)
+			if err != nil {
+				log.Errorf("Failed to send message: %v", err)
+			}
+			break
+		}
+		receivedMovie := envelope.Msg()
+		var bufAck []byte
+		switch receivedMovie.Type {
+		case common.QueryName:
+			bufAck = []byte(receivedMovie.Strings["type"])
+		case common.QueryRow:
+			bufAck, err = json.Marshal(receivedMovie)
+			if err != nil {
+				return fmt.Errorf("error in marshal row %v",err)
+			}
+		}
+
+		err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), receivedMovie.Type)
+		if err != nil {
+			log.Errorf("Failed to send message: %v", err)
+			continue
+		}
+		err = envelope.Ack(false)
+		if err != nil {
+			return fmt.Errorf("failed to ack message %s",err)
+		}
+		timer.Reset(time.Second * 40)
+	}
+	timer.Stop()
+	return nil
+}
+
 func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[[]byte]) error{
 	fileBytes := "file_bytes"
-	time.Sleep(10 * time.Second)
 	fileBytesSender, err := middlewareChan.WriteTo(fileBytes, []string{"file_bytes"})
 	if err != nil {
 		return fmt.Errorf("failed to create write queue %s: %v", fileBytes, err)
 	}
 	defer fileBytesSender.Close()
-
-	e.clientsConn[ip] = conn
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			log.Errorf("Error closing connection: %s", err)
-		}
-		delete(e.clientsConn, ip)
-		log.Infof("Connection closed with ip: %s", ip)
-	}()
 
 	log.Infof("Receiving files")
 	OuterLoop:
@@ -130,7 +193,6 @@ func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareCh
 		
 
 		case common.FileData:
-			// err = common.WriteFull(sender, dataBuf, len(dataBuf))
 
 		case common.AllFilesSent:
 			log.Infof("Recibido ALL FILES SENT")
@@ -140,8 +202,10 @@ func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareCh
 				log.Errorf("Error escribiendo al archivo: %v", err)
 				break OuterLoop
 			}
-			bufAck := []byte("ACK")
-			common.WriteFull(conn, bufAck, len(bufAck))
+			err = common.SendAck(conn)
+			if err != nil {
+				log.Errorf("Error enviando ACK: %v", err)
+			}
 			break OuterLoop
 		}
 		typeDataBuf := append(sizeBuf[4:8], dataBuf...)
@@ -150,9 +214,11 @@ func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareCh
 			log.Errorf("Error escribiendo al archivo: %v", err)
 			break OuterLoop
 		}
-		bufAck := []byte("ACK")
-		common.WriteFull(conn, bufAck, len(bufAck))
-
+		err = common.SendAck(conn)
+		if err != nil {
+			log.Errorf("Error enviando ACK: %v", err)
+			break OuterLoop
+		}
 	}
 	return nil
 }

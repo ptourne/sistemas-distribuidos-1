@@ -10,8 +10,8 @@ func NewFilterReleaseDateL2010AndIncludeES(input task.Task, subscribers []string
 		KeptStringFields:  []string{"movieID", "title"},
 		KeptNumericFields: []string{},
 		KeptFloatFields:   []string{},
-		KeptArrayFields:   []string{"genres"},
-		Maps:              []Map{MapProductionCountriesa{}},
+		KeptArrayFields:   []string{"genres", "production_countries"},
+		Maps:              []Map{},
 		subscribers:       subscribers,
 	}
 }

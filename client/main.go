@@ -33,7 +33,7 @@ func main() {
 	wg.Add(1)
 	finishChan := make(chan bool)
 	go HandleSignals(client, &wg, finishChan)
-	err = client.SendFiles()
+	err = client.Run()
 	if err != nil && client.Running {
 		log.Errorf("error sending files: %v", err)
 	}

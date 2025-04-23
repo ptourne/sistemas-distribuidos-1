@@ -16,7 +16,7 @@ func NewFilterReleaseDateGe2000AndIncludeAR(input task.Task, subscribers []strin
 		KeptNumericFields: []string{"release_date"},
 		KeptFloatFields:   []string{},
 		KeptArrayFields:   []string{"production_countries", "genres"},
-		Maps:              []Map{MapProductionCountriesa{}},
+		Maps:              []Map{},
 		subscribers:       subscribers,
 	}
 }
@@ -24,10 +24,6 @@ func NewFilterReleaseDateGe2000AndIncludeAR(input task.Task, subscribers []strin
 type MapProductionCountriesa struct {
 }
 
-func (m MapProductionCountriesa) Transform(input *common.Row, output *common.Row) error {
-	output.Strings["country"] = input.Arrays["production_countries"][0]
-	return nil
-}
 
 type ArrayIncludes struct {
 	Column   string

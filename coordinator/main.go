@@ -39,6 +39,7 @@ func main() {
 	// q3Output := "joiner_credits"
 	// q4Output := "joiner_ratings"
 	q5Output := "map_sentiment_rate"
+	allQuerysToEndpointName :="all_querys_to_endpoint"
 
 
 	receiverFileByte, err := middlewareChanByte.ConsumeFrom(readFileByteQueue, readFileByteQueue)
@@ -79,6 +80,13 @@ func main() {
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
+	allQuerysToEndpointSender, err := middlewareChan.WriteTo(allQuerysToEndpointName, []string{allQuerysToEndpointName})
+	if err != nil {
+		unwrap(err, "Failed to create write queue")		
+	}
+	defer allQuerysToEndpointSender.Close()
+
+	
 
 	//lint:ignore S1019 Ignoring suggestion to simplify channel creation
 	inputChannel := make(chan middleware.Envelope[[]byte], 0)
@@ -206,6 +214,10 @@ func main() {
 	timer := time.NewTimer(time.Second * 40)
 
 	log.Infof("Verifying Q1")
+	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q1"))
+	if err != nil {
+		log.Errorf("Failed to send message: %v", err)
+	}
 	for {
 		envelope, ok, err := q1Receiver.Next(timer)
 		if err != nil {
@@ -222,6 +234,11 @@ func main() {
 			break
 		}
 		receivedMovie := envelope.Msg()
+		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedMovie))
+		if err != nil {
+			log.Errorf("Failed to send message: %v", err)
+			continue
+		}
 		// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
 		// log.Infof("Received film debug: %+v", receivedMovie)
 		expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedMovie)
@@ -239,6 +256,10 @@ func main() {
 	}
 
 	log.Infof("Verifying Q2")
+	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q2"))
+	if err != nil {
+		log.Errorf("Failed to send message: %v", err)
+	}
 	// Incorrect current answer
 	expectedOutputQ2 := []common.Row{
 		{Numerics: map[string]uint{"budget_sum": 120153886644}, Strings: map[string]string{"country": "US"}},
@@ -265,6 +286,11 @@ func main() {
 			break
 		}
 		receivedCountry := envelope.Msg()
+		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedCountry))
+		if err != nil {
+			log.Errorf("Failed to send message: %v", err)
+			continue
+		}
 		log.Infof("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
 		log.Infof("Received country debug: %+v", receivedCountry)
 		expectedOutputQ2 = removeQ2(expectedOutputQ2, receivedCountry)
@@ -281,61 +307,61 @@ func main() {
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
 	}
 
-	log.Infof("Verifying Q5")
+	// log.Infof("Verifying Q5")
 
-	cant := 0
-	timer = time.NewTimer(time.Second * 40)
+	// cant := 0
+	// timer = time.NewTimer(time.Second * 40)
 
-	sum_sentiment_pos := 0.0
-	cant_sentiment_pos := 0
-	sum_sentiment_neg := 0.0
-	cant_sentiment_neg := 0
+	// sum_sentiment_pos := 0.0
+	// cant_sentiment_pos := 0
+	// sum_sentiment_neg := 0.0
+	// cant_sentiment_neg := 0
 
-	for {
-		envelope, ok, err := q5Receiver.Next(timer)
-		if err != nil {
-			if err.Error() == "close channel was closed" {
-				log.Infof("Channel was closed")
-				break
-			}
-			if err.Error() == "timeout reached while waiting for message" {
-				log.Infof("Timeout reached while waiting for message")
-				break
-			} else {
-				log.Errorf("Failed to read message: %v", err)
-				continue
-			}
-		}
-		if !ok {
-			log.Infof("No more films")
-			break
-		}
-		receivedMovie := envelope.Msg()
-		//log.Infof("Received film debug: %+v", receivedMovie)
-		cant++
-		if cant%100 == 0 {
-			log.Infof("Received: %v", cant)
-		}
-		if receivedMovie.Strings["sentiment"] == "POSITIVE" {
-			cant_sentiment_pos++
-			sum_sentiment_pos += receivedMovie.Floats["rate"]
-		} else if receivedMovie.Strings["sentiment"] == "NEGATIVE" {
-			cant_sentiment_neg++
-			sum_sentiment_neg += receivedMovie.Floats["rate"]
-		} else {
-			log.Errorf("Unknown sentiment: %s", receivedMovie.Strings["sentiment"])
-		}
-		err = envelope.Ack(true)
-		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 40)
-	}
-	timer.Stop()
-	avg_sentiment_pos := float64(sum_sentiment_pos) / float64(cant_sentiment_pos)
-	avg_sentiment_neg := float64(sum_sentiment_neg) / float64(cant_sentiment_neg)
-	//log.Infof("Received %d films from sentiment and rate", cant)
-	//log.Infof("Received %d positive sentiments", cant_sentiment_pos)
-	//log.Infof("Received %d negative sentiments", cant_sentiment_neg)
-	log.Infof("Average sentiment positive: %f, negative: %f", avg_sentiment_pos, avg_sentiment_neg)
+	// for {
+	// 	envelope, ok, err := q5Receiver.Next(timer)
+	// 	if err != nil {
+	// 		if err.Error() == "close channel was closed" {
+	// 			log.Infof("Channel was closed")
+	// 			break
+	// 		}
+	// 		if err.Error() == "timeout reached while waiting for message" {
+	// 			log.Infof("Timeout reached while waiting for message")
+	// 			break
+	// 		} else {
+	// 			log.Errorf("Failed to read message: %v", err)
+	// 			continue
+	// 		}
+	// 	}
+	// 	if !ok {
+	// 		log.Infof("No more films")
+	// 		break
+	// 	}
+	// 	receivedMovie := envelope.Msg()
+	// 	//log.Infof("Received film debug: %+v", receivedMovie)
+	// 	cant++
+	// 	if cant%100 == 0 {
+	// 		log.Infof("Received: %v", cant)
+	// 	}
+	// 	if receivedMovie.Strings["sentiment"] == "POSITIVE" {
+	// 		cant_sentiment_pos++
+	// 		sum_sentiment_pos += receivedMovie.Floats["rate"]
+	// 	} else if receivedMovie.Strings["sentiment"] == "NEGATIVE" {
+	// 		cant_sentiment_neg++
+	// 		sum_sentiment_neg += receivedMovie.Floats["rate"]
+	// 	} else {
+	// 		log.Errorf("Unknown sentiment: %s", receivedMovie.Strings["sentiment"])
+	// 	}
+	// 	err = envelope.Ack(true)
+	// 	unwrap(err, "Failed to ack message")
+	// 	timer.Reset(time.Second * 40)
+	// }
+	// timer.Stop()
+	// avg_sentiment_pos := float64(sum_sentiment_pos) / float64(cant_sentiment_pos)
+	// avg_sentiment_neg := float64(sum_sentiment_neg) / float64(cant_sentiment_neg)
+	// //log.Infof("Received %d films from sentiment and rate", cant)
+	// //log.Infof("Received %d positive sentiments", cant_sentiment_pos)
+	// //log.Infof("Received %d negative sentiments", cant_sentiment_neg)
+	// log.Infof("Average sentiment positive: %f, negative: %f", avg_sentiment_pos, avg_sentiment_neg)
 	// Expected:
 	// NEGATIVE    5453.397595
 	// POSITIVE    5668.650541
