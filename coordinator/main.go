@@ -331,43 +331,43 @@ OuterLoop:
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
 	}
 
-	// log.Infof("Verifying Q3")
-	// countCredit := 0
-	// timer = time.NewTimer(time.Second * 40)
-	// for {
-	// 	envelope, ok, err := q3Receiver.Next(timer)
-	// 	if err != nil {
-	// 		if err.Error() == "close channel was closed" {
-	// 			log.Infof("Channel was closed")
-	// 			break
-	// 		}
-	// 		if err.Error() == "timeout reached while waiting for message" {
-	// 			log.Infof("Timeout reached while waiting for message")
-	// 			break
-	// 		} else {
-	// 			log.Errorf("Failed to read message: %v", err)
-	// 			continue
-	// 		}
-	// 	}
-	// 	if !ok {
-	// 		log.Infof("No more actors")
-	// 		break
-	// 	}
-	// 	receivedCredit := envelope.Msg()
-	// 	//log.Infof("Received film debug: %+v", receivedCredit)
-	// 	countCredit++
-	// 	if countCredit%100 == 0 {
-	// 		log.Infof("Received %d credits: %+v", countCredit, receivedCredit)
-	// 	}
-	// 	if receivedCredit.Strings["actor"] == "" {
-	// 		log.Errorf("Actor not matched expected")
-	// 	}
-	// 	err = envelope.Ack(true)
-	// 	unwrap(err, "Failed to ack message")
-	// 	timer.Reset(time.Second * 40)
-	// }
-	// timer.Stop()
-	// log.Infof("Finished receiving credits: received %d actors", countCredit) // Expected 1515
+	log.Infof("Verifying Q4")
+	countCredit := 0
+	timer = time.NewTimer(time.Second * 40)
+	for {
+		envelope, ok, err := q3Receiver.Next(timer)
+		if err != nil {
+			if err.Error() == "close channel was closed" {
+				log.Infof("Channel was closed")
+				break
+			}
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
+				continue
+			}
+		}
+		if !ok {
+			log.Infof("No more actors")
+			break
+		}
+		receivedCredit := envelope.Msg()
+		//log.Infof("Received film debug: %+v", receivedCredit)
+		countCredit++
+		if countCredit%100 == 0 {
+			log.Infof("Received %d credits: %+v", countCredit, receivedCredit)
+		}
+		if receivedCredit.Strings["actor"] == "" {
+			log.Errorf("Actor not matched expected")
+		}
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+		timer.Reset(time.Second * 40)
+	}
+	timer.Stop()
+	log.Infof("Finished receiving credits: received %d actors", countCredit) // Expected 1515
 
 
 
