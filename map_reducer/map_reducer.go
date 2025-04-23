@@ -221,20 +221,56 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 				continue
 			}
 
-			if producerCount == 1 && len(batch) == 1 {
-				log.Debugf("Last batch processed")
-				reduced := mr.mapReduce.Reduce(batch)
-				log.Debugf("Reduced partial result: %v", reduced)
-				outputs := mr.mapReduce.Output(reduced)
-				for _, output := range outputs {
-					err = mr.output.Send(&output)
-					if err != nil {
-						err = fmt.Errorf("error sending output: %w", err)
-						return
-					}
-				}
-				log.Debugf("Sent output")
+			log.Debugf("Batch read completed: len = %v", len(batch))
+			err = ack()
+			timeoutStep, backoff = ExponentialBackoffDuration(0)
+			reduced := mr.mapReduce.Reduce(batch)
+			log.Debugf("Reduced partial result: %v", reduced)
+			err = mr.partialResultSender.Send(&reduced)
+			if err != nil {
+				err = fmt.Errorf("error sending partial result: %w", err)
 				return
+			}
+			log.Debugf("Sent reduced partial result")
+
+			if producerCount == 1 && len(batch) == 1 {
+				break
+			}
+		}
+		log.Infof("Entering solo mode")
+		batchLen1Count := 0
+		for {
+			nack()
+			batch, lastMsg, err = mr.readBatch()
+			if err != nil {
+				if err.Error() == "timeout reached while waiting for message" {
+					err = nil
+				} else {
+					err = fmt.Errorf("error reading partial result: %w", err)
+					return
+				}
+			}
+			if len(batch) == 0 {
+				continue
+			}
+
+			if producerCount == 1 && len(batch) == 1 {
+				batchLen1Count++
+				if batchLen1Count > 5 {
+					log.Debugf("Last batch processed")
+					reduced := mr.mapReduce.Reduce(batch)
+					log.Debugf("Reduced partial result: %v", reduced)
+					outputs := mr.mapReduce.Output(reduced)
+					for _, output := range outputs {
+						err = mr.output.Send(&output)
+						if err != nil {
+							err = fmt.Errorf("error sending output: %w", err)
+							return
+						}
+					}
+					log.Debugf("Sent output")
+					return
+				}
 			}
 			log.Debugf("Batch read completed: len = %v", len(batch))
 			err = ack()
