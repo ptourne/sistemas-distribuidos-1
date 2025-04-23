@@ -170,6 +170,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			log.Debugf("Batch read completed: len = %v", len(batch))
 			err = ack()
 			timeoutStep, backoff = ExponentialBackoffDuration(0)
+			log.Infof("Merging %+v", batch)
 			reduced := mr.mapReduce.Reduce(batch)
 			log.Debugf("Reduced partial result: %v", reduced)
 			err = mr.partialResultSender.Send(&reduced)
@@ -228,6 +229,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 
 			if producerCount == 1 && len(batch) == 1 {
 				log.Debugf("Last batch processed")
+				log.Infof("Merging %+v", batch)
 				reduced := mr.mapReduce.Reduce(batch)
 				log.Debugf("Reduced partial result: %v", reduced)
 				outputs := mr.mapReduce.Output(reduced)
@@ -244,6 +246,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			log.Debugf("Batch read completed: len = %v", len(batch))
 			err = ack()
 			timeoutStep, backoff = ExponentialBackoffDuration(0)
+			log.Infof("Merging %+v", batch)
 			reduced := mr.mapReduce.Reduce(batch)
 			log.Debugf("Reduced partial result: %v", reduced)
 			err = mr.partialResultSender.Send(&reduced)

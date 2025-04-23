@@ -1,17 +1,14 @@
 package map_reducer_sentiment
 
 import (
-	"fmt"
-
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
 )
-var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_sentiment"), logger.Info)
 
 type In = common.Row
 type Acc struct {
-	Sums map[string]float64 `json:"sums" validate:"required"`
-	Count map[string]uint	 `json:"count" validate:"required"`
+	Sums  map[string]float64 `json:"sums" validate:"required"`
+	Count map[string]uint    `json:"count" validate:"required"`
 }
 type Res = common.Row
 
@@ -57,7 +54,6 @@ func (r SumMapReduce) Output(acc Acc) []Res {
 }
 
 func (a *Acc) Merge(b Acc) {
-	log.Debugf("merging %v with %v", a, b)
 	for sentiment, rate := range b.Sums {
 		prevVal := a.Sums[sentiment]
 		a.Sums[sentiment] = rate + prevVal
