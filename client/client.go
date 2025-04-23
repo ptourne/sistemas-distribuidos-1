@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -10,10 +11,90 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 )
 
-const CHUNK_SIZE = 1024
 
-func (c *Client) SendFiles() error {
-	filesNames := []string{"movies_metadata", "ratings"} //, "credits", "ratings"}
+const CHUNK_SIZE = 1024 
+
+func (c *Client) Run() error {
+	log.Infof("Sending files")
+	err := c.SendFiles()
+	if err != nil {
+		return fmt.Errorf("error sending files: %v", err)
+	}
+
+	err = c.ReceivingQuerysResults()
+	if err != nil {
+		return fmt.Errorf("error receiving querys results: %v", err)
+	}
+
+	log.Infof("Finished ALL")
+
+	return nil
+}
+
+func (c *Client) ReceivingQuerysResults() error {
+	log.Infof("Receiving querys")
+	var queryType string
+	OuterLoop:
+	for {
+		// Leer los primeros 8 bytes (tamaño y type)
+		sizeBuf := make([]byte, 8)
+		_, err := io.ReadFull(c.conn, sizeBuf)
+		if err != nil {
+			log.Infof("Error leyendo tamaño: %v", err)
+			break
+		}
+
+		packetSize := binary.BigEndian.Uint32(sizeBuf[0:4])
+		packetType := common.TypeRow(binary.BigEndian.Uint32(sizeBuf[4:8]))
+		dataBuf := make([]byte, packetSize)
+		_, err = io.ReadFull(c.conn, dataBuf)
+		if err != nil {
+			log.Errorf("Error leyendo datos del paquete: %v", err)
+			break
+		}
+
+		switch packetType {
+		case common.QueryName:
+			data := string(dataBuf)
+			queryType = data
+			log.Infof("Query: %s", data)
+			
+
+		case common.QueryRow:
+			var movie common.Row
+			err = json.Unmarshal(dataBuf, &movie)
+			if err != nil {
+				log.Errorf("Error unmarshaling data: %v", err)
+				break OuterLoop
+			}
+			switch queryType {
+			case "Q1":
+				printRowQ1(movie)
+			case "Q2":
+				printRowQ2(movie)
+			default:
+				log.Infof("Query no soportada: %s", queryType)
+			}
+
+		case common.FinishQuerys:
+			log.Infof("Recibido FINISH QUERYS")
+			err = common.SendAck(c.conn)
+			if err != nil {
+				log.Errorf("Error enviando ACK: %v", err)
+			}
+			break OuterLoop
+		}
+		err = common.SendAck(c.conn)
+		if err != nil {
+			log.Errorf("Error enviando ACK: %v", err)
+			break OuterLoop
+		}
+	}
+	return nil
+}
+
+func (c *Client) SendFiles() error{
+	filesNames :=[]string{"movies_metadata"}
 	log.Infof("Sending files")
 	for _, fileName := range filesNames {
 		log.Infof("sending file: %s", fileName)
@@ -26,7 +107,7 @@ func (c *Client) SendFiles() error {
 		}
 	}
 	bufFinish := []byte("ALL FILES SENT")
-	writeProtocol(c, bufFinish, len(bufFinish), common.AllFilesSent)
+	common.WriteProtocolTypeMsg(c.conn, bufFinish, len(bufFinish), common.AllFilesSent)
 	log.Infof("Files sent")
 	return nil
 }
@@ -40,7 +121,7 @@ func sendFile(c *Client, fileName string) error {
 	defer file.Close()
 
 	bufFile := []byte(fileName)
-	err = writeProtocol(c, bufFile, len(bufFile), common.FileName)
+	err = common.WriteProtocolTypeMsg(c.conn, bufFile, len(bufFile), common.FileName)
 	if err != nil {
 		return fmt.Errorf("error enviando nombre de archivo: %v", err)
 	}
@@ -58,41 +139,16 @@ func sendFile(c *Client, fileName string) error {
 			break
 		}
 
-		writeProtocol(c, buf, n, common.FileData)
-		if err == io.ErrUnexpectedEOF {
-			break
+		common.WriteProtocolTypeMsg(c.conn, buf, n, common.FileData)
+		if err == io.ErrUnexpectedEOF{
+			break 
 		}
 	}
 	bufFinish := []byte(fileName)
-	writeProtocol(c, bufFinish, len(bufFinish), common.FinishFile)
+	common.WriteProtocolTypeMsg(c.conn, bufFinish, len(bufFinish), common.FinishFile)
 	return nil
 }
 
-func writeProtocol(c *Client, buf []byte, n int, typeMsg common.TypeMsg) error {
-	sizeBuf := make([]byte, 8)
-	binary.BigEndian.PutUint32(sizeBuf, uint32(n))
-	binary.BigEndian.PutUint32(sizeBuf[4:], uint32(typeMsg))
-	common.WriteFull(c.conn, sizeBuf, len(sizeBuf))
-	common.WriteFull(c.conn, buf, n)
-	err := waitAck(c)
-	if err != nil {
-		return fmt.Errorf("error esperando ACK: %v", err)
-	}
-	return nil
-}
-
-func waitAck(c *Client) error {
-	ackBuf := make([]byte, 3)
-	_, err := io.ReadFull(c.conn, ackBuf)
-	if err != nil {
-		return fmt.Errorf("error recibiendo ACK: %v", err)
-
-	}
-	if string(ackBuf) != "ACK" {
-		return fmt.Errorf("ACK inválido: %s", string(ackBuf))
-	}
-	return nil
-}
 
 func (c *Client) StopClient() {
 	log.Infof("Stopping client")
@@ -102,4 +158,12 @@ func (c *Client) StopClient() {
 		log.Errorf("Error closing connection: %s", err)
 	}
 	log.Infof("Client stopped")
+}
+
+func printRowQ1(row common.Row) {
+	log.Infof("movieId:%s, movieTitle:%s, movieGenres:%v, movieProductionCountries:%v", row.Strings["movieID"], row.Strings["title"], row.Arrays["genres"], row.Arrays["production_countries"])
+}
+
+func printRowQ2(row common.Row) {
+	log.Infof("country:%s, budget:%d", row.Strings["country"], row.Numerics["budget_sum"])
 }

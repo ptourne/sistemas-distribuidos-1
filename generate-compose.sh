@@ -1,19 +1,21 @@
 #!/bin/bash
 
-if [ "$#" -eq 3 ]; then
+if [ "$#" -eq 4 ]; then
     file_name=./docker-compose.yml
     number_of_workers=$1
     number_of_reduce_by_country_sum_budgets=$2
     number_of_reduce_top_5_by_budgets=$3
-elif [ "$#" -eq 4 ]; then
+    number_of_reduce_by_sentiment=$4
+elif [ "$#" -eq 5 ]; then
     file_name=$1
     number_of_workers=$2
     number_of_reduce_by_country_sum_budgets=$3
     number_of_reduce_top_5_by_budgets=$4
+    number_of_reduce_by_sentiment=$5
 
 else
     echo "Error: Incorrect number of arguments"
-    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>"
+    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment> "
     exit 1
 fi
 
@@ -29,6 +31,11 @@ if ! [[ "$number_of_reduce_by_country_sum_budgets" =~ ^[0-9]+$ ]] || [ "$number_
 fi
 # Verify number_of_reduce_top_5_by_budgets is a positive integer
 if ! [[ "$number_of_reduce_top_5_by_budgets" =~ ^[0-9]+$ ]] || [ "$number_of_reduce_top_5_by_budgets" -le -1 ]; then
+    echo "Error: Number of reduce top 5 by budgets must be a positive integer"
+    exit 1
+fi
+# Verify number_of_reduce_by_sentiment is a positive integer
+if ! [[ "$number_of_reduce_by_sentiment" =~ ^[0-9]+$ ]] || [ "$number_of_reduce_by_sentiment" -le -1 ]; then
     echo "Error: Number of reduce top 5 by budgets must be a positive integer"
     exit 1
 fi
@@ -174,6 +181,25 @@ compose_reduce_by_country_sum_budgets() {
 "
 }
 
+compose_reduce_by_sentiment() {
+    local worker_id=$1
+    echo "    reduce_by_sentiment$worker_id:
+        container_name: reduce_by_sentiment$worker_id
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=$worker_id
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+"
+}
+
+
 compose_network() {
     echo "networks:
     local_net:
@@ -219,6 +245,9 @@ for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
 done
 for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
     compose_reduce_top_5_by_budgets $i >> $file_name
+done
+for i in $(seq 1 $number_of_reduce_by_sentiment); do
+    compose_reduce_by_sentiment $i >> $file_name
 done
 compose_client >> $file_name
 compose_endpoint >> $file_name

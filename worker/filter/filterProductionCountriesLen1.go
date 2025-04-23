@@ -5,7 +5,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterProductionCountriesLen1(input task.Task, subscribers []string) task.Task {
+func NewFilterProductionCountriesLen1(input string, subscribers []string) task.Task {
 	return &GenericFilter{
 		name:              "filter_one_production_country",
 		input:             input,

@@ -170,9 +170,9 @@ func (f *JoinerRatings) processRating(row common.Row) error {
 	// 	}
 	// }
 
-	if f.ratingsProcessed == 10000 { //TODO: sacar cuando se mergee con los cambios del reducer
-		f.notifyRatingsDone()
-	}
+	// if f.ratingsProcessed == 10000 { //TODO: sacar cuando se mergee con los cambios del reducer
+	// 	f.notifyRatingsDone()
+	// }
 
 	return nil
 }
