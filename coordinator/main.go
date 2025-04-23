@@ -26,6 +26,8 @@ func main() {
 
 	defer middlewareChan.Close()
 
+	stopwatch := time.Now()
+
 	q1Output := "filter_release_date_l_2010_and_include_es"
 	q2Output := "reduce_top_5_by_budget"
 	nameWriteQueue := "movies_metadata"
@@ -260,6 +262,8 @@ func main() {
 	if len(expectedOutputQ2) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
 	}
+
+	log.Infof("Execution time: %v", time.Since(stopwatch))
 }
 
 func removeQ1(slice []common.Row, movie common.Row) []common.Row {

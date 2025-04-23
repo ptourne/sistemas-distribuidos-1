@@ -175,18 +175,16 @@ func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueNa
 	if err != nil {
 		return nil, err
 	}
-	_, producerCount, err := getProducers(heartBeatListener)
 	if err != nil {
 		return nil, err
 	}
 	receiver := &ReceiverRabbitmq[T]{
 		input:             input,
 		close:             close,
-		wereSomeProducers: producerCount != 0,
 		heartBeatListener: heartBeatListener,
 		m:                 m,
 	}
-	log.Debugf("ReceiverRabbitmq: '%s', '%s', producer count: %d", receiver.input.exchangeName, receiver.input.queueName, producerCount)
+	log.Debugf("ReceiverRabbitmq: '%s', '%s'", receiver.input.exchangeName, receiver.input.queueName)
 	return receiver, nil
 }
 

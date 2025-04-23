@@ -97,7 +97,7 @@ type MapReduce[T, A, R any] interface {
 	Output(A) []R
 }
 
-const INITIAL_TIMEOUT_DURATION = 3000
+const INITIAL_TIMEOUT_DURATION = 500
 const WATING_JITTER = 100
 
 func ExponentialBackoffDuration(step uint) (nextStep uint, duration uint) {
@@ -204,14 +204,16 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 					return
 				}
 			}
-			if len(batch) == 0 {
+			if len(batch) < int(mr.batchSize) {
 				log.Debugf("WorkerID: %s", WORKER_ID)
 				if WORKER_ID != "1" {
 					log.Debugf("Retiring")
 					return
 				}
 				log.Debugf("Must no retire")
-				continue
+				if len(batch) == 0 {
+					continue
+				}
 			}
 			if len(batch) < int(mr.batchSize) {
 				producerCount, err = countProducers()
