@@ -11,13 +11,13 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 )
+
 const MIDDLEWARE = "rabbitmq"
 
-
 type Endpoint struct {
-	Running bool
-	listener  net.Listener
-	clientsConn  map[string]net.Conn
+	Running     bool
+	listener    net.Listener
+	clientsConn map[string]net.Conn
 }
 
 func NewEndpoint() (*Endpoint, error) {
@@ -30,14 +30,14 @@ func NewEndpoint() (*Endpoint, error) {
 	}
 
 	endpoint := &Endpoint{
-		Running: true,
-		listener:  listener,
-		clientsConn:  make(map[string]net.Conn),
+		Running:     true,
+		listener:    listener,
+		clientsConn: make(map[string]net.Conn),
 	}
 	return endpoint, nil
 }
 
-func (e *Endpoint) Run() error{
+func (e *Endpoint) Run() error {
 	middlewareChan, err := middleware.NewRabbitmq[[]byte]()
 	if err != nil {
 		return fmt.Errorf("failed to create middleware connection: %v", err)
@@ -80,10 +80,10 @@ func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
 	return conn, remoteAddr, nil
 }
 
-func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[[]byte]) error{
+func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[[]byte]) error {
 	fileBytes := "file_bytes"
 	time.Sleep(10 * time.Second)
-	fileBytesSender, err := middlewareChan.WriteTo(fileBytes, []string{"movies_metadata"})
+	fileBytesSender, err := middlewareChan.WriteTo(fileBytes, []string{"movies_metadata", fileBytes})
 	if err != nil {
 		return fmt.Errorf("failed to create write queue %s: %v", fileBytes, err)
 	}
@@ -100,7 +100,7 @@ func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareCh
 	}()
 
 	log.Infof("Receiving files")
-	OuterLoop:
+OuterLoop:
 	for {
 		// Leer los primeros 8 bytes (tamaño y type)
 		sizeBuf := make([]byte, 8)
@@ -123,11 +123,9 @@ func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareCh
 		switch packetType {
 		case common.FileName:
 			log.Infof("Recibido FILE %s", data)
-			
 
 		case common.FinishFile:
 			log.Infof("Recibido FINISH %s", data)
-		
 
 		case common.FileData:
 			// err = common.WriteFull(sender, dataBuf, len(dataBuf))
@@ -156,7 +154,6 @@ func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareCh
 	}
 	return nil
 }
-
 
 func (e *Endpoint) StopEndpoint() {
 	log.Infof("Stopping endpoint")

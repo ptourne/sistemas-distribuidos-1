@@ -95,6 +95,8 @@ compose_workers() {
         depends_on:
             rabbitmq:
                 condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
 "
 }
 
@@ -166,8 +168,6 @@ compose_reduce_by_country_sum_budgets() {
         depends_on:
             rabbitmq:
                 condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
         volumes:
             - ${PWD}/joiner_credits:/joiner_credits
             - ${PWD}/joiner_ratings:/joiner_ratings
@@ -195,9 +195,9 @@ compose_sentiment_server() {
             - \"50051:50051\"
         networks:
             - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
+        environment:
+            - GRPC_PORT=50051
+            - GRPC_WORKERS=30
         healthcheck:
             test: ncat -zv localhost 50051
             interval: 10s

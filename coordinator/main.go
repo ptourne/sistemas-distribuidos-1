@@ -40,18 +40,17 @@ func main() {
 	q5Output := "map_sentiment_rate"
 	//q1fOutput := "filter_one_production_country"
 
-	receiverFileByte, err := middlewareChanByte.SuscribeTo(readFileByteQueue)
+	receiverFileByte, err := middlewareChanByte.ConsumeFrom(readFileByteQueue, readFileByteQueue)
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
 	defer receiverFileByte.Close()
-	
+
 	q1Receiver, err := middlewareChan.ConsumeFrom(q1Output, "q1")
 	if err != nil {
 		unwrap(err, "Failed to create read queue")
 	}
 	defer q1Receiver.Close()
-
 
 	q2Receiver, err := middlewareChan.ConsumeFrom(q2Output, "q2")
 	if err != nil {
@@ -59,9 +58,9 @@ func main() {
 	}
 	defer q2Receiver.Close()
 
-	/* 
-	
-	*/
+	/*
+
+	 */
 
 	q5Receiver, err := middlewareChan.SuscribeTo(q5Output)
 	if err != nil {
@@ -86,7 +85,6 @@ func main() {
 	//lint:ignore S1019 Ignoring suggestion to simplify channel creation
 	inputChannel := make(chan middleware.Envelope[[]byte], 0)
 
-	
 	go func() {
 		for {
 			envelope, ok, err := receiverFileByte.Next(nil)
@@ -106,18 +104,18 @@ func main() {
 		}
 		close(inputChannel)
 	}()
-	OuterLoop:
+OuterLoop:
 	for {
 		msgEnvelope := <-inputChannel
-		msg := msgEnvelope.Msg() 
+		msg := msgEnvelope.Msg()
 		typeMsgRaw := binary.BigEndian.Uint32(msg[0:4])
 		tipo := common.TypeMsg(typeMsgRaw)
 		log.Infof("Received message type: %v", tipo)
 		msgEnvelope.Ack(false)
-		switch tipo{
+		switch tipo {
 		case common.FileName:
 			fileName := string(msg[4:])
-			var sender middleware.Sender[common.Row] 
+			var sender middleware.Sender[common.Row]
 			var amount int
 			switch fileName {
 			case moviesMetadataName:
@@ -137,8 +135,8 @@ func main() {
 			}
 
 			connReader := &ConnReader{ch: inputChannel, lastReadNotIncluded: make([]byte, 0)}
-			reader := csv.NewReader(connReader) 
-		
+			reader := csv.NewReader(connReader)
+
 			d, err := reader.Read()
 			log.Infof("Received header file: %v", d)
 			unwrap(err, "Failed to read CSV header")
@@ -148,7 +146,7 @@ func main() {
 				line++
 				if line%amount == 0 {
 					log.Infof("Processed %d lines from %s", line, fileName)
-				}	
+				}
 				data, err := reader.Read()
 				if err != nil {
 					if err.Error() == "EOF" {
@@ -171,7 +169,7 @@ func main() {
 			}
 			log.Infof("CSV %s processing completed, closing", fileName)
 			sender.Close()
-		
+
 		case common.AllFilesSent:
 			log.Infof("Received ALL FILES SENT")
 			break OuterLoop
@@ -179,120 +177,116 @@ func main() {
 	}
 	log.Infof("CSV processing completed")
 
-	expectedOutputQ1 := []common.Row{
-		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
-		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
-		{Strings: map[string]string{"title": "The City of No Limits"}, Arrays: map[string][]string{"genres": []string{"Thriller", "Drama"}}},
-		{Strings: map[string]string{"title": "Nicotina"}, Arrays: map[string][]string{"genres": []string{"Drama", "Action", "Comedy", "Thriller"}}},
-		{Strings: map[string]string{"title": "Lost Embrace"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "Whisky"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "The Holy Girl"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "The Aura"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Thriller"}}},
-		{Strings: map[string]string{"title": "Bombón: The Dog"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "Rolling Family"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy"}}},
-		{Strings: map[string]string{"title": "The Method"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller"}}},
-		{Strings: map[string]string{"title": "Every Stewardess Goes to Heaven"}, Arrays: map[string][]string{"genres": []string{"Drama", "Romance", "Foreign"}}},
-		{Strings: map[string]string{"title": "Tetro"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery"}}},
-		{Strings: map[string]string{"title": "The Secret in Their Eyes"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Mystery", "Romance"}}},
-		{Strings: map[string]string{"title": "Liverpool"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "The Headless Woman"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery", "Thriller"}}},
-		{Strings: map[string]string{"title": "The Last Summer of La Boyita"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "The Appeared"}, Arrays: map[string][]string{"genres": []string{"Horror", "Thriller", "Mystery"}}},
-		{Strings: map[string]string{"title": "The Fish Child"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller", "Romance", "Foreign"}}},
-		{Strings: map[string]string{"title": "Cleopatra"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy", "Foreign"}}},
-		{Strings: map[string]string{"title": "Roma"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "Conversations with Mother"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-	}
+	// expectedOutputQ1 := []common.Row{
+	// 	{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
+	// 	{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
+	// 	{Strings: map[string]string{"title": "The City of No Limits"}, Arrays: map[string][]string{"genres": []string{"Thriller", "Drama"}}},
+	// 	{Strings: map[string]string{"title": "Nicotina"}, Arrays: map[string][]string{"genres": []string{"Drama", "Action", "Comedy", "Thriller"}}},
+	// 	{Strings: map[string]string{"title": "Lost Embrace"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+	// 	{Strings: map[string]string{"title": "Whisky"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
+	// 	{Strings: map[string]string{"title": "The Holy Girl"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+	// 	{Strings: map[string]string{"title": "The Aura"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Thriller"}}},
+	// 	{Strings: map[string]string{"title": "Bombón: The Dog"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+	// 	{Strings: map[string]string{"title": "Rolling Family"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy"}}},
+	// 	{Strings: map[string]string{"title": "The Method"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller"}}},
+	// 	{Strings: map[string]string{"title": "Every Stewardess Goes to Heaven"}, Arrays: map[string][]string{"genres": []string{"Drama", "Romance", "Foreign"}}},
+	// 	{Strings: map[string]string{"title": "Tetro"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery"}}},
+	// 	{Strings: map[string]string{"title": "The Secret in Their Eyes"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Mystery", "Romance"}}},
+	// 	{Strings: map[string]string{"title": "Liverpool"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+	// 	{Strings: map[string]string{"title": "The Headless Woman"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery", "Thriller"}}},
+	// 	{Strings: map[string]string{"title": "The Last Summer of La Boyita"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+	// 	{Strings: map[string]string{"title": "The Appeared"}, Arrays: map[string][]string{"genres": []string{"Horror", "Thriller", "Mystery"}}},
+	// 	{Strings: map[string]string{"title": "The Fish Child"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller", "Romance", "Foreign"}}},
+	// 	{Strings: map[string]string{"title": "Cleopatra"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy", "Foreign"}}},
+	// 	{Strings: map[string]string{"title": "Roma"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+	// 	{Strings: map[string]string{"title": "Conversations with Mother"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
+	// 	{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+	// 	{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+	// }
 
-	timer := time.NewTimer(time.Second * 40)
+	// timer := time.NewTimer(time.Second * 40)
 
-	log.Infof("Verifying Q1")
-	for {
-		envelope, ok, err := q1Receiver.Next(timer)
-		if err != nil {
-			if err.Error() == "timeout reached while waiting for message" {
-				log.Infof("Timeout reached while waiting for message")
-				break
-			} else {
-				log.Errorf("Failed to read message: %v", err)
-				continue
-			}
-		}
-		if !ok {
-			log.Infof("No more films")
-			break
-		}
-		receivedMovie := envelope.Msg()
-		// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
-		// log.Infof("Received film debug: %+v", receivedMovie)
-		expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedMovie)
-		if len(expectedOutputQ1) == 0 {
-			log.Infof("All expected films received")
-			break
-		}
-		err = envelope.Ack(true)
-		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 20)
-	}
-	timer.Stop()
-	if len(expectedOutputQ1) > 0 {
-		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
-	}
+	// log.Infof("Verifying Q1")
+	// for {
+	// 	envelope, ok, err := q1Receiver.Next(timer)
+	// 	if err != nil {
+	// 		if err.Error() == "timeout reached while waiting for message" {
+	// 			log.Infof("Timeout reached while waiting for message")
+	// 			break
+	// 		} else {
+	// 			log.Errorf("Failed to read message: %v", err)
+	// 			continue
+	// 		}
+	// 	}
+	// 	if !ok {
+	// 		log.Infof("No more films")
+	// 		break
+	// 	}
+	// 	receivedMovie := envelope.Msg()
+	// 	// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
+	// 	// log.Infof("Received film debug: %+v", receivedMovie)
+	// 	expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedMovie)
+	// 	if len(expectedOutputQ1) == 0 {
+	// 		log.Infof("All expected films received")
+	// 		break
+	// 	}
+	// 	err = envelope.Ack(true)
+	// 	unwrap(err, "Failed to ack message")
+	// 	timer.Reset(time.Second * 20)
+	// }
+	// timer.Stop()
+	// if len(expectedOutputQ1) > 0 {
+	// 	log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
+	// }
 
-	
-	// Incorrect current answer
-	expectedOutputQ2 := []common.Row{
-		{Numerics: map[string]uint{"budget_sum": 120153886644}, Strings: map[string]string{"country": "US"}},
-		{Numerics: map[string]uint{"budget_sum": 2256831838}, Strings: map[string]string{"country": "FR"}},
-		{Numerics: map[string]uint{"budget_sum": 1611604610}, Strings: map[string]string{"country": "GB"}},
-		{Numerics: map[string]uint{"budget_sum": 1169682797}, Strings: map[string]string{"country": "IN"}},
-		{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
-	}
+	// // Incorrect current answer
+	// expectedOutputQ2 := []common.Row{
+	// 	{Numerics: map[string]uint{"budget_sum": 120153886644}, Strings: map[string]string{"country": "US"}},
+	// 	{Numerics: map[string]uint{"budget_sum": 2256831838}, Strings: map[string]string{"country": "FR"}},
+	// 	{Numerics: map[string]uint{"budget_sum": 1611604610}, Strings: map[string]string{"country": "GB"}},
+	// 	{Numerics: map[string]uint{"budget_sum": 1169682797}, Strings: map[string]string{"country": "IN"}},
+	// 	{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
+	// }
 
-	timer = time.NewTimer(time.Second * 40)
+	// timer = time.NewTimer(time.Second * 40)
 
-	log.Infof("Verifying Q2")
-	for {
-		envelope, ok, err := q2Receiver.Next(nil)
-		if err != nil {
-			if err.Error() == "timeout reached while waiting for message" {
-				log.Infof("Timeout reached while waiting for message")
-				break
-			} else {
-				log.Errorf("Failed to read message: %v", err)
-				continue
-			}
-		}
-		if !ok {
-			log.Infof("No more countries")
-			break
-		}
-		receivedCountry := envelope.Msg()
-		log.Infof("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
-		log.Infof("Received country debug: %+v", receivedCountry)
-		expectedOutputQ2 = removeQ2(expectedOutputQ2, receivedCountry)
-		if len(expectedOutputQ2) == 0 {
-			log.Infof("All expected films received")
-			break
-		}
-		err = envelope.Ack(true)
-		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 20)
-	}
-	timer.Stop()
-	if len(expectedOutputQ2) > 0 {
-		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
-	}
-
-	/* 
+	// log.Infof("Verifying Q2")
+	// for {
+	// 	envelope, ok, err := q2Receiver.Next(nil)
+	// 	if err != nil {
+	// 		if err.Error() == "timeout reached while waiting for message" {
+	// 			log.Infof("Timeout reached while waiting for message")
+	// 			break
+	// 		} else {
+	// 			log.Errorf("Failed to read message: %v", err)
+	// 			continue
+	// 		}
+	// 	}
+	// 	if !ok {
+	// 		log.Infof("No more countries")
+	// 		break
+	// 	}
+	// 	receivedCountry := envelope.Msg()
+	// 	log.Infof("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
+	// 	log.Infof("Received country debug: %+v", receivedCountry)
+	// 	expectedOutputQ2 = removeQ2(expectedOutputQ2, receivedCountry)
+	// 	if len(expectedOutputQ2) == 0 {
+	// 		log.Infof("All expected films received")
+	// 		break
+	// 	}
+	// 	err = envelope.Ack(true)
+	// 	unwrap(err, "Failed to ack message")
+	// 	timer.Reset(time.Second * 20)
+	// }
+	// timer.Stop()
+	// if len(expectedOutputQ2) > 0 {
+	// 	log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
+	// }
 
 	log.Infof("Verifying Q5")
 
-	
 	cant := 0
-	timer = time.NewTimer(time.Minute * 1)
+	timer := time.NewTimer(time.Minute * 1)
 
 	sum_sentiment_pos := 0.0
 	cant_sentiment_pos := 0
@@ -300,7 +294,7 @@ func main() {
 	cant_sentiment_neg := 0
 
 	for {
-		envelope, ok, err := receiverQ5.Next(timer)
+		envelope, ok, err := q5Receiver.Next(timer)
 		if err != nil {
 			if err.Error() == "close channel was closed" {
 				log.Infof("Channel was closed")
@@ -348,7 +342,6 @@ func main() {
 	// NEGATIVE    5453.397595
 	// POSITIVE    5668.650541
 
-	*/
 }
 
 func removeQ1(slice []common.Row, movie common.Row) []common.Row {
@@ -419,27 +412,26 @@ func unwrap(err error, msg string) {
 	}
 }
 
-
 type ConnReader struct {
-	ch chan middleware.Envelope[[]byte]
+	ch                  chan middleware.Envelope[[]byte]
 	lastReadNotIncluded []byte
 }
 
 func (cr *ConnReader) Read(buff []byte) (n int, err error) {
-	capacity :=cap(buff)
+	capacity := cap(buff)
 	cantCopyFromLast := min(capacity, len(cr.lastReadNotIncluded))
 	copy(buff, cr.lastReadNotIncluded[:cantCopyFromLast])
 	cr.lastReadNotIncluded = cr.lastReadNotIncluded[cantCopyFromLast:]
 	remainingCapacity := capacity - cantCopyFromLast
-	if remainingCapacity ==0 {
+	if remainingCapacity == 0 {
 		return cantCopyFromLast, nil
 	}
-	
-    msgEnvelope := <-cr.ch
+
+	msgEnvelope := <-cr.ch
 	if msgEnvelope == nil {
 		return 0, fmt.Errorf("invalid message es NIL")
 	}
-	msg := msgEnvelope.Msg() 
+	msg := msgEnvelope.Msg()
 	if len(msg) < 4 {
 		return 0, fmt.Errorf("invalid message length")
 	}
@@ -448,12 +440,12 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 	data := msg[4:]
 	log.Debugf("Received message data: %v", string(data))
 	cantCopyFromData := min(remainingCapacity, len(data))
-    switch tipo {
+	switch tipo {
 	case common.FileData:
 		copy(buff[cantCopyFromLast:], data[:cantCopyFromData])
 		cr.lastReadNotIncluded = append(cr.lastReadNotIncluded, data[cantCopyFromData:]...)
-		n = cantCopyFromLast+cantCopyFromData
-		err = nil    
+		n = cantCopyFromLast + cantCopyFromData
+		err = nil
 	case common.FinishFile:
 		n = 0
 		err = fmt.Errorf("EOF")

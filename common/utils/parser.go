@@ -102,8 +102,12 @@ func DictionaryToListName(input string) ([]string, error) {
 func DictionaryToListIso(input string) ([]string, bool) {
 	var result []string
 
-	if input == "" || input == "[]" {
+	if input == "" { // || input == "[]" {
 		return result, false
+	}
+
+	if input == "[]" {
+		return result, true
 	}
 
 	// 'key' => "key"

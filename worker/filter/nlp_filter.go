@@ -8,13 +8,14 @@ import (
 func NewFilterSentimentAndRate(input task.Task, subscribers []string, grpcAddr string) task.Task {
 	mapper, err := nlp.NewSentimentAndRateMap(grpcAddr)
 	if err != nil {
-		panic(err)
+		log.Errorf("Error creating SentimentAndRateMap: %v", err)
+		return nil
 	}
 
 	return &GenericFilter{
 		name:              "map_sentiment_rate",
 		input:             input,
-		Conditions:        []Condition{FloatCondition{"revenue", NotEqual, 0.0}, FloatCondition{"budget", NotEqual, 0.0}},
+		Conditions:        []Condition{NumericCondition{"revenue", NotEqual, 0}, NumericCondition{"budget", NotEqual, 0}},
 		KeptStringFields:  []string{"movieID", "title"},
 		KeptNumericFields: []string{},
 		KeptFloatFields:   []string{}, // rate lo agrega el map

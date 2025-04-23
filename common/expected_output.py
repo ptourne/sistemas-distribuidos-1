@@ -8,15 +8,15 @@ pd.set_option('display.max_colwidth', 100)
 
 ##credits_df = pd.read_csv('../datasets/credits.csv')
 movies_df = pd.read_csv('../datasets/movies_metadata.csv')
-ratings_df = pd.read_csv('../datasets/ratings.csv')
-ratings_df = ratings_df.head(50000)
+# ratings_df = pd.read_csv('../datasets/ratings.csv')
+# ratings_df = ratings_df.head(50000)
 movies_df_columns = ["id", "title", "genres", "release_date", "overview", "production_countries", "spoken_languages", "budget", "revenue"]
 credits_df_columns = ["id", "cast"]
-ratings_df_columns = ["movieId", "rating"]
+#ratings_df_columns = ["movieId", "rating"]
 #print("credits_df shape:", credits_df.shape)
 movies_df_cleaned = movies_df.dropna(subset=movies_df_columns)[movies_df_columns].copy()
-ratings_df_cleaned = ratings_df.dropna(subset=ratings_df_columns)[ratings_df_columns].copy()
-print(f"ratings_df_cleaned shape: {ratings_df_cleaned.shape}")
+# ratings_df_cleaned = ratings_df.dropna(subset=ratings_df_columns)[ratings_df_columns].copy()
+# print(f"ratings_df_cleaned shape: {ratings_df_cleaned.shape}")
 #credits_df_cleaned = credits_df.dropna(subset=credits_df_columns)[credits_df_columns].copy()
 #print(f"credits_df_cleaned shape: {credits_df_cleaned.shape}")
 
@@ -52,15 +52,15 @@ print(f"movies cleaned: {movies_df_cleaned.shape}")
 
 #print(f"Cantidad de películas producidas solo en India: {cantidad_india}")
 
-movies_argentina_post_2000_df = movies_df_cleaned[
-    (movies_df_cleaned['production_countries'].str.contains('Argentina', case=False, na=False)) & 
-    (movies_df_cleaned['release_date'].dt.year >= 2000)
-]
-print(f"movies arg: {movies_argentina_post_2000_df.shape}")
+# movies_argentina_post_2000_df = movies_df_cleaned[
+#     (movies_df_cleaned['production_countries'].str.contains('Argentina', case=False, na=False)) & 
+#     (movies_df_cleaned['release_date'].dt.year >= 2000)
+# ]
+# print(f"movies arg: {movies_argentina_post_2000_df.shape}")
 
 # # count credits_df_cleaned when cast != []
 
-movies_argentina_post_2000_df["id"] = movies_argentina_post_2000_df["id"].astype(str)
+#movies_argentina_post_2000_df["id"] = movies_argentina_post_2000_df["id"].astype(str)
 # credits_df_cleaned["id"] = credits_df_cleaned["id"].astype(str)
 # cast_arg_post_2000_df = movies_argentina_post_2000_df[["id", "title"]].merge(credits_df_cleaned,
 #                                                                                 on="id")
@@ -78,13 +78,35 @@ movies_argentina_post_2000_df["id"] = movies_argentina_post_2000_df["id"].astype
 #     if len(cast) != obtenido:
 #         print(f"Error: {row['id']}, cant: {len(cast)}, obtenido: {obtenido}")
 # print(f"total_credits: {total_credits}")
-ratings_df_cleaned["movieId"] = ratings_df_cleaned["movieId"].astype(str)
-ranking_arg_post_2000_df = movies_argentina_post_2000_df[["id", "title"]].merge(ratings_df_cleaned,
-                                                                                left_on="id",
-                                                                                right_on="movieId")
-mean_ranking_arg_post_2000_df = ranking_arg_post_2000_df.groupby(["id", "title"])['rating'].mean().reset_index()
-print(f"mean_ranking_arg_post_2000_df: {mean_ranking_arg_post_2000_df.shape}")
+# ratings_df_cleaned["movieId"] = ratings_df_cleaned["movieId"].astype(str)
+# ranking_arg_post_2000_df = movies_argentina_post_2000_df[["id", "title"]].merge(ratings_df_cleaned,
+#                                                                                 left_on="id",
+#                                                                                 right_on="movieId")
+# mean_ranking_arg_post_2000_df = ranking_arg_post_2000_df.groupby(["id", "title"])['rating'].mean().reset_index()
+# print(f"mean_ranking_arg_post_2000_df: {mean_ranking_arg_post_2000_df.shape}")
 
-for i, row in mean_ranking_arg_post_2000_df.iterrows():    
-    print(f"id: {row['id']}, avg: {row['rating']}")
+# for i, row in mean_ranking_arg_post_2000_df.iterrows():    
+#     print(f"id: {row['id']}, avg: {row['rating']}")
 
+# Q5
+
+q5_input_df = movies_df_cleaned.copy()
+print(f"q5_input_df shape: {q5_input_df.shape}") # (5370, 9)
+q5_input_df = q5_input_df.loc[q5_input_df['budget'] != 0]
+q5_input_df = q5_input_df.loc[q5_input_df['revenue'] != 0]
+print(f"q5_input_df shape: {q5_input_df.shape}") # (5370, 9)
+sentiment_analyzer = pipeline('sentiment-analysis', model='distilbert-base-uncased-finetuned-sst-2-english')
+q5_input_df['sentiment'] = q5_input_df['overview'].fillna('').apply(
+    lambda x: sentiment_analyzer(x, truncation=True)[0]['label']
+)
+q5_input_df["rate_revenue_budget"] = q5_input_df["revenue"] / q5_input_df["budget"]
+#print(q5_input_df.sample(10))    
+print("cant by sentiment: ", q5_input_df['sentiment'].value_counts())
+# cant by sentiment:  
+# POSITIVE    3091
+# NEGATIVE    2279
+average_rate_by_sentiment = q5_input_df.groupby("sentiment")["rate_revenue_budget"].mean()
+print(average_rate_by_sentiment)                                                                   
+
+# NEGATIVE    5453.397595
+# POSITIVE    5668.650541

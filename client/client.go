@@ -10,11 +10,10 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 )
 
+const CHUNK_SIZE = 1024
 
-const CHUNK_SIZE = 1024 
-
-func (c *Client) SendFiles() error{
-	filesNames :=[]string{"credits"}
+func (c *Client) SendFiles() error {
+	filesNames := []string{"movies_metadata"} //, "credits", "ratings"}
 	log.Infof("Sending files")
 	for _, fileName := range filesNames {
 		log.Infof("sending file: %s", fileName)
@@ -51,17 +50,17 @@ func sendFile(c *Client, fileName string) error {
 
 	for c.Running {
 		n, err := io.ReadFull(reader, buf)
-		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF { 
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			return fmt.Errorf("error leyendo archivo: %v", err)
 		}
 
 		if n == 0 {
-			break 
+			break
 		}
 
 		writeProtocol(c, buf, n, common.FileData)
-		if err == io.ErrUnexpectedEOF{
-			break 
+		if err == io.ErrUnexpectedEOF {
+			break
 		}
 	}
 	bufFinish := []byte(fileName)
@@ -87,7 +86,7 @@ func waitAck(c *Client) error {
 	_, err := io.ReadFull(c.conn, ackBuf)
 	if err != nil {
 		return fmt.Errorf("error recibiendo ACK: %v", err)
-		
+
 	}
 	if string(ackBuf) != "ACK" {
 		return fmt.Errorf("ACK inválido: %s", string(ackBuf))
