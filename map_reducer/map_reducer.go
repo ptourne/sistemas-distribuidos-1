@@ -269,6 +269,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 						}
 					}
 					log.Debugf("Sent output")
+					err = ack()
 					return
 				}
 			}
