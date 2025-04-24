@@ -25,10 +25,20 @@ type JoinerRatings struct {
 	pendingMovies       map[string]common.Row
 	pendingMoviesMu     sync.Mutex
 	subscribers         []string
+	writers             []*csv.Writer
+	toWrite             [][][]string
+	toWriteLen          []int
 }
 
+const TO_WRITE_THRESHOLD = 1000
+
 func NewJoinerRatings(inputToProcess task.Task, inputToSave task.Task, subscribers []string) task.Task {
-	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make(map[string]common.Row), sync.Mutex{}, subscribers}
+	toWrite := make([][][]string, 10)
+	for i := range toWrite {
+		toWrite[i] = make([][]string, TO_WRITE_THRESHOLD+1)
+	}
+	toWriteLen := make([]int, 10)
+	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make(map[string]common.Row), sync.Mutex{}, subscribers, []*csv.Writer{}, toWrite, toWriteLen}
 	joiner.doneRatings.Store(false)
 	return &joiner
 }
@@ -93,56 +103,32 @@ func (f *JoinerRatings) processRating(row common.Row) error {
 	rating := row.Floats["rating"]
 	log.Infof("Processing rating %v", f.ratingsProcessed)
 
-	lastDigit := string(movieID[len(movieID)-1])
+	lastDigitStr := string(movieID[len(movieID)-1])
 
-	if err := os.MkdirAll("joiner_ratings", os.ModePerm); err != nil {
-		log.Errorf("Failed to create directory: %s", "joiner_ratings")
-		return err
-	}
-	dirPath := fmt.Sprintf("joiner_ratings/joiner%s", WORKER_ID)
-
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		log.Errorf("Failed to create directory: %s", dirPath)
-		return err
-	}
-
-	fileName := fmt.Sprintf("%s/ratings_%s.csv", dirPath, lastDigit)
-
-	writeHeader := false
-	if stat, err := os.Stat(fileName); err == nil {
-		if stat.Size() == 0 {
-			writeHeader = true
-		}
-	} else if os.IsNotExist(err) {
-		writeHeader = true
-	} else {
-		log.Errorf("Error checking file status: %v", err)
-		return err
-	}
-
-	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	lastDigit, err := strconv.ParseInt(lastDigitStr, 10, 8)
 	if err != nil {
-		log.Errorf("Failed to open file: %s", fileName)
+		log.Errorf("Failed to parse last digit: %v", err)
 		return err
 	}
-	defer file.Close()
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
-
-	if writeHeader {
-		if err := writer.Write([]string{"movieID", "rating"}); err != nil {
-			log.Errorf("Failed to write CSV header: %v", err)
-			return err
-		}
-	}
-
 	ratingString := strconv.FormatFloat(rating, 'f', 6, 64)
+	log.Debugf("toWriteLen[%d]: %d", lastDigit, f.toWriteLen[lastDigit])
+	f.toWrite[lastDigit][f.toWriteLen[lastDigit]] = []string{movieID, ratingString}
+	f.toWriteLen[lastDigit]++
+	if f.toWriteLen[lastDigit] < TO_WRITE_THRESHOLD-1 {
+		log.Debugf("skipping write")
+		return nil
+	}
+	log.Debugf("writting %d rows", f.toWriteLen[lastDigit])
+	writer := f.writers[lastDigit]
+	// defer writer.Flush()
 
-	err = writer.Write([]string{movieID, ratingString})
+	err = writer.WriteAll(f.toWrite[lastDigit][:f.toWriteLen[lastDigit]])
 	if err != nil {
 		log.Errorf("Failed to write CSV row: %v", err)
 		return err
 	}
+	f.toWrite[lastDigit] = make([][]string, TO_WRITE_THRESHOLD+1)
+	f.toWriteLen[lastDigit] = 0
 
 	// ToDo: descomentar cuando este el reducer testeado
 	// f.pendingMoviesMu.Lock()
@@ -319,6 +305,37 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.MiddlewareCola[c
 		}
 		close(inputChannelMovies)
 	}()
+
+	f.writers = make([]*csv.Writer, 10)
+	for lastDigit := range f.writers {
+
+		if err := os.MkdirAll("joiner_ratings", os.ModePerm); err != nil {
+			log.Errorf("Failed to create directory: %s", "joiner_ratings")
+			return nil, err
+		}
+		dirPath := fmt.Sprintf("joiner_ratings/joiner%s", WORKER_ID)
+
+		if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+			log.Errorf("Failed to create directory: %s", dirPath)
+			return nil, err
+		}
+
+		fileName := fmt.Sprintf("%s/ratings_%d.csv", dirPath, lastDigit)
+
+		file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Errorf("Failed to open file: %s", fileName)
+			return nil, err
+		}
+		writer := csv.NewWriter(file)
+
+		if err := writer.Write([]string{"movieID", "rating"}); err != nil {
+			log.Errorf("Failed to write CSV header: %v", err)
+			return nil, err
+
+		}
+		f.writers[lastDigit] = writer
+	}
 
 	inputChannel := make([]chan middleware.Envelope[common.Row], 2)
 	inputChannel[0] = inputChannelMovies
