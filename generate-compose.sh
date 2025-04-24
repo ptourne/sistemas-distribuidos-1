@@ -266,8 +266,8 @@ compose_sentiment_server() {
 
 
 compose_header > $file_name
-compose_rabbitmq >> $file_name
 compose_sentiment_server >> $file_name
+compose_rabbitmq >> $file_name
 compose_coordinator >> $file_name
 for i in $(seq 1 $number_of_workers); do
     compose_workers $i >> $file_name
@@ -280,9 +280,6 @@ for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
 done
 for i in $(seq 1 $number_of_reduce_by_sentiment); do
     compose_reduce_by_sentiment $i >> $file_name
-done
-for i in $(seq 1 $number_of_nlp_workers); do
-    compose_nlp_workers $i >> $file_name
 done
 compose_client >> $file_name
 compose_endpoint >> $file_name

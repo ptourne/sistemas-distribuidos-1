@@ -4,11 +4,33 @@ import (
 	"context"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/filter"
 	pb "github.com/ptourne/sistemas-distribuidos-1/worker/nlp/proto"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+func NewFilterSentimentAndRate(input string, subscribers []string, grpcAddr string) task.Task {
+	mapper, err := NewSentimentAndRateMap(grpcAddr)
+	if err != nil {
+		log.Errorf("Error creating SentimentAndRateMap: %v", err)
+		return nil
+	}
+
+	return &filter.GenericFilter{
+		FilterName:        "map_sentiment_rate",
+		InputName:         input,
+		Conditions:        []filter.Condition{filter.NumericCondition{"revenue", filter.NotEqual, 0}, filter.NumericCondition{"budget", filter.NotEqual, 0}},
+		KeptStringFields:  []string{"movieID", "title"},
+		KeptNumericFields: []string{},
+		KeptFloatFields:   []string{}, // rate lo agrega el map
+		KeptArrayFields:   []string{},
+		Maps:              []filter.Map{mapper},
+		Subscribers:       subscribers,
+	}
+}
 
 type SentimentAndRateMap struct {
 	client pb.SentimentAnalyzerClient

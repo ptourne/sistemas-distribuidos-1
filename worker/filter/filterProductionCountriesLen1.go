@@ -7,15 +7,15 @@ import (
 
 func NewFilterProductionCountriesLen1(input string, subscribers []string) task.Task {
 	return &GenericFilter{
-		name:              "filter_one_production_country",
-		input:             input,
+		FilterName:        "filter_one_production_country",
+		InputName:         input,
 		Conditions:        []Condition{SingleProductionCountryCondition{}, NumericCondition{"budget", GreaterThan, 0}},
 		KeptStringFields:  []string{"movieID", "title"},
 		KeptNumericFields: []string{"budget"},
 		KeptFloatFields:   []string{},
 		KeptArrayFields:   []string{},
 		Maps:              []Map{MapProductionCountries{}},
-		subscribers:       subscribers,
+		Subscribers:       subscribers,
 	}
 }
 

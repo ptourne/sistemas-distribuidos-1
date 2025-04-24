@@ -7,15 +7,15 @@ import (
 
 func NewFilterAvgRate(input string, subscribers []string) task.Task {
 	return &GenericFilter{
-		name:              "filter_avg_rate",
-		input:             input,
+		FilterName:        "filter_avg_rate",
+		InputName:         input,
 		Conditions:        []Condition{},
 		KeptStringFields:  []string{"sentiment"},
 		KeptNumericFields: []string{},
 		KeptFloatFields:   []string{},
 		KeptArrayFields:   []string{},
 		Maps:              []Map{MapAvgRate{}},
-		subscribers:       subscribers,
+		Subscribers:       subscribers,
 	}
 }
 

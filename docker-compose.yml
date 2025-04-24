@@ -1,19 +1,5 @@
 name: analisis-peliculas
 services:
-    rabbitmq:
-        container_name: rabbitmq
-        image: rabbitmq:latest
-        ports:
-            - "5672:5672"
-            - "15672:15672"
-        networks:
-            - local_net
-        healthcheck:
-            test: rabbitmq-diagnostics -q ping
-            interval: 10s
-            timeout: 10s
-            retries: 10
-
     sentiment_server:
         container_name: sentiment_server
         build:
@@ -28,6 +14,20 @@ services:
             - GRPC_WORKERS=30
         healthcheck:
             test: ncat -zv localhost 50051
+            interval: 10s
+            timeout: 10s
+            retries: 10
+
+    rabbitmq:
+        container_name: rabbitmq
+        image: rabbitmq:latest
+        ports:
+            - "5672:5672"
+            - "15672:15672"
+        networks:
+            - local_net
+        healthcheck:
+            test: rabbitmq-diagnostics -q ping
             interval: 10s
             timeout: 10s
             retries: 10
@@ -458,86 +458,6 @@ services:
             rabbitmq:
                 condition: service_healthy
             sentiment_server:
-                condition: service_healthy
-
-    nlp_worker1:
-        container_name: nlp_worker1
-        build:
-            context: .
-            dockerfile: worker/nlp/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    nlp_worker2:
-        container_name: nlp_worker2
-        build:
-            context: .
-            dockerfile: worker/nlp/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    nlp_worker3:
-        container_name: nlp_worker3
-        build:
-            context: .
-            dockerfile: worker/nlp/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    nlp_worker4:
-        container_name: nlp_worker4
-        build:
-            context: .
-            dockerfile: worker/nlp/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    nlp_worker5:
-        container_name: nlp_worker5
-        build:
-            context: .
-            dockerfile: worker/nlp/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
                 condition: service_healthy
 
     client:

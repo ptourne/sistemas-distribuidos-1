@@ -2,6 +2,8 @@ package filter
 
 import (
 	"fmt"
+	"reflect"
+	"strings"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
@@ -53,25 +55,25 @@ type Map interface {
 }
 
 type GenericFilter struct {
-	name              string
-	input             string
+	FilterName        string
+	InputName         string
 	Conditions        []Condition
 	KeptStringFields  []string
 	KeptNumericFields []string
 	KeptFloatFields   []string
 	KeptArrayFields   []string
 	Maps              []Map
-	taskReceiver      middleware.Receiver[common.Row]
-	taskSender        middleware.Sender[common.Row]
-	subscribers       []string
+	TaskReceiver      middleware.Receiver[common.Row]
+	TaskSender        middleware.Sender[common.Row]
+	Subscribers       []string
 }
 
 func (f *GenericFilter) Name() string {
-	return f.name
+	return f.FilterName
 }
 
 func (f *GenericFilter) Input() string {
-	return f.input
+	return f.InputName
 }
 
 func (f GenericFilter) ProcessAndSend(row common.Row) error {
@@ -79,7 +81,7 @@ func (f GenericFilter) ProcessAndSend(row common.Row) error {
 	if output == nil {
 		return nil
 	}
-	return f.taskSender.Send(output)
+	return f.TaskSender.Send(output)
 }
 
 func (f GenericFilter) process(row common.Row) *common.Row {
@@ -140,11 +142,11 @@ func (f GenericFilter) String() string {
 
 func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
 	var err error
-	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
+	f.TaskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), f.subscribers)
+	f.TaskSender, err = middlewareConnection.WriteTo(f.Name(), f.Subscribers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create write queue for task %s", f.Name())
 	}
@@ -153,7 +155,7 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[c
 	inputChannel := make(chan middleware.Envelope[common.Row], 0)
 	go func() {
 		for {
-			envelope, ok, err := f.taskReceiver.Next(nil)
+			envelope, ok, err := f.TaskReceiver.Next(nil)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
 					log.Infof("Channel closed: %v", f.Name())
@@ -176,12 +178,71 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[c
 }
 
 func (f *GenericFilter) Finish() error {
-	if err := f.taskReceiver.Close(); err != nil {
+	if err := f.TaskReceiver.Close(); err != nil {
 		return fmt.Errorf("failed to close task receiver: %w", err)
 	}
-	if err := f.taskSender.Close(); err != nil {
+	if err := f.TaskSender.Close(); err != nil {
 		return fmt.Errorf("failed to close task sender: %w", err)
 	}
 	log.Infof("Closed task %s", f.Name())
 	return nil
+}
+
+func (f GenericFilter) Run() error {
+	middlewareConnection, err := middleware.NewRabbitmq[common.Row]()
+	if err != nil {
+		unwrap(err, "Failed to create middleware")
+		return err
+	}
+	log.Infof("Connected to middleware")
+	defer middlewareConnection.Close()
+
+	channels, err := f.Connect(middlewareConnection)
+	inputChannel := channels[0]
+	unwrap(err, "Failed to create channel for task")
+	cases := make([]reflect.SelectCase, 0)
+	cases = append(cases, reflect.SelectCase{
+		Dir:  reflect.SelectRecv,
+		Chan: reflect.ValueOf(inputChannel),
+	})
+
+	for {
+		if len(cases) == 0 {
+			log.Infof("All channels closed")
+			break
+		}
+		i, val, ok := reflect.Select(cases)
+		if !ok {
+			log.Infof("Channel closed from task: %s", f.Name())
+			f.Finish()
+			break
+		}
+
+		log.Debugf("Received message from channel %d", i)
+		envelope, ok := val.Interface().(middleware.Envelope[common.Row])
+		if !ok {
+			panic("Failed to cast to envelope")
+		}
+		row := envelope.Msg()
+		result := f.ProcessAndSend(row)
+		if result != nil {
+			log.Errorf("Failed to process row: %v by task: %v", row, f.Name())
+			continue
+		}
+		err = envelope.Ack(false)
+		unwrap(err, "Failed to ack message")
+		//log.Debugf("Row processed: %v name: %v", row.Strings["title"], f.Name())
+	}
+	return nil
+}
+
+func unwrap(err error, msg string) {
+	if err != nil {
+		if strings.Contains(err.Error(), "channel/connection is not open") {
+			log.Warnf("%s: %s", msg, err)
+		} else {
+			log.Fatalf("%s: %s", msg, err)
+			panic(err)
+		}
+	}
 }
