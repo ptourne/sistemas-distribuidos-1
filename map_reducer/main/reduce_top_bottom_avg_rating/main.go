@@ -26,7 +26,7 @@ type Acc struct {
 type Res = common.Row
 
 func main() {
-	mapReducer, err := map_reducer.NewMapReducer[In, Acc, Res]("reduce_top_bottom_avg_rating", "joiner_ratings", 2, &TopBottomReduce{}, []string{"q3"},  []string{})
+	mapReducer, err := map_reducer.NewMapReducer[In, Acc, Res]("reduce_top_bottom_avg_rating", "joiner_ratings", 2, &TopBottomReduce{}, []string{"q3"}, []string{})
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)
 		return
@@ -96,7 +96,7 @@ func (r TopBottomReduce) Output(acc Acc) []Res {
 
 func (a *Acc) Merge(b Acc) {
 	if b.Top.Rating > a.Top.Rating {
-		a.Top = a.Top
+		a.Top = b.Top
 	}
 	if b.Bottom.Rating < a.Bottom.Rating {
 		a.Bottom = b.Bottom
