@@ -156,7 +156,7 @@ func (m *MiddlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string)
 	return m.createReadQueueRK(sourceName, groupName, "fanout", "")
 }
 
-func (m *MiddlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, routingKey string) (Receiver[T], error) {
+func (m *MiddlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, t string, routingKey string) (Receiver[T], error) {
 	log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' ", sourceName, groupName)
 	if sourceName == "" {
 		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
@@ -164,7 +164,7 @@ func (m *MiddlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName strin
 	if groupName == "" {
 		return nil, fmt.Errorf("groupQueueName is empty, should be a valid name")
 	}
-	return m.createReadQueueRK(sourceName, groupName, "direct", routingKey)
+	return m.createReadQueueRK(sourceName, groupName, t, routingKey)
 }
 
 
@@ -259,7 +259,7 @@ func (m *MiddlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
 
-	closep, err := CreateProducerRK[T, CloseNotification](m, closeExchangeName(outputName), t)
+	closep, err := CreateProducerRK[T, CloseNotification](m, closeExchangeName(outputName), "fanout")
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
@@ -270,7 +270,7 @@ func (m *MiddlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 			if err != nil {
 				return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
 			}
-			_, ch2, err := m.createQueueRK(closeExchangeName(outputName), sub, t, routingKey)
+			_, ch2, err := m.createQueueRK(closeExchangeName(outputName), sub, "fanout", "")
 			if err != nil {
 				return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
 			}

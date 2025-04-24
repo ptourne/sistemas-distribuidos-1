@@ -12,7 +12,7 @@ var WORKER_ID = os.Getenv("WORKER_ID")
 var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID), logger.Info)
 
 func main() {
-	mapReducer, err := map_reducer_movieId.NewMapReducerByMovieId("reduce_by_movieId", "clean_ratings", 20, []string{"filter_avg_rating"})
+	mapReducer, err := map_reducer_movieId.NewMapReducerByMovieId("reduce_by_movieId", "clean_ratings", []string{WORKER_ID}, 20, []string{"filter_avg_rating"})
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)
 		return

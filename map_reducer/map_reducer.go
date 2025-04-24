@@ -26,10 +26,23 @@ type MapReducer[I, A, R any] struct {
 	mapReduce             MapReduce[I, A, R]
 	output                middleware.Sender[R]
 	inputClosed           bool
+	routingKeys		  	 []string
 }
 
 // batchSize is the number of top groups you reduce at once
-func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapReducer MapReduce[I, A, R], subscribers []string) (*MapReducer[I, A, R], error) {
+func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapReducer MapReduce[I, A, R], subscribers []string, routingKeys []string) (*MapReducer[I, A, R], error) {
+	var t string = "direct"
+	subscribersMap := make(map[string][]string)
+	for _, subscriber := range subscribers {
+		subscribersMap[subscriber] = []string{""}
+	}
+
+	if len(routingKeys) == 0 {
+		log.Infof("Using FANOUT")
+		routingKeys = []string{""}
+		t = "fanout"
+	}
+
 	if batchSize < 2 {
 		return nil, fmt.Errorf("batchSize must be at least two")
 	}
@@ -37,7 +50,7 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 	if err != nil {
 		return nil, err
 	}
-	inputCh, err := connIn.ConsumeFrom(input, name)
+	inputCh, err := connIn.ConsumeFromRK(input, name, t, routingKeys[0])
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +58,7 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 	if err != nil {
 		return nil, err
 	}
-	output, err := connOut.WriteTo(name, subscribers)
+	output, err := connOut.WriteToRK(name, subscribersMap, t)
 	if err != nil {
 		return nil, err
 	}

@@ -7,7 +7,7 @@ import (
 // ver de declare, tratr de devovler un struct, ghacer read/write
 type MiddlewareCola[T any] interface {
 	ConsumeFrom(sourceName string, groupName string) (Receiver[T], error)
-	ConsumeFromRK(sourceName string, groupName string, routingkey string) (Receiver[T], error)
+	ConsumeFromRK(sourceName string, groupName string, t string, routingkey string) (Receiver[T], error)
 	WriteTo(writeExchangeName string, subscribers []string) (Sender[T], error)
 	WriteToRK(writeExchangeName string, subscribers map[string][]string, t string) (Sender[T], error)
 	Close() error

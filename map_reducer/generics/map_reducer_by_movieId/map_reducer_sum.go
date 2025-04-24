@@ -14,8 +14,8 @@ type Res = common.Row
 
 type MapReducerSum = map_reducer.MapReducer[In, Acc, Res]
 
-func NewMapReducerByMovieId(name string, input string, batchSize uint, subscribers []string) (*MapReducerSum, error) {
-	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &SumMapReduce{}, subscribers)
+func NewMapReducerByMovieId(name string, input string, routingKeys []string, batchSize uint, subscribers []string) (*MapReducerSum, error) {
+	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &SumMapReduce{}, subscribers, routingKeys)
 }
 
 type SumMapReduce struct {
