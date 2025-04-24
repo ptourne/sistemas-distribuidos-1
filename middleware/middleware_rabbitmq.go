@@ -72,7 +72,7 @@ func (s *SenderChannel[T]) Close() {
 	}
 }
 
-var log = logger.NewConsoleLogger("middleware", logger.Info)
+var log = logger.NewConsoleLogger("middleware", logger.Debug)
 
 func NewRabbitmq[T any]() (MiddlewareCola[T], error) {
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
@@ -131,7 +131,6 @@ func (s *SenderRabbitmq[T]) Close() error {
 			if err != nil {
 				return fmt.Errorf("failed to publish a message: %v in chan %s", err, closeExchangeName(s.exchangeName))
 			}
-			log.Debugf("CLOSEDDD message in chan %s", closeExchangeName(s.exchangeName))
 		}
 		s.close.Close()
 		s.close = nil
@@ -198,7 +197,7 @@ func (m *MiddlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 		lastProducerCount: -1,
 	}
 
-	log.Debugf("ReceiverRabbitmq: '%s', '%s', producer count: %d", receiver.input.exchangeName, receiver.input.queueName, receiver.lastProducerCount)
+	// log.Debugf("ReceiverRabbitmq: '%s', '%s', producer count: %d", receiver.input.exchangeName, receiver.input.queueName, receiver.lastProducerCount)
 	return receiver, nil
 }
 
@@ -207,7 +206,7 @@ func CreateProducerRK[T, I any](m *MiddlewareRabbitmq[T], readExchangeName strin
 	if err != nil {
 		return nil, fmt.Errorf("failed to open a channel: %v", err)
 	}
-	log.Debugf("exchangeDeclare: '%s'", readExchangeName)
+	// log.Debugf("exchangeDeclare: '%s'", readExchangeName)
 	err = producerCountReqCh.ExchangeDeclare(
 		readExchangeName, // name
 		t,         		  // type
@@ -292,12 +291,12 @@ func (m *MiddlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 	producerCountReplier := make(chan struct{})
 	producerCountReplierKill := make(chan struct{})
 	task := func() {
-		log.Debugf("Listening on producer count replier")
+		// log.Debugf("Listening on producer count replier")
 		defer close(producerCountReplier)
 		defer producerCountRes.Close()
 		defer producerCountReq.Close()
 		for {
-			log.Debugf("Waiting for producer count request: '%s' from '%s'", producerCountReq.exchangeName, producerCountReq.queueName)
+			// log.Debugf("Waiting for producer count request: '%s' from '%s'", producerCountReq.exchangeName, producerCountReq.queueName)
 			select {
 			case msg := <-*producerCountReq.C:
 				log.Infof("RECEIVED producer count request: '%s' from '%s'", producerCountReq.exchangeName, producerCountReq.queueName)
@@ -310,7 +309,7 @@ func (m *MiddlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 					log.Debugf("count producer request was closed")
 					return
 				}
-				log.Debugf("Received producer count request: '%s' from '%s' with id: %d", producerCountReq.exchangeName, producerCountReq.queueName, req.Msg().ID)
+				// log.Debugf("Received producer count request: '%s' from '%s' with id: %d", producerCountReq.exchangeName, producerCountReq.queueName, req.Msg().ID)
 				ctx, cancel := context.WithTimeout(context.Background(), 500*time.Second)
 				err = producerCountRes.Publish(ctx, req.Msg())
 				if err != nil {

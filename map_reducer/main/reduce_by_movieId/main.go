@@ -21,7 +21,7 @@ func main() {
 
 	rkString := fmt.Sprintf("%d", rk-1)
 
-	mapReducer, err := map_reducer_movieId.NewMapReducerByMovieId(fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID), "clean_ratings", []string{rkString}, 20, []string{"filter_avg_rating"})
+	mapReducer, err := map_reducer_movieId.NewMapReducerByMovieId("reduce_by_movieId", "clean_ratings", []string{rkString}, 2, []string{"filter_avg_rating"})
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)
 		return

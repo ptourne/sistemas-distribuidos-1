@@ -5,12 +5,14 @@ import (
 	"os"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 )
 
 var WORKER_ID = os.Getenv("WORKER_ID")
 
+var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID), logger.Info)
 
 type In = common.Row
 type Acc struct {
@@ -67,15 +69,17 @@ func (a *Acc) Merge(b Acc) {
 		a.Sums[movieId] = rating + prevVal
 		prevVal2 := a.Count[movieId]
 		a.Count[movieId] = b.Count[movieId] + prevVal2
+		log.Infof("Merging accs: %v", a.Count[movieId])
 	}
 }
 
 func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapReducer map_reducer.MapReduce[I, A, R], subscribers []string, routingKeys []string) (*map_reducer.MapReducer[I, A, R], error) {
 	var t string = "direct"
-	subscribersMap := make(map[string][]string)
-	for _, subscriber := range subscribers {
-		subscribersMap[subscriber] = []string{""}
-	}
+	nameId :=fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID)
+	// subscribersMap := make(map[string][]string)
+	// for _, subscriber := range subscribers {
+	// 	subscribersMap[subscriber] = []string{""}
+	// }
 
 	if len(routingKeys) == 0 {
 		routingKeys = []string{""}
@@ -89,7 +93,7 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 	if err != nil {
 		return nil, err
 	}
-	inputCh, err := connIn.ConsumeFromRK(input, name, t, routingKeys[0])
+	inputCh, err := connIn.ConsumeFromRK(input, nameId, t, routingKeys[0])
 	if err != nil {
 		return nil, err
 	}
@@ -97,17 +101,17 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 	if err != nil {
 		return nil, err
 	}
-	output, err := connOut.WriteToRK(name, subscribersMap, t)
+	output, err := connOut.WriteTo(name, subscribers)
 	if err != nil {
 		return nil, err
 	}
 
-	accName := accName(name, routingKeys[0]) 
+	accName := accName(nameId, routingKeys[0]) 
 	connAcc, err := middleware.NewRabbitmq[A]()
 	if err != nil {
 		return nil, err
 	}
-	accIn, err := connAcc.ConsumeFrom(accName, name)
+	accIn, err := connAcc.ConsumeFrom(accName, nameId)
 	if err != nil {
 		return nil, err
 	}
