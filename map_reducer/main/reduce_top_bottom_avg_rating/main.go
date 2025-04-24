@@ -10,7 +10,7 @@ import (
 )
 
 var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_top_bottom_1_avg_rating_%s", WORKER_ID), logger.Info)
+var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_top_bottom_avg_rating_%s", WORKER_ID), logger.Info)
 
 type Movie struct {
 	ID     string  `json:"id" validate:"required"`
@@ -26,7 +26,7 @@ type Acc struct {
 type Res = common.Row
 
 func main() {
-	mapReducer, err := map_reducer.NewMapReducer[In, Acc, Res]("reduce_top_bottom_1_avg_rating", "joiner_ratings", 2, &TopBottomReduce{}, []string{"q2"})
+	mapReducer, err := map_reducer.NewMapReducer[In, Acc, Res]("reduce_top_bottom_avg_rating", "joiner_ratings", 2, &TopBottomReduce{}, []string{"q2"})
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)
 		return
