@@ -1,37 +1,53 @@
 #!/bin/bash
 
-if [ "$#" -eq 6 ]; then
+if [ "$#" -eq 8 ]; then
     file_name=./docker-compose.yml
     number_of_workers=$1
-    number_of_reduce_by_country_sum_budgets=$2
-    number_of_reduce_top_5_by_budgets=$3
-    number_of_reduce_by_sentiment=$4
-    number_of_reduce_by_actor=$5
-    number_of_reduce_top_10_by_actor=$6
+    number_of_lean_workers=$2
+    number_of_joiners_ratings=$3
+    number_of_reduce_by_country_sum_budgets=$4
+    number_of_reduce_top_5_by_budgets=$5
+    number_of_reduce_by_sentiment=$6
+    number_of_reduce_by_actor=$7
+    number_of_reduce_top_10_by_actor=$8
 
 
-elif [ "$#" -eq 7 ]; then
+elif [ "$#" -eq 9 ]; then
     file_name=$1
     number_of_workers=$2
-    number_of_reduce_by_country_sum_budgets=$3
-    number_of_reduce_top_5_by_budgets=$4
-    number_of_reduce_by_sentiment=$5
-    number_of_reduce_by_actor=$6
-    number_of_reduce_top_10_by_actor=$7
-
+    number_of_lean_workers=$3
+    number_of_joiners_ratings=$4
+    number_of_reduce_by_country_sum_budgets=$5
+    number_of_reduce_top_5_by_budgets=$6
+    number_of_reduce_by_sentiment=$7
+    number_of_reduce_by_actor=$8
+    number_of_reduce_top_10_by_actor=$9
 
 else
     echo "Error: Incorrect number of arguments"
-    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment>
+    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_lean_workers>,<number_of_joiners_ratings>,
+    <number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment>,
     <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>"
     exit 1
 fi
 
 # Verify number_of_workers is a positive integer
 if ! [[ "$number_of_workers" =~ ^[0-9]+$ ]] || [ "$number_of_workers" -le -1 ]; then
-    echo "Error: Number of filters must be a positive integer"
+    echo "Error: Number of workers must be a positive integer"
     exit 1
 fi
+# Verify number_of_lean_workers is a positive integer
+if ! [[ "$number_of_lean_workers" =~ ^[0-9]+$ ]] || [ "$number_of_lean_workers" -le -1 ]; then
+    echo "Error: Number of lean workers must be a positive integer"
+    exit 1
+fi
+
+# Verify number_of_joiners_ratings is a positive integer
+if ! [[ "$number_of_joiners_ratings" =~ ^[0-9]+$ ]] || [ "$number_of_joiners_ratings" -le -1 ]; then
+    echo "Error: Number of joiners raitings must be a positive integer"
+    exit 1
+fi
+
 # Verify number_of_reduce_by_country_sum_budgets is a positive integer
 if ! [[ "$number_of_reduce_by_country_sum_budgets" =~ ^[0-9]+$ ]] || [ "$number_of_reduce_by_country_sum_budgets" -le -1 ]; then
     echo "Error: Number of reduce by country sum budgets must be a positive integer"
@@ -113,7 +129,7 @@ compose_workers() {
             dockerfile: worker/Dockerfile
         entrypoint: /worker
         environment:
-            - WORKER_ID=$
+            - WORKER_ID=$worker_id
             - N_JOINERS=$number_of_workers
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
@@ -130,7 +146,6 @@ compose_workers() {
 "
 }
 
-number_of_lean_workers=1
 compose_lean_workers() {
     local worker_id=$1
     echo "    lean_worker$worker_id:
@@ -138,10 +153,10 @@ compose_lean_workers() {
         build:
             context: .
             dockerfile: lean_worker/Dockerfile
-        entrypoint: /worker
+        entrypoint: /lean_worker
         environment:
-            - WORKER_ID=$
-            - N_JOINERS=$number_of_workers
+            - WORKER_ID=$worker_id
+            - N_JOINERS=$number_of_joiners_ratings
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -151,8 +166,29 @@ compose_lean_workers() {
                 condition: service_healthy
             sentiment_server:
                 condition: service_healthy
+"
+}
+
+compose_joiner_rating() {
+    local worker_id=$1
+    echo "    joiner_rating$worker_id:
+        container_name: joiner_rating$worker_id
+        build:
+            context: .
+            dockerfile: joiners_ratings_workers/Dockerfile
+        entrypoint: /joiners_ratings_workers
+        environment:
+            - WORKER_ID=$worker_id
+            - N_JOINERS=$number_of_joiners_ratings
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
         volumes:
-            - ${PWD}/joiner_credits:/joiner_credits
             - ${PWD}/joiner_ratings:/joiner_ratings
 "
 }
@@ -320,9 +356,14 @@ compose_header > $file_name
 compose_rabbitmq >> $file_name
 compose_sentiment_server >> $file_name
 compose_coordinator >> $file_name
-compose_lean_workers >> $file_name
 for i in $(seq 1 $number_of_workers); do
     compose_workers $i >> $file_name
+done
+for i in $(seq 1 $number_of_lean_workers); do 
+    compose_lean_workers $i >> $file_name
+done
+for i in $(seq 1 $number_of_joiners_ratings); do 
+    compose_joiner_rating $i >> $file_name
 done
 for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
     compose_reduce_by_country_sum_budgets $i >> $file_name

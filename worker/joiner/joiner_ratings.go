@@ -51,11 +51,10 @@ func (f *JoinerRatings) ProcessAndSend(row common.Row) error {
 			f.pendingMoviesMu.Lock()
 			f.pendingMovies[movieID] = row
 			f.pendingMoviesMu.Unlock()
-
 			return nil
 		}
 		err = f.processMovieAndSendRatings(row)
-	} else if _, ok := row.Floats["rating"]; ok { // cambiar por avg_rating
+	} else if _, ok := row.Numerics["rating"]; ok { // cambiar por avg_rating
 		err = f.processRating(row)
 	} else {
 		log.Warnf("Received row with no recognizable ID: %+v", row)
@@ -264,6 +263,7 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.MiddlewareCola[c
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue clean_ratings for task %s", f.Name())
 	}
+	log.Infof("Created read queue exchange %s with groupName %s", f.Name(), groupQueueName)
 
 	f.taskReceiverMovies, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {

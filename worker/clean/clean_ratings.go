@@ -86,7 +86,7 @@ func (f CleanRatings) process(row []byte) *common.Row {
 
 	// log.Debugf("Clean ALL: movieID: %s, rating: %v", row.Strings["movieID"], rating)
 
-	return &common.Row{
+	res := &common.Row{
 		Strings: map[string]string{
 			"movieID": fmt.Sprintf("%d", rating.Id),
 		},
@@ -94,6 +94,8 @@ func (f CleanRatings) process(row []byte) *common.Row {
 			"rating": uint(rating.Rating),
 		},
 	}
+	log.Debugf("rating: %v", res)
+	return res
 }
 
 func (f *CleanRatings) Connect(middIn middleware.MiddlewareCola[[]byte], middOut middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[[]byte], error) {

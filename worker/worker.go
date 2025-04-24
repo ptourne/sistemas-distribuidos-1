@@ -5,7 +5,6 @@ import (
 	"os"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
@@ -14,6 +13,8 @@ import (
 
 	//"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
 
+	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/filter"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
@@ -140,7 +141,7 @@ func (w *Worker) Run() {
 				log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
 				continue
 			}
-			log.Debugf("TO ACK msg %v worker", envelope.Msg())
+			// log.Debugf("TO ACK msg %v worker", envelope.Msg())
 			err = envelope.Ack(false)
 			unwrap(err, "Failed to ack message")
 		} else {
@@ -179,7 +180,7 @@ func (w *Worker) Run() {
 				log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
 				continue
 			}
-			log.Debugf("TO ACK msg %v worker", envelope.Msg())
+			// log.Debugf("TO ACK msg %v worker", envelope.Msg())
 			err = envelope.Ack(false)
 			unwrap(err, "Failed to ack message")
 			log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
@@ -229,29 +230,18 @@ func (t *SourceTask[O]) Connect(_ middleware.MiddlewareCola[common.Row], _ middl
 }
 
 func NewWorker() Worker {
-	// movies_metadata := NewSourceTask("movies_metadata")
+	movies_metadata := NewSourceTask[common.Row]("movies_metadata")
 	// credits := NewSourceTask("credits")
-	// ratings := NewSourceTask[[]byte]("ratings")
-	// movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country", "map_sentiment_rate"})
-	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS")) // TODO: cambiar en el compose
-	if err != nil {
-		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
-	}
-	// var joiner_credits_subscribers []string
-	var joiner_ratings_subscribers []string
-	for i := range n_worker {
-		_ = i
-		// joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
-		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
-	}
-	// credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers)
-	// ratings_clean := clean.NewCleanRatings(ratings, joiner_ratings_subscribers)
+	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country", "map_sentiment_rate"})
 
-	// filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits","joiner_ratings"})
+	// var joiner_credits_subscribers []string
+
+	// credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers)
+
+	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits","joiner_ratings"})
 	// filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"})
 	// filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
 	// joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{"reduce_by_actor"})
-	// joiner_ratings := joiner.NewJoinerRatings(filter_release_date_ge_2000_and_include_ar, ratings_clean, []string{"q3"})
 
 	// grpcAddress := os.Getenv("NLP_GRPC_ADDR")
 
@@ -259,14 +249,11 @@ func NewWorker() Worker {
 	// filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
 
 	return Worker{
-		TasksBin: []task.Task[[]byte, common.Row]{
-			// ratings_clean,
-		},
 		Tasks: []task.Task[common.Row, common.Row]{
-			// movies_metadata_clean,
+			movies_metadata_clean,
 			// ratings_clean,
 			// credits_clean,
-			// filter_release_date_ge_2000_and_include_ar,
+			filter_release_date_ge_2000_and_include_ar,
 			// filter_release_date_l_2010_and_include_es,
 			// filter_one_production_country,
 			// joiner_credits,

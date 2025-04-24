@@ -3,22 +3,20 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 
-	//"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
-	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
 const MIDDLEWARE = "rabbitmq"
 
 type Worker struct {
-	TasksBin task.Task[[]byte, common.Row]
+	Tasks task.Task[common.Row, common.Row]
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
@@ -36,33 +34,49 @@ func (w *Worker) Run() {
 	if err != nil {
 		unwrap(err, "Failed to create middleware")
 	}
-	middlewareConnectionBin, err := middleware.NewRabbitmq[[]byte]()
-	if err != nil {
-		unwrap(err, "Failed to create middleware")
-	}
-	log.Infof("Connected to middleware: %s", MIDDLEWARE)
-	defer middlewareConnectionBin.Close()
 
-	inputChannels, err := w.TasksBin.Connect(middlewareConnectionBin, middlewareConnection)
+	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+
+	inputChannels, err := w.Tasks.Connect(middlewareConnection, middlewareConnection)
 	if err != nil {
-		log.Fatalf("Failed to create channel for task %s: %s", w.TasksBin.Name(), err)
+		log.Fatalf("Failed to create channel for task %s: %s", w.Tasks.Name(), err)
 	}
-	log.Infof("Connected to task %s", w.TasksBin.Name())
+	log.Infof("Connected to task %s", w.Tasks.Name())
+	closed := 0
+	var envelope middleware.Envelope[common.Row]
+	var ok bool
 	for {
-		log.Infof("debug")
-		envelope, ok := <-inputChannels[0] 
-		if !ok {
-			log.Infof("Channel closed, exiting...")
+		select {
+		case envelope, ok = <-inputChannels[0]:
+			if !ok {
+				log.Infof("Channel closed 0, exiting...")
+				closed++
+				inputChannels[0] = nil
+			}
+		case envelope, ok = <-inputChannels[1]:
+			if !ok {
+				log.Infof("Channel closed 1, exiting...")
+				inputChannels[1] = nil
+				closed++
+			}
+			log.Infof("Channel 1 MSG")
+		}
+
+		if closed == 2 {
 			break
 		}
-		currentTask := w.TasksBin
+		if !ok {
+			continue
+		}
 
+		currentTask := w.Tasks
 		row := envelope.Msg()
 		result := currentTask.ProcessAndSend(row)
 		if result != nil {
 			log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
 			continue
 		}
+		log.Debugf("TO ACK msg %v worker", envelope.Msg())
 		err = envelope.Ack(false)
 		unwrap(err, "Failed to ack message")
 	}
@@ -108,17 +122,12 @@ func (t *SourceTask[O]) Connect(_ middleware.MiddlewareCola[common.Row], _ middl
 }
 
 func NewWorker() Worker {
-	ratings := NewSourceTask[[]byte]("ratings")
-	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS")) // TODO: cambiar en el compose
-	if err != nil {
-		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
-	}
-	var joiner_ratings_subscribers []string
-	for i := range n_worker {
-		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
-	}
-	ratings_clean := clean.NewCleanRatings(ratings, joiner_ratings_subscribers)
+	movies_metadata := NewSourceTask[common.Row]("filter_release_date_ge_2000_and_include_ar")
+	ratings := NewSourceTask[common.Row]("clean_ratings")
+
+	joiner_ratings := joiner.NewJoinerRatings(movies_metadata, ratings, []string{"q3"})
+
 	return Worker{
-		TasksBin: ratings_clean,
+		Tasks: joiner_ratings,
 	}
 }
