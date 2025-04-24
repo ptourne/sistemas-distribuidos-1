@@ -1,21 +1,29 @@
 #!/bin/bash
 
-if [ "$#" -eq 4 ]; then
+if [ "$#" -eq 6 ]; then
     file_name=./docker-compose.yml
     number_of_workers=$1
     number_of_reduce_by_country_sum_budgets=$2
     number_of_reduce_top_5_by_budgets=$3
     number_of_reduce_by_sentiment=$4
-elif [ "$#" -eq 5 ]; then
+    number_of_reduce_by_actor=$5
+    number_of_reduce_top_10_by_actor=$6
+
+
+elif [ "$#" -eq 7 ]; then
     file_name=$1
     number_of_workers=$2
     number_of_reduce_by_country_sum_budgets=$3
     number_of_reduce_top_5_by_budgets=$4
     number_of_reduce_by_sentiment=$5
+    number_of_reduce_by_actor=$6
+    number_of_reduce_top_10_by_actor=$7
+
 
 else
     echo "Error: Incorrect number of arguments"
-    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment> "
+    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment>
+    <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>"
     exit 1
 fi
 
@@ -36,7 +44,19 @@ if ! [[ "$number_of_reduce_top_5_by_budgets" =~ ^[0-9]+$ ]] || [ "$number_of_red
 fi
 # Verify number_of_reduce_by_sentiment is a positive integer
 if ! [[ "$number_of_reduce_by_sentiment" =~ ^[0-9]+$ ]] || [ "$number_of_reduce_by_sentiment" -le -1 ]; then
-    echo "Error: Number of reduce top 5 by budgets must be a positive integer"
+    echo "Error: Number of reduce by sentiment must be a positive integer"
+    exit 1
+fi
+
+# Verify number_of_reduce_by_actor is a positive integer
+if ! [[ "$number_of_reduce_by_actor" =~ ^[0-9]+$ ]] || [ "$number_of_reduce_by_actor" -le -1 ]; then
+    echo "Error: Number of reduce by actor must be a positive integer"
+    exit 1
+fi
+
+# Verify number_of_reduce_top_10_by_actor is a positive integer
+if ! [[ "$number_of_reduce_top_10_by_actor" =~ ^[0-9]+$ ]] || [ "$number_of_reduce_top_10_by_actor" -le -1 ]; then
+    echo "Error: Number of reduce top 10 by actor must be a positive integer"
     exit 1
 fi
 
@@ -199,6 +219,24 @@ compose_reduce_by_sentiment() {
 "
 }
 
+compose_reduce_by_actor() {
+    local worker_id=$1
+    echo "    reduce_by_actor$worker_id:
+        container_name: reduce_by_actor$worker_id
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=$worker_id
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+"
+}
+
 
 compose_network() {
     echo "networks:
@@ -232,6 +270,24 @@ compose_sentiment_server() {
 "
 }
 
+compose_reduce_top_10_by_actor() {
+    local worker_id=$1
+    echo "    reduce_top_10_by_actor$worker_id:
+        container_name: reduce_top_10_by_actort$worker_id
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_10_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=$worker_id
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+"
+}
+
 
 compose_header > $file_name
 compose_rabbitmq >> $file_name
@@ -248,6 +304,12 @@ for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
 done
 for i in $(seq 1 $number_of_reduce_by_sentiment); do
     compose_reduce_by_sentiment $i >> $file_name
+done
+for i in $(seq 1 $number_of_reduce_by_actor); do
+    compose_reduce_by_actor $i >> $file_name
+done
+for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
+    compose_reduce_top_10_by_actor $i >> $file_name
 done
 compose_client >> $file_name
 compose_endpoint >> $file_name

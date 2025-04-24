@@ -36,8 +36,8 @@ func main() {
 	ratingsName := "ratings"
 	q1Output := "filter_release_date_l_2010_and_include_es"
 	q2Output := "reduce_top_5_by_budget"
-	q3Output := "joiner_credits"
-	q4Output := "joiner_ratings"
+	q3Output := "joiner_ratings"
+	q4Output := "reduce_top_10_by_actor"
 	q5Output := "filter_avg_rate"
 	allQuerysToEndpointName :="all_querys_to_endpoint"
 
@@ -187,13 +187,6 @@ OuterLoop:
 				row := create(data)
 
 				sender.Send(&row)
-				// if fileName == ratingsName && line == 10000 {
-				// 	log.Infof("Processed %d lines from %s", line, fileName)
-				// 	log.Infof("Received ALL FILES SENT")
-				// 	sender.Close()
-				// 	break OuterLoop
-				// 	//break
-				// }
 
 			}
 			log.Infof("CSV %s processing completed, closing", fileName)
@@ -332,10 +325,22 @@ OuterLoop:
 	}
 
 	log.Infof("Verifying Q4")
+	expectedOutputQ4 := []common.Row{
+		{Numerics: map[string]uint{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
+		{Numerics: map[string]uint{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
+		{Numerics: map[string]uint{"count": 7}, Strings: map[string]string{"actor": "Inés Efron"}},
+		{Numerics: map[string]uint{"count": 7}, Strings: map[string]string{"actor": "Leonardo Sbaraglia"}},
+		{Numerics: map[string]uint{"count": 7}, Strings: map[string]string{"actor": "Valeria Bertuccelli"}},
+		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Arturo Goetz"}},
+		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Diego Peretti"}},
+		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Pablo Echarri"}},
+		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
+		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
+	}
 	countCredit := 0
-	timer = time.NewTimer(time.Second * 40)
+	timer = time.NewTimer(time.Second * 200)
 	for {
-		envelope, ok, err := q3Receiver.Next(timer)
+		envelope, ok, err := q4Receiver.Next(timer)
 		if err != nil {
 			if err.Error() == "close channel was closed" {
 				log.Infof("Channel was closed")
@@ -353,25 +358,25 @@ OuterLoop:
 			log.Infof("No more actors")
 			break
 		}
-		receivedCredit := envelope.Msg()
-		//log.Infof("Received film debug: %+v", receivedCredit)
 		countCredit++
-		if countCredit%100 == 0 {
-			log.Infof("Received %d credits: %+v", countCredit, receivedCredit)
-		}
-		if receivedCredit.Strings["actor"] == "" {
-			log.Errorf("Actor not matched expected")
+		receivedActor := envelope.Msg()
+		log.Infof("Received country: %s %v", receivedActor.Strings["actor"], receivedActor.Numerics["count"])
+		log.Infof("Received country debug: %+v", receivedActor)
+		expectedOutputQ4 = removeQ2(expectedOutputQ4, receivedActor)
+		if len(expectedOutputQ4) == 0 {
+			log.Infof("All expected actors received")
+			break
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 40)
+		timer.Reset(time.Second * 200)
 	}
 	timer.Stop()
-	log.Infof("Finished receiving credits: received %d actors", countCredit) // Expected 1515
+	if len(expectedOutputQ4) > 0 {
+		log.Errorf("Not all expected actors received. Missing %v", expectedOutputQ4)
+	}
 
-
-
-	// log.Infof("Verifying Q4")
+	// log.Infof("Verifying Q3")
 	// countRatings := 0
 	// timer = time.NewTimer(time.Minute * 1)
 	// for {
@@ -425,34 +430,34 @@ OuterLoop:
 	// 	id: 6636, avg: 4.333333333333333
 	// 	id: 69278, avg: 2.5
 
-	log.Infof("Verifying Q5")
-	for {
-		envelope, ok, err := q5Receiver.Next(timer)
-		if err != nil {
-			if err.Error() == "close channel was closed" {
-				log.Infof("Channel was closed")
-				break
-			}
-			if err.Error() == "timeout reached while waiting for message" {
-				log.Infof("Timeout reached while waiting for message")
-				break
-			} else {
-				log.Errorf("Failed to read message: %v", err)
-				continue
-			}
-		}
-		if !ok {
-			log.Infof("No more films")
-			break
-		}
-		receivedSentiment := envelope.Msg()
-		log.Infof("Received sentiment debug: %+v", receivedSentiment)
+	// log.Infof("Verifying Q5")
+	// for {
+	// 	envelope, ok, err := q5Receiver.Next(timer)
+	// 	if err != nil {
+	// 		if err.Error() == "close channel was closed" {
+	// 			log.Infof("Channel was closed")
+	// 			break
+	// 		}
+	// 		if err.Error() == "timeout reached while waiting for message" {
+	// 			log.Infof("Timeout reached while waiting for message")
+	// 			break
+	// 		} else {
+	// 			log.Errorf("Failed to read message: %v", err)
+	// 			continue
+	// 		}
+	// 	}
+	// 	if !ok {
+	// 		log.Infof("No more films")
+	// 		break
+	// 	}
+	// 	receivedSentiment := envelope.Msg()
+	// 	log.Infof("Received sentiment debug: %+v", receivedSentiment)
 
-		err = envelope.Ack(true)
-		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 40)
-	}
-	timer.Stop()
+	// 	err = envelope.Ack(true)
+	// 	unwrap(err, "Failed to ack message")
+	// 	timer.Reset(time.Second * 40)
+	// }
+	// timer.Stop()
 	// Expected:
 	// NEGATIVE    5453.397595
 	// POSITIVE    5668.650541
