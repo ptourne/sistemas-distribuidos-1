@@ -90,7 +90,7 @@ func (f *JoinerRatings) sendRating(output *common.Row, err error) error {
 func (f *JoinerRatings) processRating(row common.Row) error {
 	f.ratingsProcessed++
 	movieID := row.Strings["movieID"]
-	rating := row.Floats["rating"]
+	rating := row.Numerics["rating"]
 	log.Infof("Processing rating %v", f.ratingsProcessed)
 
 	lastDigit := string(movieID[len(movieID)-1])
@@ -136,7 +136,7 @@ func (f *JoinerRatings) processRating(row common.Row) error {
 		}
 	}
 
-	ratingString := strconv.FormatFloat(rating, 'f', 6, 64)
+	ratingString := fmt.Sprintf("%d", rating)
 
 	err = writer.Write([]string{movieID, ratingString})
 	if err != nil {
@@ -200,7 +200,7 @@ func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
 		return nil, err
 	}
 
-	var ratings []float64 // ToDo: cambiar por float64 cuando este el reducer testeado
+	var ratings []uint // ToDo: cambiar por float64 cuando este el reducer testeado
 
 	for {
 		data, err := reader.Read()
@@ -214,14 +214,14 @@ func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
 
 		if data[0] == movieID {
 			ratingString := data[1]
-			rating, err := strconv.ParseFloat(ratingString, 64)
+			rating, err := strconv.ParseUint(ratingString, 10, 8)
 			if err != nil {
 				log.Errorf("Failed to parse rating: %v; rating = %v", err, ratingString)
 				continue
 
 			}
 			//log.Infof("Adding rating for movie %s, %f", movieID, rating)
-			ratings = append(ratings, rating)
+			ratings = append(ratings, uint(rating))
 		}
 	}
 
@@ -230,14 +230,14 @@ func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
 		return nil, nil
 	}
 
-	sum := 0.0
+	var sum uint = 0
 	for _, r := range ratings {
 		sum += r
 	}
 
 	var avg float64
 	if len(ratings) > 0 {
-		avg = sum / float64(len(ratings))
+		avg = float64(sum) / float64(len(ratings))
 	} else {
 		avg = 0
 	}

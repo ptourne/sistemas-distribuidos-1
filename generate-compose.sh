@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [ "$#" -eq 8 ]; then
+if [ "$#" -eq 9 ]; then
     file_name=./docker-compose.yml
     number_of_workers=$1
     number_of_lean_workers=$2
@@ -10,9 +10,11 @@ if [ "$#" -eq 8 ]; then
     number_of_reduce_by_sentiment=$6
     number_of_reduce_by_actor=$7
     number_of_reduce_top_10_by_actor=$8
+    number_of_reduce_by_movieId=$9
 
 
-elif [ "$#" -eq 9 ]; then
+
+elif [ "$#" -eq 10 ]; then
     file_name=$1
     number_of_workers=$2
     number_of_lean_workers=$3
@@ -22,12 +24,13 @@ elif [ "$#" -eq 9 ]; then
     number_of_reduce_by_sentiment=$7
     number_of_reduce_by_actor=$8
     number_of_reduce_top_10_by_actor=$9
+    number_of_reduce_by_movieId=${10}
 
 else
     echo "Error: Incorrect number of arguments"
     echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_lean_workers>,<number_of_joiners_ratings>,
     <number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment>,
-    <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>"
+    <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>, <number_of_reduce_by_movieId>"
     exit 1
 fi
 
@@ -72,6 +75,12 @@ fi
 
 # Verify number_of_reduce_top_10_by_actor is a positive integer
 if ! [[ "$number_of_reduce_top_10_by_actor" =~ ^[0-9]+$ ]] || [ "$number_of_reduce_top_10_by_actor" -le -1 ]; then
+    echo "Error: Number of reduce top 10 by actor must be a positive integer"
+    exit 1
+fi
+
+# Verify number_of_reduce_by_movieId is a positive integer
+if ! [[ "$number_of_reduce_by_movieId" =~ ^[0-9]+$ ]] || [ "$number_of_reduce_by_movieId" -le -1 ]; then
     echo "Error: Number of reduce top 10 by actor must be a positive integer"
     exit 1
 fi
@@ -351,6 +360,24 @@ compose_reduce_top_10_by_actor() {
 "
 }
 
+compose_reduce_by_movieId() {
+    local worker_id=$1
+    echo "    reduce_by_movieid$worker_id:
+        container_name: reduce_by_movieid$worker_id
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=$worker_id
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+"
+}
+
 
 compose_header > $file_name
 compose_rabbitmq >> $file_name
@@ -379,6 +406,9 @@ for i in $(seq 1 $number_of_reduce_by_actor); do
 done
 for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
     compose_reduce_top_10_by_actor $i >> $file_name
+done
+for i in $(seq 1 $number_of_reduce_by_movieId); do
+    compose_reduce_by_movieId $i >> $file_name
 done
 compose_client >> $file_name
 compose_endpoint >> $file_name

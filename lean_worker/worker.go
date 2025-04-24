@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
@@ -22,7 +21,7 @@ type Worker struct {
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
+var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
 
 type TType int
 
@@ -108,16 +107,8 @@ func (t *SourceTask[O]) Connect(_ middleware.MiddlewareCola[common.Row], _ middl
 
 func NewWorker() Worker {
 	ratings := NewSourceTask[[]byte]("ratings")
-	n_worker, err := strconv.Atoi(os.Getenv("WORKER_ID")) // TODO: cambiar en el compose
-	if err != nil {
-		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
-	}
-	var joiner_ratings_subscribers []string
-	// for i := range n_worker {
-		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", n_worker))
-	// }
-	log.Infof("joiner_ratings_subscribers: %v", joiner_ratings_subscribers)
-	ratings_clean := clean.NewCleanRatings(ratings, joiner_ratings_subscribers)
+	
+	ratings_clean := clean.NewCleanRatings(ratings, []string{"reduce_by_movieId"})
 	return Worker{
 		TasksBin: ratings_clean,
 	}

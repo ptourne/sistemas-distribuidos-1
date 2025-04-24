@@ -364,6 +364,146 @@ services:
             rabbitmq:
                 condition: service_healthy
 
+    reduce_by_movieid1:
+        container_name: reduce_by_movieid1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid2:
+        container_name: reduce_by_movieid2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid3:
+        container_name: reduce_by_movieid3
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=3
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid4:
+        container_name: reduce_by_movieid4
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=4
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid5:
+        container_name: reduce_by_movieid5
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=5
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid6:
+        container_name: reduce_by_movieid6
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=6
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid7:
+        container_name: reduce_by_movieid7
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=7
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid8:
+        container_name: reduce_by_movieid8
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=8
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid9:
+        container_name: reduce_by_movieid9
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=9
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid10:
+        container_name: reduce_by_movieid10
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=10
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
     client:
         container_name: client
         build:

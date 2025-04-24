@@ -3,7 +3,6 @@ package clean
 import (
 	"encoding/binary"
 	"fmt"
-	"os"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
@@ -46,7 +45,7 @@ func (f CleanRatings) Input() string {
 }
 
 func (f CleanRatings) Name() string {
-	return "clean_ratings"+os.Getenv("WORKER_ID")
+	return "clean_ratings"
 }
 
 func (f CleanRatings) ProcessAndSend(row []byte) error {
@@ -101,7 +100,7 @@ func (f CleanRatings) process(row []byte) *common.Row {
 
 func (f *CleanRatings) Connect(middIn middleware.MiddlewareCola[[]byte], middOut middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[[]byte], error) {
 	var err error
-	f.taskReceiver, err = middIn.ConsumeFrom(f.Input(), "clean_ratings")
+	f.taskReceiver, err = middIn.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}

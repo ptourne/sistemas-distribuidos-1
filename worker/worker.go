@@ -5,6 +5,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
@@ -248,6 +249,16 @@ func NewWorker() Worker {
 	// map_nlp := filter.NewFilterSentimentAndRate(movies_metadata_clean.Name(), []string{"reduce_by_sentiment"}, grpcAddress)
 	// filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
 
+	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS")) // TODO: cambiar en el compose
+	if err != nil {
+		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
+	}
+	var joiner_ratings_subscribers []string
+	for i := range n_worker {
+		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
+	}
+	filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers)
+
 	return Worker{
 		Tasks: []task.Task[common.Row, common.Row]{
 			movies_metadata_clean,
@@ -260,6 +271,7 @@ func NewWorker() Worker {
 			// joiner_ratings,
 			// map_nlp,
 			// filter_avg_rate,
+			filter_avg_rating,
 		},
 	}
 }
