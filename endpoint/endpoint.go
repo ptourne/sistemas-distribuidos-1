@@ -38,7 +38,7 @@ func NewEndpoint() (*Endpoint, error) {
 	return endpoint, nil
 }
 
-func (e *Endpoint) Run() error{
+func (e *Endpoint) Run() error {
 	middlewareChanByte, err := middleware.NewRabbitmq[[]byte]()
 	if err != nil {
 		return fmt.Errorf("failed to create middleware connection: %v", err)
@@ -98,15 +98,15 @@ func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
 	return conn, remoteAddr, nil
 }
 
-func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[common.Row]) error{
-	allQuerysToEndpointName :="all_querys_to_endpoint"
+func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[common.Row]) error {
+	allQuerysToEndpointName := "all_querys_to_endpoint"
 	receiverAllQuerysToEndpoint, err := middlewareChan.ConsumeFrom(allQuerysToEndpointName, allQuerysToEndpointName)
 	if err != nil {
 		return fmt.Errorf("failed to create read queue %s: %v", allQuerysToEndpointName, err)
 	}
 	defer receiverAllQuerysToEndpoint.Close()
 
-	timer := time.NewTimer(time.Second * 100)
+	timer := time.NewTimer(time.Minute * 30)
 	for {
 		envelope, ok, err := receiverAllQuerysToEndpoint.Next(timer)
 		if err != nil {
@@ -135,7 +135,7 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 		case common.QueryRow:
 			bufAck, err = json.Marshal(receivedMovie)
 			if err != nil {
-				return fmt.Errorf("error in marshal row %v",err)
+				return fmt.Errorf("error in marshal row %v", err)
 			}
 		}
 
@@ -146,7 +146,7 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 		}
 		err = envelope.Ack(false)
 		if err != nil {
-			return fmt.Errorf("failed to ack message %s",err)
+			return fmt.Errorf("failed to ack message %s", err)
 		}
 		timer.Reset(time.Second * 40)
 	}
@@ -154,7 +154,7 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 	return nil
 }
 
-func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[[]byte]) error{
+func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[[]byte]) error {
 	fileBytes := "file_bytes"
 	fileBytesSender, err := middlewareChan.WriteTo(fileBytes, []string{"file_bytes"})
 	if err != nil {
