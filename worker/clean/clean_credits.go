@@ -10,13 +10,13 @@ import (
 )
 
 type CleanCredits struct {
-	input        task.Task
+	input        task.Task[common.Row, common.Row]
 	taskReceiver middleware.Receiver[common.Row]
 	taskSender   middleware.Sender[common.Row]
 	subscribers  []string
 }
 
-func NewCleanCredits(input task.Task, subscribers []string) task.Task {
+func NewCleanCredits(input task.Task[common.Row, common.Row], subscribers []string) task.Task[common.Row, common.Row] {
 	return &CleanCredits{input, nil, nil, subscribers}
 }
 
@@ -73,7 +73,7 @@ func (f CleanCredits) process(row common.Row) *common.Row {
 	}
 }
 
-func (f *CleanCredits) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
+func (f *CleanCredits) Connect(middlewareConnection middleware.MiddlewareCola[common.Row], _ middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
 	var err error
 	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {

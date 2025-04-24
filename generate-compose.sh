@@ -130,6 +130,33 @@ compose_workers() {
 "
 }
 
+number_of_lean_workers=1
+compose_lean_workers() {
+    local worker_id=$1
+    echo "    lean_worker$worker_id:
+        container_name: lean_worker$worker_id
+        build:
+            context: .
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=$
+            - N_JOINERS=$number_of_workers
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - ${PWD}/joiner_credits:/joiner_credits
+            - ${PWD}/joiner_ratings:/joiner_ratings
+"
+}
+
 compose_client() {
     echo "    client:
         container_name: client
@@ -293,6 +320,7 @@ compose_header > $file_name
 compose_rabbitmq >> $file_name
 compose_sentiment_server >> $file_name
 compose_coordinator >> $file_name
+compose_lean_workers >> $file_name
 for i in $(seq 1 $number_of_workers); do
     compose_workers $i >> $file_name
 done

@@ -10,8 +10,8 @@ import (
 )
 
 type Rating struct {
-	Id 		uint32
-	Rating 	uint8
+	Id     uint32
+	Rating uint8
 }
 
 func (r *Rating) Encode() []byte {
@@ -29,20 +29,19 @@ func (r *Rating) Decode(data []byte) {
 	r.Rating = data[4]
 }
 
-
 type CleanRatings struct {
-	input        task.Task
+	input        string
 	taskReceiver middleware.Receiver[[]byte]
 	taskSender   middleware.Sender[common.Row]
 	subscribers  []string
 }
 
-func NewCleanRatings(input task.Task, subscribers []string) task.Task {
-	return &CleanRatings{input, nil, nil, subscribers}
+func NewCleanRatings(input task.Task[common.Row, []byte], subscribers []string) task.Task[[]byte, common.Row] {
+	return &CleanRatings{input.Name(), nil, nil, subscribers}
 }
 
 func (f CleanRatings) Input() string {
-	return f.input.Name()
+	return f.input
 }
 
 func (f CleanRatings) Name() string {
@@ -77,9 +76,9 @@ func (f CleanRatings) process(row []byte) *common.Row {
 	// 	}
 	// }
 	// rating, ok := utils.ParseFloat(row.Strings["rating"])
-	// rating := strings.ReplaceAll(row.Strings["rating"], ".", "") 
-	// ratingUint, err := strconv.ParseUint(rating, 10, 8) 
-	
+	// rating := strings.ReplaceAll(row.Strings["rating"], ".", "")
+	// ratingUint, err := strconv.ParseUint(rating, 10, 8)
+
 	// if err != nil {
 	// 	log.Warnf("could not parse rating: %s", row.Strings["rating"])
 	// 	return nil
@@ -89,7 +88,7 @@ func (f CleanRatings) process(row []byte) *common.Row {
 
 	return &common.Row{
 		Strings: map[string]string{
-			"movieID": fmt.Sprintf("%d",rating.Id),
+			"movieID": fmt.Sprintf("%d", rating.Id),
 		},
 		Numerics: map[string]uint{
 			"rating": uint(rating.Rating),
@@ -97,13 +96,13 @@ func (f CleanRatings) process(row []byte) *common.Row {
 	}
 }
 
-func (f *CleanRatings) Connect(middlewareConnection middleware.MiddlewareCola[common.Row], middlewareConnectionByte middleware.MiddlewareCola[[]byte]) ([]chan middleware.Envelope[[]byte], error) {
+func (f *CleanRatings) Connect(middIn middleware.MiddlewareCola[[]byte], middOut middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[[]byte], error) {
 	var err error
-	f.taskReceiver, err = middlewareConnectionByte.ConsumeFrom(f.Input(), f.Name())
+	f.taskReceiver, err = middIn.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), f.subscribers)
+	f.taskSender, err = middOut.WriteTo(f.Name(), f.subscribers)
 	//f.taskReceiver.LimitUnacked(10000)
 
 	if err != nil {

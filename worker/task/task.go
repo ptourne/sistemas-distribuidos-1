@@ -9,10 +9,10 @@ type Operation interface {
 	ProcessAndSend(row common.Row) *common.Row
 }
 
-type Task interface {
-	ProcessAndSend(row common.Row) error
+type Task[I, O any] interface {
+	ProcessAndSend(row I) error
 	Input() string
 	Name() string
-	Connect(middlewareConnection...middleware.MiddlewareCola[any]) ([]chan middleware.Envelope[any], error)
+	Connect(midIn middleware.MiddlewareCola[I], midOut middleware.MiddlewareCola[O]) ([]chan middleware.Envelope[I], error)
 	Finish() error
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterReleaseDateGe2000AndIncludeAR(input string, subscribers []string) task.Task {
+func NewFilterReleaseDateGe2000AndIncludeAR(input string, subscribers []string) task.Task[common.Row, common.Row] {
 	return &GenericFilter{
 		name:              "filter_release_date_ge_2000_and_include_ar",
 		input:             input,
@@ -23,7 +23,6 @@ func NewFilterReleaseDateGe2000AndIncludeAR(input string, subscribers []string) 
 
 type MapProductionCountriesa struct {
 }
-
 
 type ArrayIncludes struct {
 	Column   string

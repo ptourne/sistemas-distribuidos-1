@@ -5,7 +5,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterAvgRate(input string, subscribers []string) task.Task {
+func NewFilterAvgRate(input string, subscribers []string) task.Task[common.Row, common.Row] {
 	return &GenericFilter{
 		name:              "filter_avg_rate",
 		input:             input,
@@ -19,7 +19,6 @@ func NewFilterAvgRate(input string, subscribers []string) task.Task {
 	}
 }
 
-
 type MapAvgRate struct {
 }
 
@@ -27,4 +26,3 @@ func (m MapAvgRate) Transform(input *common.Row, output *common.Row) error {
 	output.Floats["avg_rate"] = input.Floats["rate"] / float64(input.Numerics["count"])
 	return nil
 }
-

@@ -13,47 +13,61 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 
 	//"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
-	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
+
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
 const MIDDLEWARE = "rabbitmq"
 
 type Worker struct {
-	Tasks []task.Task
+	TasksBin []task.Task[[]byte, common.Row]
+	Tasks    []task.Task[common.Row, common.Row]
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
 var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
+
+type TType int
+
+const (
+	Bin TType = iota
+	Row
+)
 
 func (w *Worker) Run() {
 	middlewareConnection, err := middleware.NewRabbitmq[common.Row]()
 	if err != nil {
 		unwrap(err, "Failed to create middleware")
 	}
+	middlewareConnectionBin, err := middleware.NewRabbitmq[[]byte]()
+	if err != nil {
+		unwrap(err, "Failed to create middleware")
+	}
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareConnection.Close()
+	defer middlewareConnectionBin.Close()
 	var cases []reflect.SelectCase
 	//cases := make([]reflect.SelectCase, len(w.Tasks))
-	var taskRefs []task.Task
+	var taskRefs []task.Task[common.Row, common.Row]
+	var taskBinRefs []task.Task[[]byte, common.Row]
+
 	taskClosedChannels := map[string]int{}
 	taskChannelCounts := map[string]int{}
-
-	for _, task := range w.Tasks {
-		inputChannels, err := task.Connect(middlewareConnection)
+	for _, taski := range w.TasksBin {
+		inputChannels, err := taski.Connect(middlewareConnectionBin, middlewareConnection)
 		if err != nil {
-			log.Fatalf("Failed to create channel for task %s: %s", task.Name(), err)
+			log.Fatalf("Failed to create channel for task %s: %s", taski.Name(), err)
 		}
 
-		taskChannelCounts[task.Name()] = len(inputChannels)
-		taskClosedChannels[task.Name()] = 0
+		taskChannelCounts[taski.Name()] = len(inputChannels)
+		taskClosedChannels[taski.Name()] = 0
 
 		for _, ch := range inputChannels {
 			cases = append(cases, reflect.SelectCase{
 				Dir:  reflect.SelectRecv,
 				Chan: reflect.ValueOf(ch),
 			})
-			taskRefs = append(taskRefs, task)
+			taskBinRefs = append(taskBinRefs, taski)
 		}
 
 		// cases[i] = reflect.SelectCase{
@@ -61,6 +75,29 @@ func (w *Worker) Run() {
 		// 	Chan: reflect.ValueOf(inputChannel),
 		// }
 	}
+	for _, taski := range w.Tasks {
+		inputChannels, err := taski.Connect(middlewareConnection, middlewareConnection)
+		if err != nil {
+			log.Fatalf("Failed to create channel for task %s: %s", taski.Name(), err)
+		}
+
+		taskChannelCounts[taski.Name()] = len(inputChannels)
+		taskClosedChannels[taski.Name()] = 0
+
+		for _, ch := range inputChannels {
+			cases = append(cases, reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(ch),
+			})
+			taskRefs = append(taskRefs, taski)
+		}
+
+		// cases[i] = reflect.SelectCase{
+		// 	Dir:  reflect.SelectRecv,
+		// 	Chan: reflect.ValueOf(inputChannel),
+		// }
+	}
+	cantBin := len(w.TasksBin)
 
 	for {
 		if len(cases) == 0 {
@@ -69,43 +106,86 @@ func (w *Worker) Run() {
 		}
 		i, val, ok := reflect.Select(cases)
 		//currentTask := w.Tasks[i]
-		currentTask := taskRefs[i]
-		if !ok {
-			log.Infof("Channel closed from task: %s", currentTask.Name())
-			cases = slices.Delete(cases, i, i+1)
-			taskClosedChannels[currentTask.Name()]++
-			taskRefs = slices.Delete(taskRefs, i, i+1)
-			if taskClosedChannels[currentTask.Name()] == taskChannelCounts[currentTask.Name()] {
-				log.Infof("All channels closed for task: %s", currentTask.Name())
-				currentTask.Finish()
-				for j, task := range w.Tasks {
+		if i < cantBin {
+			currentTask := taskBinRefs[i]
+			if !ok {
 
-					if task.Name() == currentTask.Name() {
-						w.Tasks = slices.Delete(w.Tasks, j, j+1)
-						break
+				log.Infof("Channel closed from task: %s", currentTask.Name())
+				cases = slices.Delete(cases, i, i+1)
+				taskClosedChannels[currentTask.Name()]++
+				taskRefs = slices.Delete(taskRefs, i, i+1)
+				cantBin--
+				if taskClosedChannels[currentTask.Name()] == taskChannelCounts[currentTask.Name()] {
+					log.Infof("All channels closed for task: %s", currentTask.Name())
+					currentTask.Finish()
+					for j, task := range w.Tasks {
+
+						if task.Name() == currentTask.Name() {
+							w.Tasks = slices.Delete(w.Tasks, j, j+1)
+							break
+						}
 					}
+					//currentTask.Finish()
+
 				}
-				//currentTask.Finish()
-
+				continue
 			}
-			continue
+			envelope, ok := val.Interface().(middleware.Envelope[[]byte])
+			if !ok {
+				panic("Failed to cast to envelope")
+			}
+			row := envelope.Msg()
+			result := currentTask.ProcessAndSend(row)
+			if result != nil {
+				log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
+				continue
+			}
+			log.Debugf("TO ACK msg %v worker", envelope.Msg())
+			err = envelope.Ack(false)
+			unwrap(err, "Failed to ack message")
+		} else {
+
+			currentTask := taskRefs[i]
+			if !ok {
+
+				log.Infof("Channel closed from task: %s", currentTask.Name())
+				cases = slices.Delete(cases, i, i+1)
+				taskClosedChannels[currentTask.Name()]++
+				taskRefs = slices.Delete(taskRefs, i, i+1)
+				if taskClosedChannels[currentTask.Name()] == taskChannelCounts[currentTask.Name()] {
+					log.Infof("All channels closed for task: %s", currentTask.Name())
+					currentTask.Finish()
+					for j, task := range w.Tasks {
+
+						if task.Name() == currentTask.Name() {
+							w.Tasks = slices.Delete(w.Tasks, j, j+1)
+							break
+						}
+					}
+					//currentTask.Finish()
+
+				}
+				continue
+			}
+
+			log.Debugf("Received message from channel %d", i)
+			envelope, ok := val.Interface().(middleware.Envelope[common.Row])
+			if !ok {
+				panic("Failed to cast to envelope")
+			}
+			row := envelope.Msg()
+			result := currentTask.ProcessAndSend(row)
+			if result != nil {
+				log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
+				continue
+			}
+			log.Debugf("TO ACK msg %v worker", envelope.Msg())
+			err = envelope.Ack(false)
+			unwrap(err, "Failed to ack message")
+			log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
+
 		}
 
-		log.Debugf("Received message from channel %d", i)
-		envelope, ok := val.Interface().(middleware.Envelope[common.Row])
-		if !ok {
-			panic("Failed to cast to envelope")
-		}
-		row := envelope.Msg()
-		result := currentTask.ProcessAndSend(row)
-		if result != nil {
-			log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
-			continue
-		}
-		log.Debugf("TO ACK msg %v worker", envelope.Msg())
-		err = envelope.Ack(false)
-		unwrap(err, "Failed to ack message")
-		log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
 	}
 }
 
@@ -120,51 +200,52 @@ func unwrap(err error, msg string) {
 	}
 }
 
-type SourceTask struct {
+type SourceTask[O any] struct {
 	name string
 }
 
-func NewSourceTask(name string) task.Task {
-	return &SourceTask{name}
+func NewSourceTask[O any](name string) task.Task[common.Row, O] {
+	return &SourceTask[O]{name}
 }
 
-func (t *SourceTask) ProcessAndSend(r common.Row) error {
+func (t *SourceTask[O]) ProcessAndSend(r common.Row) error {
 	return nil
 }
 
-func (t *SourceTask) Name() string {
+func (t *SourceTask[O]) Name() string {
 	return t.name
 }
 
-func (t *SourceTask) Input() string {
+func (t *SourceTask[O]) Input() string {
 	return ""
 }
 
-func (t *SourceTask) Finish() error {
+func (t *SourceTask[O]) Finish() error {
 	return nil
 }
 
-func (t *SourceTask) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
+func (t *SourceTask[O]) Connect(_ middleware.MiddlewareCola[common.Row], _ middleware.MiddlewareCola[O]) ([]chan middleware.Envelope[common.Row], error) {
 	return nil, nil
 }
 
 func NewWorker() Worker {
 	// movies_metadata := NewSourceTask("movies_metadata")
 	// credits := NewSourceTask("credits")
-	ratings := NewSourceTask("ratings")
+	// ratings := NewSourceTask[[]byte]("ratings")
 	// movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country", "map_sentiment_rate"})
 	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS")) // TODO: cambiar en el compose
 	if err != nil {
 		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
 	}
-	var joiner_credits_subscribers []string
+	// var joiner_credits_subscribers []string
 	var joiner_ratings_subscribers []string
 	for i := range n_worker {
-		joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
+		_ = i
+		// joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
 		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
 	}
 	// credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers)
-	ratings_clean := clean.NewCleanRatings(ratings, joiner_ratings_subscribers)
+	// ratings_clean := clean.NewCleanRatings(ratings, joiner_ratings_subscribers)
 
 	// filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits","joiner_ratings"})
 	// filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"})
@@ -178,9 +259,12 @@ func NewWorker() Worker {
 	// filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
 
 	return Worker{
-		Tasks: []task.Task{
+		TasksBin: []task.Task[[]byte, common.Row]{
+			// ratings_clean,
+		},
+		Tasks: []task.Task[common.Row, common.Row]{
 			// movies_metadata_clean,
-			ratings_clean,
+			// ratings_clean,
 			// credits_clean,
 			// filter_release_date_ge_2000_and_include_ar,
 			// filter_release_date_l_2010_and_include_es,

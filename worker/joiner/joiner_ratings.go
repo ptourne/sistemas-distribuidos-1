@@ -15,8 +15,8 @@ import (
 )
 
 type JoinerRatings struct {
-	inputToProcess      task.Task
-	inputToSave         task.Task
+	inputToProcess      task.Task[common.Row, common.Row]
+	inputToSave         task.Task[common.Row, common.Row]
 	taskReceiverRatings middleware.Receiver[common.Row]
 	taskReceiverMovies  middleware.Receiver[common.Row]
 	taskSender          middleware.Sender[common.Row]
@@ -27,7 +27,7 @@ type JoinerRatings struct {
 	subscribers         []string
 }
 
-func NewJoinerRatings(inputToProcess task.Task, inputToSave task.Task, subscribers []string) task.Task {
+func NewJoinerRatings(inputToProcess task.Task[common.Row, common.Row], inputToSave task.Task[common.Row, common.Row], subscribers []string) task.Task[common.Row, common.Row] {
 	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make(map[string]common.Row), sync.Mutex{}, subscribers}
 	joiner.doneRatings.Store(false)
 	return &joiner
@@ -257,7 +257,7 @@ func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
 
 }
 
-func (f *JoinerRatings) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
+func (f *JoinerRatings) Connect(middlewareConnection middleware.MiddlewareCola[common.Row], _ middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
 	var err error
 	groupQueueName := fmt.Sprintf("joiner_%s_ratings", WORKER_ID)
 	f.taskReceiverRatings, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName)

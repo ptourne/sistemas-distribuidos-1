@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"encoding/csv"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"slices"
@@ -16,6 +18,26 @@ import (
 const MIDDLEWARE = "rabbitmq"
 
 var log = logger.NewConsoleLogger("coordinator", logger.Info)
+
+type RatingB struct {
+	Id     uint32
+	Rating uint8
+}
+
+func (r *RatingB) Encode() []byte {
+	buf := make([]byte, 5)
+	binary.BigEndian.PutUint32(buf, r.Id)
+	buf[4] = r.Rating
+	return buf
+}
+
+func (r *RatingB) Decode(data []byte) {
+	if len(data) < 5 {
+		return
+	}
+	r.Id = binary.BigEndian.Uint32(data[:4])
+	r.Rating = data[4]
+}
 
 func main() {
 	middlewareChan, err := middleware.NewRabbitmq[common.Row]()
@@ -39,7 +61,7 @@ func main() {
 	q3Output := "joiner_ratings"
 	q4Output := "reduce_top_10_by_actor"
 	q5Output := "filter_avg_rate"
-	allQuerysToEndpointName :="all_querys_to_endpoint"
+	allQuerysToEndpointName := "all_querys_to_endpoint"
 
 	receiverFileByte, err := middlewareChanByte.ConsumeFrom(readFileByteQueue, readFileByteQueue)
 	if err != nil {
@@ -86,13 +108,13 @@ func main() {
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
-	ratingsSender, err := middlewareChan.WriteTo(ratingsName, []string{"clean_ratings"})
+	ratingsSender, err := middlewareChanByte.WriteTo(ratingsName, []string{"clean_ratings"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue")
 	}
 	allQuerysToEndpointSender, err := middlewareChan.WriteTo(allQuerysToEndpointName, []string{allQuerysToEndpointName})
 	if err != nil {
-		unwrap(err, "Failed to create write queue")		
+		unwrap(err, "Failed to create write queue")
 	}
 	defer allQuerysToEndpointSender.Close()
 
@@ -148,7 +170,7 @@ OuterLoop:
 				create = Credit
 			case ratingsName:
 				log.Infof("Received file: %s", fileName)
-				sender = ratingsSender
+				sender = nil
 				amount = 100000
 				expectedLen = 3
 				create = Rating
@@ -184,9 +206,25 @@ OuterLoop:
 					continue
 				}
 
-				row := create(data)
-
-				sender.Send(&row)
+				if fileName != ratingsName {
+					row := create(data)
+					sender.Send(&row)
+				} else {
+					num, err := strconv.Atoi(data[1])
+					unwrap(err, "Failed to convert string to int")
+					digits := strings.Split(data[2], ".")
+					dec, err := strconv.Atoi(digits[0])
+					unwrap(err, "Failed to convert string to int")
+					unit, err := strconv.Atoi(digits[1])
+					unwrap(err, "Failed to convert string to int")
+					val := dec*10 + unit
+					rating := RatingB{
+						Id:     uint32(num),
+						Rating: uint8(val),
+					}
+					v := rating.Encode()
+					ratingsSender.Send(&v)
+				}
 
 			}
 			log.Infof("CSV %s processing completed, closing", fileName)
@@ -198,7 +236,6 @@ OuterLoop:
 		}
 	}
 	log.Infof("CSV processing completed")
-
 
 	// expectedOutputQ1 := []common.Row{
 	// 	{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
@@ -271,7 +308,6 @@ OuterLoop:
 	// 	log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
 	// }
 
-	
 	// log.Infof("Verifying Q2")
 	// err = allQuerysToEndpointSender.Send(common.RowQueryName("Q2"))
 	// if err != nil {
