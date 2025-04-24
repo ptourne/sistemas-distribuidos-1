@@ -24,7 +24,7 @@ elif [ "$#" -eq 10 ]; then
     number_of_reduce_by_sentiment=$7
     number_of_reduce_by_actor=$8
     number_of_reduce_top_10_by_actor=$9
-    number_of_reduce_by_movieId=${10}
+    number_of_reduce_by_movieId=$10
 
 else
     echo "Error: Incorrect number of arguments"

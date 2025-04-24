@@ -144,14 +144,6 @@ func (s *SenderRabbitmq[T]) Close() error {
 	return nil
 }
 
-func (m *MiddlewareRabbitmq[T]) SuscribeTo(sourceName string) (Receiver[T], error) {
-	log.Infof("Creating SuscribeTo exchange '%s' with groupName", sourceName)
-
-	if sourceName == "" {
-		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
-	}
-	return m.createReadQueue(sourceName, "")
-}
 
 func (m *MiddlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string) (Receiver[T], error) {
 	log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' ", sourceName, groupName)
@@ -161,25 +153,39 @@ func (m *MiddlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string)
 	if groupName == "" {
 		return nil, fmt.Errorf("groupQueueName is empty, should be a valid name")
 	}
-	return m.createReadQueue(sourceName, groupName)
+	return m.createReadQueueRK(sourceName, groupName, "fanout", "")
 }
-func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueName string) (Receiver[T], error) {
-	input, err := createConsumer[T, T](m, readExchangeName, queueName)
+
+func (m *MiddlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, routingKey string) (Receiver[T], error) {
+	log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' ", sourceName, groupName)
+	if sourceName == "" {
+		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
+	}
+	if groupName == "" {
+		return nil, fmt.Errorf("groupQueueName is empty, should be a valid name")
+	}
+	return m.createReadQueueRK(sourceName, groupName, "direct", routingKey)
+}
+
+
+
+func (m *MiddlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queueName string, t string, routingKey string) (Receiver[T], error) {
+	input, err := createConsumerRK[T, T](m, readExchangeName, queueName, t, routingKey)
 	if err != nil {
 		return nil, err
 	}
 
-	close, err := createConsumer[T, CloseNotification](m, closeExchangeName(readExchangeName), "")
+	close, err := createConsumerRK[T, CloseNotification](m, closeExchangeName(readExchangeName), "", "fanout", "")
 	if err != nil {
 		return nil, err
 	}
 
-	producerCountRes, err := createConsumer[T, CountProducerReq](m, producerCountResExchangeName(readExchangeName), "")
+	producerCountRes, err := createConsumerRK[T, CountProducerReq](m, producerCountResExchangeName(readExchangeName), "", "fanout", "")
 	if err != nil {
 		return nil, err
 	}
 
-	producerCountReq, err := CreateProducer[T, CountProducerReq](m, producerCountReqExchangeName(readExchangeName))
+	producerCountReq, err := CreateProducerRK[T, CountProducerReq](m, producerCountReqExchangeName(readExchangeName), "fanout")
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
@@ -191,18 +197,12 @@ func (m *MiddlewareRabbitmq[T]) createReadQueue(readExchangeName string, queueNa
 		producerCountRes:  producerCountRes,
 		lastProducerCount: -1,
 	}
-	// receiver.lastProducerCount, err = receiver.CountProducers()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to get producer count %v", err)
-	// }
-	// if receiver.lastProducerCount == 0 {
-	// 	receiver.lastProducerCount = -1
-	// }
+
 	log.Debugf("ReceiverRabbitmq: '%s', '%s', producer count: %d", receiver.input.exchangeName, receiver.input.queueName, receiver.lastProducerCount)
 	return receiver, nil
 }
 
-func CreateProducer[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string) (*SenderChannel[I], error) {
+func CreateProducerRK[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string, t string) (*SenderChannel[I], error) {
 	producerCountReqCh, err := m.Conn.Channel()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open a channel: %v", err)
@@ -210,7 +210,7 @@ func CreateProducer[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string)
 	log.Debugf("exchangeDeclare: '%s'", readExchangeName)
 	err = producerCountReqCh.ExchangeDeclare(
 		readExchangeName, // name
-		"fanout",         // type
+		t,         		  // type
 		true,             // durable
 		false,            // auto-deleted
 		false,            // internal
@@ -224,8 +224,8 @@ func CreateProducer[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string)
 	return &newVar, nil
 }
 
-func createConsumer[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string, queueName string) (ReceiverChannel[I], error) {
-	inputQueue, inputCh, err := m.createQueue(readExchangeName, queueName)
+func createConsumerRK[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string, queueName string, t string, routingKey string) (ReceiverChannel[I], error) {
+	inputQueue, inputCh, err := m.createQueueRK(readExchangeName, queueName, t, routingKey)
 	if err != nil {
 		return ReceiverChannel[I]{}, nil
 	}
@@ -245,36 +245,46 @@ func createConsumer[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string,
 }
 
 func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string) (Sender[T], error) {
-	log.Infof("Creating WriteTo exchange '%s'", outputName)
-	output, err := CreateProducer[T, T](m, outputName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to declare exchange %v", err)
-	}
-
-	closep, err := CreateProducer[T, CloseNotification](m, closeExchangeName(outputName))
-	if err != nil {
-		return nil, fmt.Errorf("failed to declare exchange %v", err)
-	}
-
+	subscribersMap := make(map[string][]string)
 	for _, sub := range subscribers {
-		_, ch, err := m.createQueue(outputName, sub)
-		if err != nil {
-			return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
-		}
-		_, ch2, err := m.createQueue(closeExchangeName(outputName), sub)
-		if err != nil {
-			return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
-		}
-		ch2.Close()
-		ch.Close()
+		subscribersMap[sub] = []string{""}
+	}
+	return m.WriteToRK(outputName, subscribersMap, "fanout")
+}
+
+func (m *MiddlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[string][]string, t string) (Sender[T], error) {
+	log.Infof("Creating WriteTo exchange '%s'", outputName)
+	output, err := CreateProducerRK[T, T](m, outputName, t)
+	if err != nil {
+		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
 
-	producerCountReq, err := createConsumer[T, CountProducerReq](m, producerCountReqExchangeName(outputName), "")
+	closep, err := CreateProducerRK[T, CloseNotification](m, closeExchangeName(outputName), t)
+	if err != nil {
+		return nil, fmt.Errorf("failed to declare exchange %v", err)
+	}
+
+	for sub, routingKeys := range subscribers {
+		for _, routingKey := range routingKeys {
+			_, ch, err := m.createQueueRK(outputName, sub, t, routingKey)
+			if err != nil {
+				return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
+			}
+			_, ch2, err := m.createQueueRK(closeExchangeName(outputName), sub, t, routingKey)
+			if err != nil {
+				return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
+			}
+			ch2.Close()
+			ch.Close()
+		}
+	}
+
+	producerCountReq, err := createConsumerRK[T, CountProducerReq](m, producerCountReqExchangeName(outputName), "", "fanout", "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to register a consumer %v", err)
 	}
 
-	producerCountRes, err := CreateProducer[T, CountProducerReq](m, producerCountResExchangeName(outputName))
+	producerCountRes, err := CreateProducerRK[T, CountProducerReq](m, producerCountResExchangeName(outputName), "fanout")
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
@@ -332,6 +342,10 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 }
 
 func (s *SenderChannel[T]) Publish(ctx context.Context, msg T) error {
+	return s.PublishRK(ctx, msg, "")
+}
+
+func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey string) error {
 	buf, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal reply: %v", err)
@@ -339,7 +353,7 @@ func (s *SenderChannel[T]) Publish(ctx context.Context, msg T) error {
 	// log.Debugf("PUBLISHING message '%s' in chan %s", string(buf), s.exchangeName)
 	err = s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
-		"",             // routing key
+		routingKey,     // routing key
 		false,          // mandatory
 		false,          // immediate
 		amqp.Publishing{
@@ -371,27 +385,6 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 	if r.asumeNoInFlightMsgs {
 		panic("Should not call Next() when already received close notification")
 	}
-
-	// if r.lastProducerCount == -1 {
-	// 	log.Debugf("Waiting for producers to start in '%s'", r.input.exchangeName)
-	// 	for range 60 {
-	// 		producerCount, err := r.CountProducers()
-	// 		if err != nil {
-	// 			return nil, false, fmt.Errorf("failed to get producer count %v", err)
-	// 		}
-	// 		log.Debugf("Producer count: %d in %s", producerCount, r.input.exchangeName)
-	// 		if producerCount > 0 {
-	// 			r.lastProducerCount = int(producerCount)
-	// 			break
-	// 		}
-	// 		log.Infof("Waiting for producers to start...")
-	// 		time.Sleep(2 * time.Second)
-	// 	}
-	// 	if r.lastProducerCount == -1 {
-	// 		log.Infof("No producers found")
-	// 		r.lastProducerCount = 0
-	// 	}
-	// }
 
 	if r.lastProducerCount == 0 {
 		return r.nextIfNotifedClosed(timeout)
@@ -468,70 +461,6 @@ func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope
 	}
 }
 
-// func (r *ReceiverRabbitmq[T]) nextIfNoInFlightMsgs() (Envelope[T], bool, error) {
-// 	select {
-// 	case msg, ok := <-*r.input.C:
-// 		if !ok {
-// 			return nil, false, fmt.Errorf("read channel was closed")
-// 		}
-// 		return processMsg[T](msg)
-// 	case <-time.NewTimer(time.Millisecond * 500).C:
-// 		r.asumeNoInFlightMsgs = true
-// 		return nil, false, nil
-// 	}
-// }
-
-/* func (r *ReceiverRabbitmq[T]) LimitUnacked(limit int) error {
-	if r.inputCh == nil {
-		return fmt.Errorf("read channel is not initialized")
-	}
-	return r.inputCh.Qos(
-		limit, // prefetch count
-		0,     // prefetch size
-		false, // global
-	)
-}
-
-func (r *ReceiverRabbitmq[T]) NotifyBlocked() {
-	blockedCh := make(chan amqp.Blocking)
-	r.conn.NotifyBlocked(blockedCh)
-
-	go func() {
-		for block := range blockedCh {
-			if block.Active {
-				r.isBlocked.Store(true)
-				log.Warnf("Conexión bloqueada por RabbitMQ: %s (receiver)", block.Reason)
-			} else {
-				r.isBlocked.Store(false)
-				log.Infof("Conexión desbloqueada por RabbitMQ (receiver)")
-			}
-		}
-	}()
-}
-
-func (s *ReceiverRabbitmq[T]) IsBlocked() bool {
-	return s.isBlocked.Load()
-}
-
-func (r *ReceiverRabbitmq[T]) NotifyClose() {
-	if r.inputCh == nil {
-		return
-	}
-	connCloseChan := make(chan *amqp.Error)
-	r.conn.NotifyClose(connCloseChan)
-
-	go func() {
-		err := <-connCloseChan
-		if err != nil {
-			r.isClosed.Store(true)
-			log.Warnf("Conexión cerrada por RabbitMQ: %s (receiver)", err)
-		}
-	}()
-}
-func (r *ReceiverRabbitmq[T]) IsClosed() bool {
-	return r.isClosed.Load()
-} */
-
 func processMsg[T any](msg amqp.Delivery) (Envelope[T], bool, error) {
 	var receivedMovie T
 	err := json.Unmarshal(msg.Body, &receivedMovie)
@@ -574,11 +503,15 @@ func (r *EnvelopeRabbitmq[T]) Nack(multiple bool) error {
 }
 
 func (s *SenderRabbitmq[T]) Send(row *T) error {
+	return s.SendRK(row, "")
+}
+
+func (s *SenderRabbitmq[T]) SendRK(row *T, routingKey string) error {
 	if s.exchangeName == "" {
 		return fmt.Errorf("write exchange is not initialized")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	err := s.output.Publish(ctx, *row)
+	err := s.output.PublishRK(ctx, *row, routingKey)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
@@ -587,63 +520,19 @@ func (s *SenderRabbitmq[T]) Send(row *T) error {
 	return nil
 }
 
-// func (s *SenderRabbitmq[T]) LimitUnacked(limit int) error {
-// 	if s.outputCh == nil {
-// 		return fmt.Errorf("write channel is not initialized")
-// 	}
-// 	return s.outputCh.Qos(
-// 		limit, // prefetch count
-// 		0,     // prefetch size
-// 		false, // global
-// 	)
-// }
-
-// func (s *SenderRabbitmq[T]) NotifyBlocked() {
-// 	blockedCh := make(chan amqp.Blocking)
-// 	s.conn.NotifyBlocked(blockedCh)
-
-// 	go func() {
-// 		for block := range blockedCh {
-// 			if block.Active {
-// 				s.isBlocked.Store(true)
-// 				log.Warnf("Conexión bloqueada por RabbitMQ: %s (sender)", block.Reason)
-// 			} else {
-// 				s.isBlocked.Store(false)
-// 				log.Infof("Conexión desbloqueada por RabbitMQ (sender)")
-// 			}
-// 		}
-// 	}()
-// }
-
-// func (s *SenderRabbitmq[T]) IsBlocked() bool {
-// 	return s.isBlocked.Load()
-// }
-
-// func (s *SenderRabbitmq[T]) NotifyClose() {
-// 	connCloseChan := make(chan *amqp.Error)
-// 	s.conn.NotifyClose(connCloseChan)
-
-// 	go func() {
-// 		err := <-connCloseChan
-// 		if err != nil {
-// 			s.isClosed.Store(true)
-// 			log.Warnf("Conexión cerrada por RabbitMQ: %s (sender)", err)
-// 		}
-// 	}()
-// }
-
-// func (s *SenderRabbitmq[T]) IsClosed() bool {
-// 	return s.isClosed.Load()
-// }
-
 func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName string) (*amqp.Queue, *amqp.Channel, error) {
+	return m.createQueueRK(exchangeName, groupName, "fanaout", "")
+}
+
+
+func (m *MiddlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName string, t string, routingKey string) (*amqp.Queue, *amqp.Channel, error) {
 	ch, err := m.Conn.Channel()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open a channel: %v", err)
 	}
 	err = ch.ExchangeDeclare(
 		exchangeName, // name
-		"fanout",     // type
+		t,     // type
 		true,         // durable
 		false,        // auto-deleted
 		false,        // internal
@@ -674,7 +563,7 @@ func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName strin
 
 	err = ch.QueueBind(
 		queue.Name,   // queue name
-		"",           // routing key
+		routingKey,           // routing key
 		exchangeName, // exchange
 		false,
 		nil,
@@ -684,6 +573,7 @@ func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName strin
 	}
 	return &queue, ch, nil
 }
+
 
 func closeExchangeName(readExchangeName string) string {
 	return fmt.Sprintf("%s_close", readExchangeName)

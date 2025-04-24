@@ -237,76 +237,74 @@ OuterLoop:
 	}
 	log.Infof("CSV processing completed")
 
-	// expectedOutputQ1 := []common.Row{
-	// 	{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
-	// 	{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
-	// 	{Strings: map[string]string{"title": "The City of No Limits"}, Arrays: map[string][]string{"genres": []string{"Thriller", "Drama"}}},
-	// 	{Strings: map[string]string{"title": "Nicotina"}, Arrays: map[string][]string{"genres": []string{"Drama", "Action", "Comedy", "Thriller"}}},
-	// 	{Strings: map[string]string{"title": "Lost Embrace"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-	// 	{Strings: map[string]string{"title": "Whisky"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
-	// 	{Strings: map[string]string{"title": "The Holy Girl"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-	// 	{Strings: map[string]string{"title": "The Aura"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Thriller"}}},
-	// 	{Strings: map[string]string{"title": "Bombón: The Dog"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-	// 	{Strings: map[string]string{"title": "Rolling Family"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy"}}},
-	// 	{Strings: map[string]string{"title": "The Method"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller"}}},
-	// 	{Strings: map[string]string{"title": "Every Stewardess Goes to Heaven"}, Arrays: map[string][]string{"genres": []string{"Drama", "Romance", "Foreign"}}},
-	// 	{Strings: map[string]string{"title": "Tetro"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery"}}},
-	// 	{Strings: map[string]string{"title": "The Secret in Their Eyes"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Mystery", "Romance"}}},
-	// 	{Strings: map[string]string{"title": "Liverpool"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-	// 	{Strings: map[string]string{"title": "The Headless Woman"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery", "Thriller"}}},
-	// 	{Strings: map[string]string{"title": "The Last Summer of La Boyita"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-	// 	{Strings: map[string]string{"title": "The Appeared"}, Arrays: map[string][]string{"genres": []string{"Horror", "Thriller", "Mystery"}}},
-	// 	{Strings: map[string]string{"title": "The Fish Child"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller", "Romance", "Foreign"}}},
-	// 	{Strings: map[string]string{"title": "Cleopatra"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy", "Foreign"}}},
-	// 	{Strings: map[string]string{"title": "Roma"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-	// 	{Strings: map[string]string{"title": "Conversations with Mother"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
-	// 	{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-	// 	{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-	// }
-
-	// timer := time.NewTimer(time.Second * 40)
-
-	// log.Infof("Verifying Q1")
-	// err = allQuerysToEndpointSender.Send(common.RowQueryName("Q1"))
-	// if err != nil {
-	// 	log.Errorf("Failed to send message: %v", err)
-	// }
-	// for {
-	// 	envelope, ok, err := q1Receiver.Next(timer)
-	// 	if err != nil {
-	// 		if err.Error() == "timeout reached while waiting for message" {
-	// 			log.Infof("Timeout reached while waiting for message")
-	// 			break
-	// 		} else {
-	// 			log.Errorf("Failed to read message: %v", err)
-	// 			continue
-	// 		}
-	// 	}
-	// 	if !ok {
-	// 		log.Infof("No more films")
-	// 		break
-	// 	}
-	// 	receivedMovie := envelope.Msg()
-	// 	err = allQuerysToEndpointSender.Send(common.RowQuery(receivedMovie))
-	// 	if err != nil {
-	// 		log.Errorf("Failed to send message: %v", err)
-	// 		continue
-	// 	}
-	// 	// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
-	// 	// log.Infof("Received film debug: %+v", receivedMovie)
-	// 	expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedMovie)
-	// 	if len(expectedOutputQ1) == 0 {
-	// 		log.Infof("All expected films received")
-	// 		break
-	// 	}
-	// 	err = envelope.Ack(true)
-	// 	unwrap(err, "Failed to ack message")
-	// 	timer.Reset(time.Second * 20)
-	// }
-	// timer.Stop()
-	// if len(expectedOutputQ1) > 0 {
-	// 	log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
-	// }
+	log.Infof("Verifying Q1")
+	expectedOutputQ1 := []common.Row{
+		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
+		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
+		{Strings: map[string]string{"title": "The City of No Limits"}, Arrays: map[string][]string{"genres": []string{"Thriller", "Drama"}}},
+		{Strings: map[string]string{"title": "Nicotina"}, Arrays: map[string][]string{"genres": []string{"Drama", "Action", "Comedy", "Thriller"}}},
+		{Strings: map[string]string{"title": "Lost Embrace"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "Whisky"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Holy Girl"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Aura"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Thriller"}}},
+		{Strings: map[string]string{"title": "Bombón: The Dog"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "Rolling Family"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy"}}},
+		{Strings: map[string]string{"title": "The Method"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller"}}},
+		{Strings: map[string]string{"title": "Every Stewardess Goes to Heaven"}, Arrays: map[string][]string{"genres": []string{"Drama", "Romance", "Foreign"}}},
+		{Strings: map[string]string{"title": "Tetro"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery"}}},
+		{Strings: map[string]string{"title": "The Secret in Their Eyes"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Mystery", "Romance"}}},
+		{Strings: map[string]string{"title": "Liverpool"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "The Headless Woman"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery", "Thriller"}}},
+		{Strings: map[string]string{"title": "The Last Summer of La Boyita"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "The Appeared"}, Arrays: map[string][]string{"genres": []string{"Horror", "Thriller", "Mystery"}}},
+		{Strings: map[string]string{"title": "The Fish Child"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller", "Romance", "Foreign"}}},
+		{Strings: map[string]string{"title": "Cleopatra"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy", "Foreign"}}},
+		{Strings: map[string]string{"title": "Roma"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "Conversations with Mother"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+	}
+	timer := time.NewTimer(time.Second * 40)
+	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q1"))
+	if err != nil {
+		log.Errorf("Failed to send message: %v", err)
+	}
+	for {
+		envelope, ok, err := q1Receiver.Next(timer)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
+				continue
+			}
+		}
+		if !ok {
+			log.Infof("No more films")
+			break
+		}
+		receivedMovie := envelope.Msg()
+		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedMovie))
+		if err != nil {
+			log.Errorf("Failed to send message: %v", err)
+			continue
+		}
+		// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
+		// log.Infof("Received film debug: %+v", receivedMovie)
+		expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedMovie)
+		if len(expectedOutputQ1) == 0 {
+			log.Infof("All expected films received")
+			break
+		}
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+		timer.Reset(time.Second * 20)
+	}
+	timer.Stop()
+	if len(expectedOutputQ1) > 0 {
+		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
+	}
 
 	// log.Infof("Verifying Q2")
 	// err = allQuerysToEndpointSender.Send(common.RowQueryName("Q2"))
@@ -412,38 +410,38 @@ OuterLoop:
 	// 	log.Errorf("Not all expected actors received. Missing %v", expectedOutputQ4)
 	// }
 
-	log.Infof("Verifying Q3")
-	countRatings := 0
-	timer := time.NewTimer(time.Minute * 1)
-	for {
-		envelope, ok, err := q3Receiver.Next(timer)
-		if err != nil {
-			if err.Error() == "close channel was closed" {
-				log.Infof("Channel was closed")
-				break
-			}
-			if err.Error() == "timeout reached while waiting for message" {
-				log.Infof("Timeout reached while waiting for message")
-				break
-			} else {
-				log.Errorf("Failed to read message: %v", err)
-				continue
-			}
-		}
-		if !ok {
-			log.Infof("No more ratings")
-			break
-		}
-		receivedRating := envelope.Msg()
-		//log.Infof("Received film debug: %+v", receivedCredit)
-		countRatings++
-		log.Infof("Received %d ratings: %+v", countRatings, receivedRating)
-		err = envelope.Ack(true)
-		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 40)
-	}
-	timer.Stop()
-	log.Infof("Finished receiving ratings: received %d ratings", countRatings)
+	// log.Infof("Verifying Q3")
+	// countRatings := 0
+	// timer := time.NewTimer(time.Minute * 1)
+	// for {
+	// 	envelope, ok, err := q3Receiver.Next(timer)
+	// 	if err != nil {
+	// 		if err.Error() == "close channel was closed" {
+	// 			log.Infof("Channel was closed")
+	// 			break
+	// 		}
+	// 		if err.Error() == "timeout reached while waiting for message" {
+	// 			log.Infof("Timeout reached while waiting for message")
+	// 			break
+	// 		} else {
+	// 			log.Errorf("Failed to read message: %v", err)
+	// 			continue
+	// 		}
+	// 	}
+	// 	if !ok {
+	// 		log.Infof("No more ratings")
+	// 		break
+	// 	}
+	// 	receivedRating := envelope.Msg()
+	// 	//log.Infof("Received film debug: %+v", receivedCredit)
+	// 	countRatings++
+	// 	log.Infof("Received %d ratings: %+v", countRatings, receivedRating)
+	// 	err = envelope.Ack(true)
+	// 	unwrap(err, "Failed to ack message")
+	// 	timer.Reset(time.Second * 40)
+	// }
+	// timer.Stop()
+	// log.Infof("Finished receiving ratings: received %d ratings", countRatings)
 	// expected:
 	// 10000 ratings => 5 res
 	//	id: 16, avg: 3.6875
