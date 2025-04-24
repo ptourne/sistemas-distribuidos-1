@@ -58,7 +58,7 @@ func main() {
 	ratingsName := "ratings"
 	q1Output := "filter_release_date_l_2010_and_include_es"
 	q2Output := "reduce_top_5_by_budget"
-	q3Output := "reduce_top_bottom_avg_rating"
+	q3Output := "q3"
 	q4Output := "reduce_top_10_by_actor"
 	q5Output := "filter_avg_rate"
 	allQuerysToEndpointName := "all_querys_to_endpoint"
