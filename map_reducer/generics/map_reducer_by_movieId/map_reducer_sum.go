@@ -69,7 +69,7 @@ func (a *Acc) Merge(b Acc) {
 		a.Sums[movieId] = rating + prevVal
 		prevVal2 := a.Count[movieId]
 		a.Count[movieId] = b.Count[movieId] + prevVal2
-		log.Infof("Merging accs: %v", a.Count[movieId])
+		log.Debugf("Merging accs: %v", a.Count[movieId])
 	}
 }
 

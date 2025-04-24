@@ -72,7 +72,7 @@ func (s *SenderChannel[T]) Close() {
 	}
 }
 
-var log = logger.NewConsoleLogger("middleware", logger.Debug)
+var log = logger.NewConsoleLogger("middleware", logger.Info)
 
 func NewRabbitmq[T any]() (MiddlewareCola[T], error) {
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
