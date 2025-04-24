@@ -11,8 +11,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 )
 
-
-const CHUNK_SIZE = 1024 
+const CHUNK_SIZE = 1024
 
 func (c *Client) Run() error {
 	log.Infof("Sending files")
@@ -34,7 +33,7 @@ func (c *Client) Run() error {
 func (c *Client) ReceivingQuerysResults() error {
 	log.Infof("Receiving querys")
 	var queryType string
-	OuterLoop:
+OuterLoop:
 	for {
 		// Leer los primeros 8 bytes (tamaño y type)
 		sizeBuf := make([]byte, 8)
@@ -58,7 +57,6 @@ func (c *Client) ReceivingQuerysResults() error {
 			data := string(dataBuf)
 			queryType = data
 			log.Infof("Query: %s", data)
-			
 
 		case common.QueryRow:
 			var movie common.Row
@@ -93,8 +91,8 @@ func (c *Client) ReceivingQuerysResults() error {
 	return nil
 }
 
-func (c *Client) SendFiles() error{
-	filesNames :=[]string{"movies_metadata","ratings"}
+func (c *Client) SendFiles() error {
+	filesNames := []string{"movies_metadata", "ratings", "credits"}
 	log.Infof("Sending files")
 	for _, fileName := range filesNames {
 		log.Infof("sending file: %s", fileName)
@@ -140,15 +138,14 @@ func sendFile(c *Client, fileName string) error {
 		}
 
 		common.WriteProtocolTypeMsg(c.conn, buf, n, common.FileData)
-		if err == io.ErrUnexpectedEOF{
-			break 
+		if err == io.ErrUnexpectedEOF {
+			break
 		}
 	}
 	bufFinish := []byte(fileName)
 	common.WriteProtocolTypeMsg(c.conn, bufFinish, len(bufFinish), common.FinishFile)
 	return nil
 }
-
 
 func (c *Client) StopClient() {
 	log.Infof("Stopping client")

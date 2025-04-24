@@ -93,7 +93,7 @@ services:"
 compose_rabbitmq() {
     echo "    rabbitmq:
         container_name: rabbitmq
-        image: rabbitmq:latest
+        image: rabbitmq:management
         ports:
             - \"5672:5672\"
             - \"15672:15672\"
@@ -106,6 +106,8 @@ compose_rabbitmq() {
             retries: 10
 "
 }
+# volumes:
+    # - ${PWD}/rabbitmq_config/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
 compose_coordinator() {
     echo "    coordinator:
@@ -386,10 +388,10 @@ compose_coordinator >> $file_name
 for i in $(seq 1 $number_of_workers); do
     compose_workers $i >> $file_name
 done
-for i in $(seq 1 $number_of_lean_workers); do 
+for i in $(seq 1 $number_of_lean_workers); do
     compose_lean_workers $i >> $file_name
 done
-for i in $(seq 1 $number_of_joiners_ratings); do 
+for i in $(seq 1 $number_of_joiners_ratings); do
     compose_joiner_rating $i >> $file_name
 done
 for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
