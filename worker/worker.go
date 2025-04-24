@@ -13,7 +13,6 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/filter"
-	"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
 
 	//"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
@@ -150,9 +149,13 @@ func (t *SourceTask) Connect(middlewareConnection middleware.MiddlewareCola[comm
 	return nil, nil
 }
 
+func (t *SourceTask) Run() error {
+	return nil
+}
+
 func NewWorker() Worker {
 	movies_metadata := NewSourceTask("movies_metadata")
-	credits := NewSourceTask("credits")
+	//credits := NewSourceTask("credits")
 	// ratings := NewSourceTask("ratings")
 	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country", "map_sentiment_rate"})
 	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS")) // TODO: cambiar en el compose
@@ -165,31 +168,31 @@ func NewWorker() Worker {
 		joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
 		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
 	}
-	credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers)
+	//credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers)
 	// ratings_clean := clean.NewCleanRatings(ratings, joiner_ratings_subscribers)
 
-	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits","joiner_ratings"})
+	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits", "joiner_ratings"})
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"})
-	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{})
-	joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{"q3"})
-	// joiner_ratings := joiner.NewJoinerRatings(filter_release_date_ge_2000_and_include_ar, ratings_clean, []string{"q4"})
+	// filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
+	// joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{"q4"})
+	// joiner_ratings := joiner.NewJoinerRatings(filter_release_date_ge_2000_and_include_ar, ratings_clean, []string{"q3"})
 
-	grpcAddress := os.Getenv("NLP_GRPC_ADDR")
+	// grpcAddress := os.Getenv("NLP_GRPC_ADDR")
 
-	map_nlp := filter.NewFilterSentimentAndRate(movies_metadata_clean.Name(), []string{"reduce_by_sentiment"}, grpcAddress)
+	// map_nlp := filter.NewFilterSentimentAndRate(movies_metadata_clean.Name(), []string{"reduce_by_sentiment"}, grpcAddress)
 	filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
 
 	return Worker{
 		Tasks: []task.Task{
 			movies_metadata_clean,
 			// ratings_clean,
-			credits_clean,
+			//credits_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
-			filter_one_production_country,
-			joiner_credits,
+			// filter_one_production_country,
+			// joiner_credits,
 			// joiner_ratings,
-			map_nlp,
+			//map_nlp,
 			filter_avg_rate,
 		},
 	}

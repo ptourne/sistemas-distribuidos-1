@@ -19,12 +19,11 @@ func NewFilterAvgRate(input string, subscribers []string) task.Task {
 	}
 }
 
-
 type MapAvgRate struct {
 }
 
 func (m MapAvgRate) Transform(input *common.Row, output *common.Row) error {
+	log.Infof("Transforming row avg: %v", input)
 	output.Floats["avg_rate"] = input.Floats["rate"] / float64(input.Numerics["count"])
 	return nil
 }
-

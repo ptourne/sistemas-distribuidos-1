@@ -357,3 +357,7 @@ func (f *JoinerRatings) notifyRatingsDone() {
 		f.processMovieAndSendRatings(row)
 	}
 }
+
+func (t *JoinerRatings) Run() error {
+	return nil
+}

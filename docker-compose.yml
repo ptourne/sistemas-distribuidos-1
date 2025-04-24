@@ -42,8 +42,8 @@ services:
             - local_net
         environment:
             - NUMBER_OF_WORKERS=15
-            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=2
-            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=2
+            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=0
+            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=0
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -69,8 +69,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker2:
         container_name: worker2
@@ -91,8 +91,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker3:
         container_name: worker3
@@ -113,8 +113,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker4:
         container_name: worker4
@@ -135,8 +135,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker5:
         container_name: worker5
@@ -157,8 +157,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker6:
         container_name: worker6
@@ -179,8 +179,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker7:
         container_name: worker7
@@ -201,8 +201,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker8:
         container_name: worker8
@@ -223,8 +223,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker9:
         container_name: worker9
@@ -245,8 +245,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker10:
         container_name: worker10
@@ -267,8 +267,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker11:
         container_name: worker11
@@ -289,8 +289,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker12:
         container_name: worker12
@@ -311,8 +311,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker13:
         container_name: worker13
@@ -333,8 +333,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker14:
         container_name: worker14
@@ -355,8 +355,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     worker15:
         container_name: worker15
@@ -377,64 +377,8 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    reduce_by_country_sum_budget1:
-        container_name: reduce_by_country_sum_budget1
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_by_country_sum_budget2:
-        container_name: reduce_by_country_sum_budget2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_top_5_by_budget1:
-        container_name: reduce_top_5_by_budget1
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_top_5_by_budget2:
-        container_name: reduce_top_5_by_budget2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/tp-movies/joiner_ratings:/joiner_ratings
 
     reduce_by_sentiment1:
         container_name: reduce_by_sentiment1
@@ -444,6 +388,152 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+
+    reduce_by_sentiment2:
+        container_name: reduce_by_sentiment2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+
+    reduce_by_sentiment3:
+        container_name: reduce_by_sentiment3
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=3
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+
+    reduce_by_sentiment4:
+        container_name: reduce_by_sentiment4
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=4
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+
+    reduce_by_sentiment5:
+        container_name: reduce_by_sentiment5
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=5
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+
+    nlp_worker1:
+        container_name: nlp_worker1
+        build:
+            context: .
+            dockerfile: worker/nlp/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=$
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    nlp_worker2:
+        container_name: nlp_worker2
+        build:
+            context: .
+            dockerfile: worker/nlp/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=$
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    nlp_worker3:
+        container_name: nlp_worker3
+        build:
+            context: .
+            dockerfile: worker/nlp/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=$
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    nlp_worker4:
+        container_name: nlp_worker4
+        build:
+            context: .
+            dockerfile: worker/nlp/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=$
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    nlp_worker5:
+        container_name: nlp_worker5
+        build:
+            context: .
+            dockerfile: worker/nlp/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=$
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
         networks:
             - local_net
         depends_on:
@@ -463,7 +553,7 @@ services:
         depends_on:
             - endpoint
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+            - /home/sofiagb/Documents/sd1/tp-movies/client/datasets:/datasets
 
     endpoint:
         container_name: endpoint

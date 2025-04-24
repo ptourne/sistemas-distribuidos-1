@@ -121,3 +121,7 @@ func (f *CleanRatings) Finish() error {
 	log.Infof("Closed task %s", f.Name())
 	return nil
 }
+
+func (t *CleanRatings) Run() error {
+	return nil
+}

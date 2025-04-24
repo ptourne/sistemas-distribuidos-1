@@ -13,7 +13,6 @@ import (
 
 var log = logger.NewConsoleLogger("client", logger.Debug)
 
-
 type Client struct {
 	conn    net.Conn
 	Running bool
@@ -64,5 +63,3 @@ func HandleSignals(c *Client, wg *sync.WaitGroup, finishChan chan bool) {
 		c.StopClient()
 	}
 }
-
-

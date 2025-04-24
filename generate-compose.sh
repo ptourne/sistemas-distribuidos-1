@@ -1,21 +1,22 @@
 #!/bin/bash
 
-if [ "$#" -eq 4 ]; then
+if [ "$#" -eq 5 ]; then
     file_name=./docker-compose.yml
     number_of_workers=$1
     number_of_reduce_by_country_sum_budgets=$2
     number_of_reduce_top_5_by_budgets=$3
     number_of_reduce_by_sentiment=$4
-elif [ "$#" -eq 5 ]; then
+    number_of_nlp_workers=$5
+elif [ "$#" -eq 6 ]; then
     file_name=$1
     number_of_workers=$2
     number_of_reduce_by_country_sum_budgets=$3
     number_of_reduce_top_5_by_budgets=$4
     number_of_reduce_by_sentiment=$5
-
+    number_of_nlp_workers=$6
 else
     echo "Error: Incorrect number of arguments"
-    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment> "
+    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment>. <number_of_nlp_workers>"
     exit 1
 fi
 
@@ -37,6 +38,11 @@ fi
 # Verify number_of_reduce_by_sentiment is a positive integer
 if ! [[ "$number_of_reduce_by_sentiment" =~ ^[0-9]+$ ]] || [ "$number_of_reduce_by_sentiment" -le -1 ]; then
     echo "Error: Number of reduce top 5 by budgets must be a positive integer"
+    exit 1
+fi
+
+if ! [[ "$number_of_nlp_workers" =~ ^[0-9]+$ ]] || [ "$number_of_nlp_workers" -le -1 ]; then
+    echo "Error: Number of nlp workers must be a positive integer"
     exit 1
 fi
 
@@ -110,6 +116,26 @@ compose_workers() {
 "
 }
 
+compose_nlp_workers() {
+    local worker_id=$1
+    echo "    nlp_worker$worker_id:
+        container_name: nlp_worker$worker_id
+        build:
+            context: .
+            dockerfile: worker/nlp/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=$
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+"
+}
+
 compose_client() {
     echo "    client:
         container_name: client
@@ -160,6 +186,8 @@ compose_reduce_top_5_by_budgets() {
         depends_on:
             rabbitmq:
                 condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
 "
 }
 
@@ -178,6 +206,8 @@ compose_reduce_by_country_sum_budgets() {
         depends_on:
             rabbitmq:
                 condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
 "
 }
 
@@ -195,6 +225,8 @@ compose_reduce_by_sentiment() {
             - local_net
         depends_on:
             rabbitmq:
+                condition: service_healthy
+            sentiment_server:
                 condition: service_healthy
 "
 }
@@ -248,6 +280,9 @@ for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
 done
 for i in $(seq 1 $number_of_reduce_by_sentiment); do
     compose_reduce_by_sentiment $i >> $file_name
+done
+for i in $(seq 1 $number_of_nlp_workers); do
+    compose_nlp_workers $i >> $file_name
 done
 compose_client >> $file_name
 compose_endpoint >> $file_name

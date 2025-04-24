@@ -164,3 +164,7 @@ func (f *CleanMovies) Finish() error {
 	log.Infof("Closed task %s", f.Name())
 	return nil
 }
+
+func (t *CleanMovies) Run() error {
+	return nil
+}

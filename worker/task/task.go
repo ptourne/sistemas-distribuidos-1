@@ -15,4 +15,5 @@ type Task interface {
 	Name() string
 	Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error)
 	Finish() error
+	Run() error
 }

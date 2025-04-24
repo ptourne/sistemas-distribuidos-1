@@ -120,3 +120,7 @@ func (f *CleanCredits) Finish() error {
 	log.Infof("Closed task %s", f.Name())
 	return nil
 }
+
+func (t *CleanCredits) Run() error {
+	return nil
+}

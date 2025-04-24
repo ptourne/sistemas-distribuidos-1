@@ -360,3 +360,7 @@ func (f *JoinerCredits) notifyCreditsDone() {
 		f.processMovieAndSendActors(row)
 	}
 }
+
+func (t *JoinerCredits) Run() error {
+	return nil
+}
