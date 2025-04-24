@@ -149,7 +149,7 @@ OuterLoop:
 			case ratingsName:
 				log.Infof("Received file: %s", fileName)
 				sender = ratingsSender
-				amount = 1000000
+				amount = 100000
 				expectedLen = 3
 				create = Rating
 			default:

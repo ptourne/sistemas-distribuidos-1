@@ -11,11 +11,9 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
-	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
-	"github.com/ptourne/sistemas-distribuidos-1/worker/filter"
-	"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
 
 	//"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
@@ -151,10 +149,10 @@ func (t *SourceTask) Connect(middlewareConnection middleware.MiddlewareCola[comm
 }
 
 func NewWorker() Worker {
-	movies_metadata := NewSourceTask("movies_metadata")
+	// movies_metadata := NewSourceTask("movies_metadata")
 	// credits := NewSourceTask("credits")
 	ratings := NewSourceTask("ratings")
-	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country", "map_sentiment_rate"})
+	// movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country", "map_sentiment_rate"})
 	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS")) // TODO: cambiar en el compose
 	if err != nil {
 		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
@@ -168,11 +166,11 @@ func NewWorker() Worker {
 	// credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers)
 	ratings_clean := clean.NewCleanRatings(ratings, joiner_ratings_subscribers)
 
-	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits","joiner_ratings"})
+	// filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits","joiner_ratings"})
 	// filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"})
 	// filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
 	// joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{"reduce_by_actor"})
-	joiner_ratings := joiner.NewJoinerRatings(filter_release_date_ge_2000_and_include_ar, ratings_clean, []string{"q3"})
+	// joiner_ratings := joiner.NewJoinerRatings(filter_release_date_ge_2000_and_include_ar, ratings_clean, []string{"q3"})
 
 	// grpcAddress := os.Getenv("NLP_GRPC_ADDR")
 
@@ -181,14 +179,14 @@ func NewWorker() Worker {
 
 	return Worker{
 		Tasks: []task.Task{
-			movies_metadata_clean,
+			// movies_metadata_clean,
 			ratings_clean,
 			// credits_clean,
-			filter_release_date_ge_2000_and_include_ar,
+			// filter_release_date_ge_2000_and_include_ar,
 			// filter_release_date_l_2010_and_include_es,
 			// filter_one_production_country,
 			// joiner_credits,
-			joiner_ratings,
+			// joiner_ratings,
 			// map_nlp,
 			// filter_avg_rate,
 		},

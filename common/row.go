@@ -1,11 +1,11 @@
 package common
 
 type Row struct {
-	Numerics map[string]uint     `json:"numerics"`
-	Strings  map[string]string   `json:"strings"`
-	Arrays   map[string][]string `json:"arrays"`
-	Floats   map[string]float64  `json:"floats"`
-	Type 	 TypeRow             `json:"type"`
+	Numerics map[string]uint     `json:"n"`
+	Strings  map[string]string   `json:"s"`
+	Arrays   map[string][]string `json:"a"`
+	Floats   map[string]float64  `json:"f"`
+	Type 	 TypeRow             `json:"t"`
 }
 
 type TypeRow int

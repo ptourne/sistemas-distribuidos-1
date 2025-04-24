@@ -1,17 +1,38 @@
 package clean
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
-	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
+type Rating struct {
+	Id 		uint32
+	Rating 	uint8
+}
+
+func (r *Rating) Encode() []byte {
+	buf := make([]byte, 5)
+	binary.BigEndian.PutUint32(buf, r.Id)
+	buf[4] = r.Rating
+	return buf
+}
+
+func (r *Rating) Decode(data []byte) {
+	if len(data) < 5 {
+		return
+	}
+	r.Id = binary.BigEndian.Uint32(data[:4])
+	r.Rating = data[4]
+}
+
+
 type CleanRatings struct {
 	input        task.Task
-	taskReceiver middleware.Receiver[common.Row]
+	taskReceiver middleware.Receiver[[]byte]
 	taskSender   middleware.Sender[common.Row]
 	subscribers  []string
 }
@@ -28,7 +49,7 @@ func (f CleanRatings) Name() string {
 	return "clean_ratings"
 }
 
-func (f CleanRatings) ProcessAndSend(row common.Row) error {
+func (f CleanRatings) ProcessAndSend(row []byte) error {
 	output := f.process(row)
 	if output == nil {
 		return nil
@@ -36,45 +57,49 @@ func (f CleanRatings) ProcessAndSend(row common.Row) error {
 	return f.taskSender.Send(output)
 }
 
-func (f CleanRatings) process(row common.Row) *common.Row {
-	requiredFields := []string{
-		row.Strings["movieID"],
-		row.Strings["rating"],
-	}
+func (f CleanRatings) process(row []byte) *common.Row {
+	rating := &Rating{}
+	rating.Decode(row)
+	// requiredFields := []string{
+	// 	row.Strings["movieID"],
+	// 	row.Strings["rating"],
+	// }
 
-	log.Debugf("Clean: movieID: %s, rating: %s",
-		row.Strings["movieID"],
-		row.Strings["rating"],
-	)
+	// log.Debugf("Clean: movieID: %s, rating: %s",
+	// 	row.Strings["movieID"],
+	// 	row.Strings["rating"],
+	// )
 
-	for _, field := range requiredFields {
-		if utils.MustDropRow(field) {
-			log.Debugf("warning: dropping row due to empty field: %s", field)
-			return nil
-		}
-	}
+	// for _, field := range requiredFields {
+	// 	if utils.MustDropRow(field) {
+	// 		log.Debugf("warning: dropping row due to empty field: %s", field)
+	// 		return nil
+	// 	}
+	// }
+	// rating, ok := utils.ParseFloat(row.Strings["rating"])
+	// rating := strings.ReplaceAll(row.Strings["rating"], ".", "") 
+	// ratingUint, err := strconv.ParseUint(rating, 10, 8) 
+	
+	// if err != nil {
+	// 	log.Warnf("could not parse rating: %s", row.Strings["rating"])
+	// 	return nil
+	// }
 
-	rating, ok := utils.ParseFloat(row.Strings["rating"])
-	if !ok {
-		log.Warnf("could not parse rating: %s", row.Strings["rating"])
-		return nil
-	}
-
-	log.Debugf("Clean ALL: movieID: %s, rating: %v", row.Strings["movieID"], rating)
+	// log.Debugf("Clean ALL: movieID: %s, rating: %v", row.Strings["movieID"], rating)
 
 	return &common.Row{
 		Strings: map[string]string{
-			"movieID": row.Strings["movieID"],
+			"movieID": fmt.Sprintf("%d",rating.Id),
 		},
-		Floats: map[string]float64{
-			"rating": rating,
+		Numerics: map[string]uint{
+			"rating": uint(rating.Rating),
 		},
 	}
 }
 
-func (f *CleanRatings) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
+func (f *CleanRatings) Connect(middlewareConnection middleware.MiddlewareCola[common.Row], middlewareConnectionByte middleware.MiddlewareCola[[]byte]) ([]chan middleware.Envelope[[]byte], error) {
 	var err error
-	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
+	f.taskReceiver, err = middlewareConnectionByte.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
@@ -86,7 +111,7 @@ func (f *CleanRatings) Connect(middlewareConnection middleware.MiddlewareCola[co
 	}
 
 	//lint:ignore S1019 Ignorar reflect.Select en este archivo
-	inputChannel := make(chan middleware.Envelope[common.Row], 0)
+	inputChannel := make(chan middleware.Envelope[[]byte], 0)
 	go func() {
 		for {
 			envelope, ok, err := f.taskReceiver.Next(nil)
@@ -106,7 +131,7 @@ func (f *CleanRatings) Connect(middlewareConnection middleware.MiddlewareCola[co
 		}
 		close(inputChannel)
 	}()
-	channels := []chan middleware.Envelope[common.Row]{inputChannel}
+	channels := []chan middleware.Envelope[[]byte]{inputChannel}
 
 	return channels, nil
 }
