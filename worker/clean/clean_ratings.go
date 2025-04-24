@@ -2,6 +2,7 @@ package clean
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
@@ -25,7 +26,7 @@ func (f CleanRatings) Input() string {
 }
 
 func (f CleanRatings) Name() string {
-	return "clean_ratings"
+	return "clean_ratings"+os.Getenv("WORKER_ID")
 }
 
 func (f CleanRatings) ProcessAndSend(row common.Row) error {
@@ -74,7 +75,7 @@ func (f CleanRatings) process(row common.Row) *common.Row {
 
 func (f *CleanRatings) Connect(middlewareConnection middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
 	var err error
-	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
+	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), "clean_ratings")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}

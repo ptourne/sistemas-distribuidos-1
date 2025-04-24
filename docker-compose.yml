@@ -41,9 +41,9 @@ services:
         networks:
             - local_net
         environment:
-            - NUMBER_OF_WORKERS=30
-            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=2
-            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=2
+            - NUMBER_OF_WORKERS=4
+            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=1
+            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=1
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -57,8 +57,8 @@ services:
             dockerfile: worker/Dockerfile
         entrypoint: /worker
         environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
+            - WORKER_ID=1
+            - N_JOINERS=4
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -79,8 +79,8 @@ services:
             dockerfile: worker/Dockerfile
         entrypoint: /worker
         environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
+            - WORKER_ID=2
+            - N_JOINERS=4
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -101,8 +101,8 @@ services:
             dockerfile: worker/Dockerfile
         entrypoint: /worker
         environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
+            - WORKER_ID=3
+            - N_JOINERS=4
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -123,8 +123,8 @@ services:
             dockerfile: worker/Dockerfile
         entrypoint: /worker
         environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
+            - WORKER_ID=4
+            - N_JOINERS=4
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -138,15 +138,15 @@ services:
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
-    worker5:
-        container_name: worker5
+    lean_worker1:
+        container_name: lean_worker1
         build:
             context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
         environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
+            - WORKER_ID=1
+            - N_JOINERS=4
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -156,20 +156,93 @@ services:
                 condition: service_healthy
             sentiment_server:
                 condition: service_healthy
+
+    lean_worker2:
+        container_name: lean_worker2
+        build:
+            context: .
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
+        environment:
+            - WORKER_ID=2
+            - N_JOINERS=4
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+
+    lean_worker3:
+        container_name: lean_worker3
+        build:
+            context: .
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
+        environment:
+            - WORKER_ID=3
+            - N_JOINERS=4
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+
+    lean_worker4:
+        container_name: lean_worker4
+        build:
+            context: .
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
+        environment:
+            - WORKER_ID=4
+            - N_JOINERS=4
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+
+    joiner_rating1:
+        container_name: joiner_rating1
+        build:
+            context: .
+            dockerfile: joiners_ratings_workers/Dockerfile
+        entrypoint: /joiners_ratings_workers
+        environment:
+            - WORKER_ID=1
+            - N_JOINERS=4
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
-    worker6:
-        container_name: worker6
+    joiner_rating2:
+        container_name: joiner_rating2
         build:
             context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
+            dockerfile: joiners_ratings_workers/Dockerfile
+        entrypoint: /joiners_ratings_workers
         environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
+            - WORKER_ID=2
+            - N_JOINERS=4
             - SERVER_PORT=1234
         networks:
             - local_net
@@ -179,19 +252,17 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
-    worker7:
-        container_name: worker7
+    joiner_rating3:
+        container_name: joiner_rating3
         build:
             context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
+            dockerfile: joiners_ratings_workers/Dockerfile
+        entrypoint: /joiners_ratings_workers
         environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
+            - WORKER_ID=3
+            - N_JOINERS=4
             - SERVER_PORT=1234
         networks:
             - local_net
@@ -201,19 +272,17 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
-    worker8:
-        container_name: worker8
+    joiner_rating4:
+        container_name: joiner_rating4
         build:
             context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
+            dockerfile: joiners_ratings_workers/Dockerfile
+        entrypoint: /joiners_ratings_workers
         environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
+            - WORKER_ID=4
+            - N_JOINERS=4
             - SERVER_PORT=1234
         networks:
             - local_net
@@ -223,491 +292,6 @@ services:
             sentiment_server:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker9:
-        container_name: worker9
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker10:
-        container_name: worker10
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker11:
-        container_name: worker11
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker12:
-        container_name: worker12
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker13:
-        container_name: worker13
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker14:
-        container_name: worker14
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker15:
-        container_name: worker15
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker16:
-        container_name: worker16
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker17:
-        container_name: worker17
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker18:
-        container_name: worker18
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker19:
-        container_name: worker19
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker20:
-        container_name: worker20
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker21:
-        container_name: worker21
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker22:
-        container_name: worker22
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker23:
-        container_name: worker23
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker24:
-        container_name: worker24
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker25:
-        container_name: worker25
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker26:
-        container_name: worker26
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker27:
-        container_name: worker27
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker28:
-        container_name: worker28
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker29:
-        container_name: worker29
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
-
-    worker30:
-        container_name: worker30
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=$
-            - N_JOINERS=30
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
     reduce_by_country_sum_budget1:
@@ -718,20 +302,6 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_by_country_sum_budget2:
-        container_name: reduce_by_country_sum_budget2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
         networks:
             - local_net
         depends_on:
@@ -752,20 +322,6 @@ services:
             rabbitmq:
                 condition: service_healthy
 
-    reduce_top_5_by_budget2:
-        container_name: reduce_top_5_by_budget2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
     reduce_by_sentiment1:
         container_name: reduce_by_sentiment1
         build:
@@ -774,20 +330,6 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_by_sentiment2:
-        container_name: reduce_by_sentiment2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
         networks:
             - local_net
         depends_on:
@@ -808,20 +350,6 @@ services:
             rabbitmq:
                 condition: service_healthy
 
-    reduce_by_actor2:
-        container_name: reduce_by_actor2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_actor/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
     reduce_top_10_by_actor1:
         container_name: reduce_top_10_by_actort1
         build:
@@ -830,20 +358,6 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_top_10_by_actor2:
-        container_name: reduce_top_10_by_actort2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_10_by_actor/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
         networks:
             - local_net
         depends_on:

@@ -1,0 +1,119 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+
+	//"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
+)
+
+const MIDDLEWARE = "rabbitmq"
+
+type Worker struct {
+	Tasks task.Task
+}
+
+var WORKER_ID = os.Getenv("WORKER_ID")
+var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
+
+type TType int
+
+const (
+	Bin TType = iota
+	Row
+)
+
+func (w *Worker) Run() {
+	middlewareConnection, err := middleware.NewRabbitmq[common.Row]()
+	if err != nil {
+		unwrap(err, "Failed to create middleware")
+	}
+	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+
+	inputChannels, err := w.Tasks.Connect(middlewareConnection)
+	if err != nil {
+		log.Fatalf("Failed to create channel for task %s: %s", w.Tasks.Name(), err)
+	}
+	log.Infof("Connected to task %s", w.Tasks.Name())
+	for {
+		envelope, ok := <-inputChannels[0] 
+		if !ok {
+			log.Infof("Channel closed, exiting...")
+			break
+		}
+		currentTask := w.Tasks
+
+		row := envelope.Msg()
+		result := currentTask.ProcessAndSend(row)
+		if result != nil {
+			log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
+			continue
+		}
+		err = envelope.Ack(false)
+		unwrap(err, "Failed to ack message")
+	}
+}
+
+func unwrap(err error, msg string) {
+	if err != nil {
+		if strings.Contains(err.Error(), "channel/connection is not open") {
+			log.Warnf("%s: %s", msg, err)
+		} else {
+			log.Fatalf("%s: %s", msg, err)
+			panic(err)
+		}
+	}
+}
+
+type SourceTask struct {
+	name string
+}
+
+func NewSourceTask(name string) task.Task {
+	return &SourceTask{name}
+}
+
+func (t *SourceTask) ProcessAndSend(r common.Row) error {
+	return nil
+}
+
+func (t *SourceTask) Name() string {
+	return t.name
+}
+
+func (t *SourceTask) Input() string {
+	return ""
+}
+
+func (t *SourceTask) Finish() error {
+	return nil
+}
+
+func (t *SourceTask) Connect(_ middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
+	return nil, nil
+}
+
+func NewWorker() Worker {
+	ratings := NewSourceTask("ratings")
+	n_worker, err := strconv.Atoi(os.Getenv("WORKER_ID")) // TODO: cambiar en el compose
+	if err != nil {
+		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
+	}
+	var joiner_ratings_subscribers []string
+	// for i := range n_worker {
+		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", n_worker))
+	// }
+	log.Infof("joiner_ratings_subscribers: %v", joiner_ratings_subscribers)
+	ratings_clean := clean.NewCleanRatings(ratings, joiner_ratings_subscribers)
+	return Worker{
+		Tasks: ratings_clean,
+	}
+}
