@@ -93,7 +93,7 @@ services:"
 compose_rabbitmq() {
     echo "    rabbitmq:
         container_name: rabbitmq
-        image: rabbitmq:latest
+        image: rabbitmq:management 
         ports:
             - \"5672:5672\"
             - \"15672:15672\"
@@ -164,6 +164,7 @@ compose_lean_workers() {
             dockerfile: lean_worker/Dockerfile
         entrypoint: /lean_worker
         environment:
+            - N_JOINERS_RATINGS=$number_of_joiners_ratings
             - WORKER_ID=$worker_id
             - N_JOINERS=$number_of_joiners_ratings
             - NLP_GRPC_ADDR=sentiment_server:50051
@@ -188,7 +189,6 @@ compose_joiner_rating() {
         entrypoint: /joiners_ratings_workers
         environment:
             - WORKER_ID=$worker_id
-            - N_JOINERS=$number_of_joiners_ratings
             - SERVER_PORT=1234
         networks:
             - local_net

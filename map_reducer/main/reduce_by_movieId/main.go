@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	map_reducer_movieId "github.com/ptourne/sistemas-distribuidos-1/map_reducer/generics/map_reducer_by_movieId"
@@ -12,7 +13,15 @@ var WORKER_ID = os.Getenv("WORKER_ID")
 var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID), logger.Info)
 
 func main() {
-	mapReducer, err := map_reducer_movieId.NewMapReducerByMovieId("reduce_by_movieId", "clean_ratings", []string{WORKER_ID}, 20, []string{"filter_avg_rating"})
+	rk, err:= strconv.Atoi(WORKER_ID)
+	if err != nil {
+		log.Errorf("error converting WORKER_ID to int: %s", err)
+		return
+	}
+
+	rkString := fmt.Sprintf("%d", rk-1)
+
+	mapReducer, err := map_reducer_movieId.NewMapReducerByMovieId(fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID), "clean_ratings", []string{rkString}, 20, []string{"filter_avg_rating"})
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)
 		return

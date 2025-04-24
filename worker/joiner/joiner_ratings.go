@@ -90,7 +90,7 @@ func (f *JoinerRatings) sendRating(output *common.Row, err error) error {
 func (f *JoinerRatings) processRating(row common.Row) error {
 	f.ratingsProcessed++
 	movieID := row.Strings["movieID"]
-	rating := row.Numerics["rating"]
+	avg_rating := row.Floats["avg_rating"]
 	log.Infof("Processing rating %v", f.ratingsProcessed)
 
 	lastDigit := string(movieID[len(movieID)-1])
@@ -136,7 +136,7 @@ func (f *JoinerRatings) processRating(row common.Row) error {
 		}
 	}
 
-	ratingString := fmt.Sprintf("%d", rating)
+	ratingString := fmt.Sprintf("%f", avg_rating)
 
 	err = writer.Write([]string{movieID, ratingString})
 	if err != nil {
@@ -145,30 +145,30 @@ func (f *JoinerRatings) processRating(row common.Row) error {
 	}
 
 	// ToDo: descomentar cuando este el reducer testeado
-	// f.pendingMoviesMu.Lock()
-	// movie, found := f.pendingMovies[movieID]
-	// if found {
-	// 	delete(f.pendingMovies, movieID)
-	// }
-	// f.pendingMoviesMu.Unlock()
+	f.pendingMoviesMu.Lock()
+	movie, found := f.pendingMovies[movieID]
+	if found {
+		delete(f.pendingMovies, movieID)
+	}
+	f.pendingMoviesMu.Unlock()
 
-	// if found {
-	// 	log.Infof("Processing pending movie: %s", movieID)
-	// 	roeRes := &common.Row{
-	// 		Strings: map[string]string{
-	// 			"movieID": movieID,
-	// 			"title":   movie.Strings["title"],
-	// 		},
-	// 		Floats: map[string]float64{
+	if found {
+		log.Infof("Processing pending movie: %s", movieID)
+		roeRes := &common.Row{
+			Strings: map[string]string{
+				"movieID": movieID,
+				"title":   movie.Strings["title"],
+			},
+			Floats: map[string]float64{
 
-	// 			"avg_rating": rating,
-	// 		},
-	// 	}
-	// 	err = f.sendRating(roeRes, nil)
-	// 	if err != nil {
-	// 		log.Errorf("Failed to process pending movie: %v", err)
-	// 	}
-	// }
+				"avg_rating": avg_rating,
+			},
+		}
+		err = f.sendRating(roeRes, nil)
+		if err != nil {
+			log.Errorf("Failed to process pending movie: %v", err)
+		}
+	}
 
 	// if f.ratingsProcessed == 10000 { //TODO: sacar cuando se mergee con los cambios del reducer
 	// 	f.notifyRatingsDone()
@@ -200,8 +200,8 @@ func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
 		return nil, err
 	}
 
-	var ratings []uint // ToDo: cambiar por float64 cuando este el reducer testeado
-
+	var avg_rating float64 // ToDo: cambiar por float64 cuando este el reducer testeado
+	var found = false
 	for {
 		data, err := reader.Read()
 		if err == io.EOF {
@@ -214,32 +214,22 @@ func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
 
 		if data[0] == movieID {
 			ratingString := data[1]
-			rating, err := strconv.ParseUint(ratingString, 10, 8)
+			rating, err := strconv.ParseFloat(ratingString, 64)
 			if err != nil {
 				log.Errorf("Failed to parse rating: %v; rating = %v", err, ratingString)
 				continue
 
 			}
 			//log.Infof("Adding rating for movie %s, %f", movieID, rating)
-			ratings = append(ratings, uint(rating))
+			avg_rating = rating
+			found = true
+			break
 		}
 	}
 
-	if len(ratings) == 0 {
+	if !found {
 		log.Infof("No ratings found for movie %s", movieID)
 		return nil, nil
-	}
-
-	var sum uint = 0
-	for _, r := range ratings {
-		sum += r
-	}
-
-	var avg float64
-	if len(ratings) > 0 {
-		avg = float64(sum) / float64(len(ratings))
-	} else {
-		avg = 0
 	}
 	//log.Infof("Average rating for movie %s: %f", movieID, avg)
 
@@ -249,7 +239,7 @@ func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
 			"title":   title,
 		},
 		Floats: map[string]float64{
-			"avg_rating": avg,
+			"avg_rating": avg_rating,
 		},
 	}
 

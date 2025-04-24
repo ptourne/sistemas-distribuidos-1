@@ -258,7 +258,15 @@ func NewWorker() Worker {
 
 	// map_nlp := filter.NewFilterSentimentAndRate(movies_metadata_clean.Name(), []string{"reduce_by_sentiment"}, grpcAddress)
 	// filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
-	// filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers)
+	var joiner_ratings_subscribers []string
+	n_worker_ratings, err := strconv.Atoi(os.Getenv("N_JOINERS_RATINGS")) // TODO: cambiar en el compose
+	if err != nil {
+		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
+	}
+	for i := range n_worker_ratings {
+		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
+	}
+	filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers)
 
 	return Worker{
 		Tasks: []task.Task[common.Row, common.Row]{
@@ -270,7 +278,7 @@ func NewWorker() Worker {
 			joiner_credits,
 			// map_nlp,
 			// filter_avg_rate,
-			// filter_avg_rating,
+			filter_avg_rating,
 		},
 	}
 }
