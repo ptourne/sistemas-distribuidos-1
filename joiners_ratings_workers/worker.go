@@ -125,7 +125,7 @@ func NewWorker() Worker {
 	movies_metadata := NewSourceTask[common.Row]("filter_release_date_ge_2000_and_include_ar")
 	ratings := NewSourceTask[common.Row]("filter_avg_rating")
 
-	joiner_ratings := joiner.NewJoinerRatings(movies_metadata, ratings, []string{"q3"})
+	joiner_ratings := joiner.NewJoinerRatings(movies_metadata, ratings, []string{"q3", "reduce_top_bottom_avg_rating"})
 
 	return Worker{
 		Tasks: joiner_ratings,
