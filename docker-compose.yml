@@ -146,7 +146,7 @@ services:
         entrypoint: /lean_worker
         environment:
             - WORKER_ID=1
-            - N_JOINERS=0
+            - N_JOINERS=4
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -165,7 +165,7 @@ services:
         entrypoint: /lean_worker
         environment:
             - WORKER_ID=2
-            - N_JOINERS=0
+            - N_JOINERS=4
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -184,7 +184,7 @@ services:
         entrypoint: /lean_worker
         environment:
             - WORKER_ID=3
-            - N_JOINERS=0
+            - N_JOINERS=4
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -203,7 +203,7 @@ services:
         entrypoint: /lean_worker
         environment:
             - WORKER_ID=4
-            - N_JOINERS=0
+            - N_JOINERS=4
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -214,7 +214,86 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-  
+    joiner_rating1:
+        container_name: joiner_rating1
+        build:
+            context: .
+            dockerfile: joiners_ratings_workers/Dockerfile
+        entrypoint: /joiners_ratings_workers
+        environment:
+            - WORKER_ID=1
+            - N_JOINERS=4
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+
+    joiner_rating2:
+        container_name: joiner_rating2
+        build:
+            context: .
+            dockerfile: joiners_ratings_workers/Dockerfile
+        entrypoint: /joiners_ratings_workers
+        environment:
+            - WORKER_ID=2
+            - N_JOINERS=4
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+
+    joiner_rating3:
+        container_name: joiner_rating3
+        build:
+            context: .
+            dockerfile: joiners_ratings_workers/Dockerfile
+        entrypoint: /joiners_ratings_workers
+        environment:
+            - WORKER_ID=3
+            - N_JOINERS=4
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+
+    joiner_rating4:
+        container_name: joiner_rating4
+        build:
+            context: .
+            dockerfile: joiners_ratings_workers/Dockerfile
+        entrypoint: /joiners_ratings_workers
+        environment:
+            - WORKER_ID=4
+            - N_JOINERS=4
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+
     reduce_by_country_sum_budget1:
         container_name: reduce_by_country_sum_budget1
         build:

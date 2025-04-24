@@ -22,7 +22,7 @@ type Worker struct {
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
+var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
 
 type TType int
 
@@ -49,7 +49,6 @@ func (w *Worker) Run() {
 	}
 	log.Infof("Connected to task %s", w.TasksBin.Name())
 	for {
-		log.Infof("debug")
 		envelope, ok := <-inputChannels[0] 
 		if !ok {
 			log.Infof("Channel closed, exiting...")
@@ -109,14 +108,15 @@ func (t *SourceTask[O]) Connect(_ middleware.MiddlewareCola[common.Row], _ middl
 
 func NewWorker() Worker {
 	ratings := NewSourceTask[[]byte]("ratings")
-	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS")) // TODO: cambiar en el compose
+	n_worker, err := strconv.Atoi(os.Getenv("WORKER_ID")) // TODO: cambiar en el compose
 	if err != nil {
 		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
 	}
 	var joiner_ratings_subscribers []string
-	for i := range n_worker {
-		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
-	}
+	// for i := range n_worker {
+		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", n_worker))
+	// }
+	log.Infof("joiner_ratings_subscribers: %v", joiner_ratings_subscribers)
 	ratings_clean := clean.NewCleanRatings(ratings, joiner_ratings_subscribers)
 	return Worker{
 		TasksBin: ratings_clean,

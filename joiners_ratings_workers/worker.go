@@ -123,7 +123,7 @@ func (t *SourceTask[O]) Connect(_ middleware.MiddlewareCola[common.Row], _ middl
 
 func NewWorker() Worker {
 	movies_metadata := NewSourceTask[common.Row]("filter_release_date_ge_2000_and_include_ar")
-	ratings := NewSourceTask[common.Row]("clean_ratings")
+	ratings := NewSourceTask[common.Row](fmt.Sprintf("clean_ratings%s",os.Getenv("WORKER_ID")))
 
 	joiner_ratings := joiner.NewJoinerRatings(movies_metadata, ratings, []string{"q3"})
 

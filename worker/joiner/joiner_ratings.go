@@ -77,6 +77,7 @@ func (f *JoinerRatings) sendRating(output *common.Row, err error) error {
 	if output == nil {
 		return nil
 	}
+	log.Infof("Sending rating data: %v", output)
 	err = f.taskSender.Send(output)
 	if err != nil {
 		log.Errorf("Failed to send rating data: %v", err)
