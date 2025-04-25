@@ -15,7 +15,7 @@ type Res = common.Row
 type MapReducerSum = map_reducer.MapReducer[In, Acc, Res]
 
 func NewMapReducerBySentiment(name string, input string, batchSize uint, subscribers []string) (*MapReducerSum, error) {
-	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &SumMapReduce{}, subscribers)
+	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &SumMapReduce{}, subscribers, []string{})
 }
 
 type SumMapReduce struct {

@@ -10,7 +10,7 @@ if [ "$#" -eq 9 ]; then
     number_of_reduce_by_sentiment=$6
     number_of_reduce_by_actor=$7
     number_of_reduce_top_10_by_actor=$8
-    number_of_reduce_by_movieId=$9
+    number_of_reduce_top_bottom_avg_ratings=$9
 
 
 
@@ -24,13 +24,13 @@ elif [ "$#" -eq 10 ]; then
     number_of_reduce_by_sentiment=$7
     number_of_reduce_by_actor=$8
     number_of_reduce_top_10_by_actor=$9
-    number_of_reduce_by_movieId=${10}
+    number_of_reduce_top_bottom_avg_ratings=$10
 
 else
     echo "Error: Incorrect number of arguments"
     echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_lean_workers>,<number_of_joiners_ratings>,
     <number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment>,
-    <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>, <number_of_reduce_by_movieId>"
+    <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>, <number_of_reduce_top_bottom_avg_ratings>"
     exit 1
 fi
 
@@ -75,12 +75,6 @@ fi
 
 # Verify number_of_reduce_top_10_by_actor is a positive integer
 if ! [[ "$number_of_reduce_top_10_by_actor" =~ ^[0-9]+$ ]] || [ "$number_of_reduce_top_10_by_actor" -le -1 ]; then
-    echo "Error: Number of reduce top 10 by actor must be a positive integer"
-    exit 1
-fi
-
-# Verify number_of_reduce_by_movieId is a positive integer
-if ! [[ "$number_of_reduce_by_movieId" =~ ^[0-9]+$ ]] || [ "$number_of_reduce_by_movieId" -le -1 ]; then
     echo "Error: Number of reduce top 10 by actor must be a positive integer"
     exit 1
 fi
@@ -166,6 +160,7 @@ compose_lean_workers() {
             dockerfile: lean_worker/Dockerfile
         entrypoint: /lean_worker
         environment:
+            - N_JOINERS_RATINGS=$number_of_joiners_ratings
             - WORKER_ID=$worker_id
             - N_JOINERS=$number_of_joiners_ratings
             - NLP_GRPC_ADDR=sentiment_server:50051
@@ -190,7 +185,6 @@ compose_joiner_rating() {
         entrypoint: /joiners_ratings_workers
         environment:
             - WORKER_ID=$worker_id
-            - N_JOINERS=$number_of_joiners_ratings
             - SERVER_PORT=1234
         networks:
             - local_net
@@ -246,6 +240,24 @@ compose_reduce_top_5_by_budgets() {
         build:
             context: .
             dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=$worker_id
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+"
+}
+
+compose_reduce_top_bottom_avg_ratings() {
+    local worker_id=$1
+    echo "    reduce_top_bottom_avg_rating$worker_id:
+        container_name: reduce_top_bottom_avg_rating$worker_id
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_bottom_avg_rating/Dockerfile
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=$worker_id
@@ -400,6 +412,9 @@ done
 for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
     compose_reduce_top_5_by_budgets $i >> $file_name
 done
+# for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
+#     compose_reduce_top_bottom_avg_ratings $i >> $file_name
+# done
 for i in $(seq 1 $number_of_reduce_by_sentiment); do
     compose_reduce_by_sentiment $i >> $file_name
 done
@@ -409,7 +424,8 @@ done
 for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
     compose_reduce_top_10_by_actor $i >> $file_name
 done
-for i in $(seq 1 $number_of_reduce_by_movieId); do
+NUMBER_OF_REDUCE_BY_MOVIEID=10
+for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
     compose_reduce_by_movieId $i >> $file_name
 done
 compose_client >> $file_name

@@ -106,7 +106,7 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 	}
 	defer receiverAllQuerysToEndpoint.Close()
 
-	timer := time.NewTimer(time.Minute * 30)
+	timer := time.NewTimer(time.Minute * 100)
 	for {
 		envelope, ok, err := receiverAllQuerysToEndpoint.Next(timer)
 		if err != nil {
@@ -148,7 +148,7 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 		if err != nil {
 			return fmt.Errorf("failed to ack message %s", err)
 		}
-		timer.Reset(time.Second * 40)
+		timer.Reset(time.Minute * 100)
 	}
 	timer.Stop()
 	return nil

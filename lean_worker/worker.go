@@ -107,8 +107,19 @@ func (t *SourceTask[O]) Connect(_ middleware.MiddlewareCola[common.Row], _ middl
 
 func NewWorker() Worker {
 	ratings := NewSourceTask[[]byte]("ratings")
-	
-	ratings_clean := clean.NewCleanRatings(ratings, []string{"reduce_by_movieId"})
+	subscribers := map[string][]string{
+        "reduce_by_movieId_1": []string{"0"},
+		"reduce_by_movieId_2": []string{"1"},
+		"reduce_by_movieId_3": []string{"2"},
+		"reduce_by_movieId_4": []string{"3"},
+		"reduce_by_movieId_5": []string{"4"},
+		"reduce_by_movieId_6": []string{"5"},
+		"reduce_by_movieId_7": []string{"6"},
+		"reduce_by_movieId_8": []string{"7"},
+		"reduce_by_movieId_9": []string{"8"},
+		"reduce_by_movieId_10": []string{"9"},
+    }	
+	ratings_clean := clean.NewCleanRatings(ratings, subscribers)
 	return Worker{
 		TasksBin: ratings_clean,
 	}

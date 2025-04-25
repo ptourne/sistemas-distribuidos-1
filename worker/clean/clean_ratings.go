@@ -33,10 +33,10 @@ type CleanRatings struct {
 	input        string
 	taskReceiver middleware.Receiver[[]byte]
 	taskSender   middleware.Sender[common.Row]
-	subscribers  []string
+	subscribers  map[string][]string
 }
 
-func NewCleanRatings(input task.Task[common.Row, []byte], subscribers []string) task.Task[[]byte, common.Row] {
+func NewCleanRatings(input task.Task[common.Row, []byte], subscribers map[string][]string) task.Task[[]byte, common.Row] {
 	return &CleanRatings{input.Name(), nil, nil, subscribers}
 }
 
@@ -53,7 +53,9 @@ func (f CleanRatings) ProcessAndSend(row []byte) error {
 	if output == nil {
 		return nil
 	}
-	return f.taskSender.Send(output)
+	movieId := output.Strings["movieID"]
+	routingKey := string(movieId[len(movieId)-1])
+	return f.taskSender.SendRK(output, routingKey)
 }
 
 func (f CleanRatings) process(row []byte) *common.Row {
@@ -104,7 +106,7 @@ func (f *CleanRatings) Connect(middIn middleware.MiddlewareCola[[]byte], middOut
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middOut.WriteTo(f.Name(), f.subscribers)
+	f.taskSender, err = middOut.WriteToRK(f.Name(), f.subscribers, "direct")
 	//f.taskReceiver.LimitUnacked(10000)
 
 	if err != nil {

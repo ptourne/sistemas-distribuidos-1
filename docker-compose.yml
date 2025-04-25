@@ -277,6 +277,7 @@ services:
             dockerfile: lean_worker/Dockerfile
         entrypoint: /lean_worker
         environment:
+            - N_JOINERS_RATINGS=5
             - WORKER_ID=1
             - N_JOINERS=5
             - NLP_GRPC_ADDR=sentiment_server:50051
@@ -296,6 +297,7 @@ services:
             dockerfile: lean_worker/Dockerfile
         entrypoint: /lean_worker
         environment:
+            - N_JOINERS_RATINGS=5
             - WORKER_ID=2
             - N_JOINERS=5
             - NLP_GRPC_ADDR=sentiment_server:50051
@@ -315,6 +317,7 @@ services:
             dockerfile: lean_worker/Dockerfile
         entrypoint: /lean_worker
         environment:
+            - N_JOINERS_RATINGS=5
             - WORKER_ID=3
             - N_JOINERS=5
             - NLP_GRPC_ADDR=sentiment_server:50051
@@ -334,6 +337,7 @@ services:
             dockerfile: lean_worker/Dockerfile
         entrypoint: /lean_worker
         environment:
+            - N_JOINERS_RATINGS=5
             - WORKER_ID=4
             - N_JOINERS=5
             - NLP_GRPC_ADDR=sentiment_server:50051
@@ -353,6 +357,7 @@ services:
             dockerfile: lean_worker/Dockerfile
         entrypoint: /lean_worker
         environment:
+            - N_JOINERS_RATINGS=5
             - WORKER_ID=5
             - N_JOINERS=5
             - NLP_GRPC_ADDR=sentiment_server:50051
@@ -373,7 +378,6 @@ services:
         entrypoint: /joiners_ratings_workers
         environment:
             - WORKER_ID=1
-            - N_JOINERS=5
             - SERVER_PORT=1234
         networks:
             - local_net
@@ -393,7 +397,6 @@ services:
         entrypoint: /joiners_ratings_workers
         environment:
             - WORKER_ID=2
-            - N_JOINERS=5
             - SERVER_PORT=1234
         networks:
             - local_net
@@ -413,7 +416,6 @@ services:
         entrypoint: /joiners_ratings_workers
         environment:
             - WORKER_ID=3
-            - N_JOINERS=5
             - SERVER_PORT=1234
         networks:
             - local_net
@@ -433,7 +435,6 @@ services:
         entrypoint: /joiners_ratings_workers
         environment:
             - WORKER_ID=4
-            - N_JOINERS=5
             - SERVER_PORT=1234
         networks:
             - local_net
@@ -453,7 +454,6 @@ services:
         entrypoint: /joiners_ratings_workers
         environment:
             - WORKER_ID=5
-            - N_JOINERS=5
             - SERVER_PORT=1234
         networks:
             - local_net
@@ -879,6 +879,76 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=5
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid6:
+        container_name: reduce_by_movieid6
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=6
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid7:
+        container_name: reduce_by_movieid7
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=7
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid8:
+        container_name: reduce_by_movieid8
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=8
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid9:
+        container_name: reduce_by_movieid9
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=9
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid10:
+        container_name: reduce_by_movieid10
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=10
         networks:
             - local_net
         depends_on:

@@ -7,8 +7,9 @@ import (
 // ver de declare, tratr de devovler un struct, ghacer read/write
 type MiddlewareCola[T any] interface {
 	ConsumeFrom(sourceName string, groupName string) (Receiver[T], error)
-	SuscribeTo(sourceName string) (Receiver[T], error)
+	ConsumeFromRK(sourceName string, groupName string, t string, routingkey string) (Receiver[T], error)
 	WriteTo(writeExchangeName string, subscribers []string) (Sender[T], error)
+	WriteToRK(writeExchangeName string, subscribers map[string][]string, t string) (Sender[T], error)
 	Close() error
 }
 
@@ -17,11 +18,6 @@ type Receiver[T any] interface {
 	CountProducers() (int, error)
 	Qos(int, int) error
 	Close() error
-	/* LimitUnacked(limit int) error
-	NotifyBlocked()
-	IsBlocked() bool
-	NotifyClose()
-	IsClosed() bool */
 }
 
 type Envelope[T any] interface {
@@ -32,10 +28,6 @@ type Envelope[T any] interface {
 
 type Sender[T any] interface {
 	Send(row *T) error
+	SendRK(row *T, routingKey string) error
 	Close() error
-	/* LimitUnacked(limit int) error
-	NotifyBlocked()
-	IsBlocked() bool
-	NotifyClose()
-	IsClosed() bool */
 }

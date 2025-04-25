@@ -70,6 +70,10 @@ OuterLoop:
 				printRowQ1(movie)
 			case "Q2":
 				printRowQ2(movie)
+			case "Q4":
+				printRowQx(movie)
+			case "Q5":
+				printRowQx(movie)
 			default:
 				log.Infof("Query no soportada: %s", queryType)
 			}
@@ -163,4 +167,8 @@ func printRowQ1(row common.Row) {
 
 func printRowQ2(row common.Row) {
 	log.Infof("country:%s, budget:%d", row.Strings["country"], row.Numerics["budget_sum"])
+}
+
+func printRowQx(row common.Row) {
+	log.Infof("Row: %+v", row)
 }

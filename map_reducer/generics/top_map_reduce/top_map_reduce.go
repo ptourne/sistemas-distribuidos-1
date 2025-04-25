@@ -19,7 +19,7 @@ type Res = common.Row
 type TopMapReducer = map_reducer.MapReducer[In, Acc, Res]
 
 func NewTopMapReducer(name string, input string, topSize uint, batchSize uint, subscribers []string) (*TopMapReducer, error) {
-	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &TopMapReduce{topSize}, subscribers)
+	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &TopMapReduce{topSize}, subscribers, []string{})
 }
 
 type TopMapReduce struct {

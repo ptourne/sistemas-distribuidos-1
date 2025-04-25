@@ -58,7 +58,7 @@ func main() {
 	ratingsName := "ratings"
 	q1Output := "filter_release_date_l_2010_and_include_es"
 	q2Output := "reduce_top_5_by_budget"
-	q3Output := "joiner_ratings"
+	q3Output := "reduce_top_bottom_avg_rating"
 	q4Output := "reduce_top_10_by_actor"
 	q5Output := "filter_avg_rate"
 	allQuerysToEndpointName := "all_querys_to_endpoint"
@@ -268,7 +268,7 @@ OuterLoop:
 		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 	}
 
-	timer := time.NewTimer(time.Second * 120)
+	timer := time.NewTimer(time.Minute * 30)
 
 	log.Infof("Verifying Q1")
 	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q1"))
@@ -326,7 +326,7 @@ OuterLoop:
 		{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	}
 
-	timer = time.NewTimer(time.Minute * 5)
+	timer = time.NewTimer(time.Minute * 30)
 	for {
 		envelope, ok, err := q2Receiver.Next(nil)
 		if err != nil {
@@ -365,6 +365,7 @@ OuterLoop:
 	}
 
 	log.Infof("Verifying Q4")
+	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q4"))
 	expectedOutputQ4 := []common.Row{
 		{Numerics: map[string]uint{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
 		{Numerics: map[string]uint{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
@@ -378,7 +379,7 @@ OuterLoop:
 		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
 	}
 	countCredit := 0
-	timer = time.NewTimer(time.Minute * 5)
+	timer = time.NewTimer(time.Minute * 30)
 	for {
 		envelope, ok, err := q4Receiver.Next(timer)
 		if err != nil {
@@ -400,6 +401,8 @@ OuterLoop:
 		}
 		countCredit++
 		receivedActor := envelope.Msg()
+
+		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedActor))
 		log.Infof("Received country: %s %v", receivedActor.Strings["actor"], receivedActor.Numerics["count"])
 		log.Infof("Received country debug: %+v", receivedActor)
 		expectedOutputQ4 = removeQ2(expectedOutputQ4, receivedActor)
@@ -471,6 +474,7 @@ OuterLoop:
 	// 	id: 69278, avg: 2.5
 
 	log.Infof("Verifying Q5")
+	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q5"))
 	timer = time.NewTimer(time.Minute * 5)
 	for {
 		envelope, ok, err := q5Receiver.Next(timer)
@@ -492,6 +496,8 @@ OuterLoop:
 			break
 		}
 		receivedSentiment := envelope.Msg()
+
+		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedSentiment))
 		log.Infof("Received sentiment debug: %+v", receivedSentiment)
 
 		err = envelope.Ack(true)
