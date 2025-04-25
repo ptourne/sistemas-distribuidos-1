@@ -13,6 +13,8 @@ services:
             interval: 10s
             timeout: 10s
             retries: 10
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
     sentiment_server:
         container_name: sentiment_server
@@ -42,8 +44,8 @@ services:
             - local_net
         environment:
             - NUMBER_OF_WORKERS=10
-            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=2
-            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=2
+            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=3
+            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=3
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -277,9 +279,9 @@ services:
             dockerfile: lean_worker/Dockerfile
         entrypoint: /lean_worker
         environment:
-            - N_JOINERS_RATINGS=2
+            - N_JOINERS_RATINGS=3
             - WORKER_ID=1
-            - N_JOINERS=2
+            - N_JOINERS=3
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -297,9 +299,29 @@ services:
             dockerfile: lean_worker/Dockerfile
         entrypoint: /lean_worker
         environment:
-            - N_JOINERS_RATINGS=2
+            - N_JOINERS_RATINGS=3
             - WORKER_ID=2
-            - N_JOINERS=2
+            - N_JOINERS=3
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+
+    lean_worker3:
+        container_name: lean_worker3
+        build:
+            context: .
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
+        environment:
+            - N_JOINERS_RATINGS=3
+            - WORKER_ID=3
+            - N_JOINERS=3
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:
@@ -348,6 +370,25 @@ services:
         volumes:
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
+    joiner_rating3:
+        container_name: joiner_rating3
+        build:
+            context: .
+            dockerfile: joiners_ratings_workers/Dockerfile
+        entrypoint: /joiners_ratings_workers
+        environment:
+            - WORKER_ID=3
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+
     reduce_by_country_sum_budget1:
         container_name: reduce_by_country_sum_budget1
         build:
@@ -370,6 +411,20 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=2
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_country_sum_budget3:
+        container_name: reduce_by_country_sum_budget3
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=3
         networks:
             - local_net
         depends_on:
@@ -404,6 +459,20 @@ services:
             rabbitmq:
                 condition: service_healthy
 
+    reduce_top_5_by_budget3:
+        container_name: reduce_top_5_by_budget3
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=3
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
     reduce_top_bottom_avg_rating1:
         container_name: reduce_top_bottom_avg_rating1
         build:
@@ -426,6 +495,20 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=2
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_bottom_avg_rating3:
+        container_name: reduce_top_bottom_avg_rating3
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_bottom_avg_rating/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=3
         networks:
             - local_net
         depends_on:
@@ -460,6 +543,20 @@ services:
             rabbitmq:
                 condition: service_healthy
 
+    reduce_by_sentiment3:
+        container_name: reduce_by_sentiment3
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=3
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
     reduce_by_actor1:
         container_name: reduce_by_actor1
         build:
@@ -488,6 +585,20 @@ services:
             rabbitmq:
                 condition: service_healthy
 
+    reduce_by_actor3:
+        container_name: reduce_by_actor3
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=3
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
     reduce_top_10_by_actor1:
         container_name: reduce_top_10_by_actort1
         build:
@@ -510,6 +621,20 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=2
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_10_by_actor3:
+        container_name: reduce_top_10_by_actort3
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_10_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=3
         networks:
             - local_net
         depends_on:
