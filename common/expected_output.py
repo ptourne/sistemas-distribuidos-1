@@ -7,9 +7,9 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.max_colwidth', 100)
 
 ##credits_df = pd.read_csv('../datasets/credits.csv')
-movies_df = pd.read_csv('../datasets/movies_metadata.csv')
-ratings_df = pd.read_csv('../datasets/ratings.csv')
-#ratings_df = ratings_df.head(50000)
+movies_df = pd.read_csv('../client/datasets/movies_metadata.csv')
+ratings_df = pd.read_csv('../client/datasets/ratings.csv')
+ratings_df = ratings_df.head(200000)
 movies_df_columns = ["id", "title", "genres", "release_date", "overview", "production_countries", "spoken_languages", "budget", "revenue"]
 credits_df_columns = ["id", "cast"]
 ratings_df_columns = ["movieId", "rating"]
@@ -85,8 +85,11 @@ ranking_arg_post_2000_df = movies_argentina_post_2000_df[["id", "title"]].merge(
 mean_ranking_arg_post_2000_df = ranking_arg_post_2000_df.groupby(["id", "title"])['rating'].mean().reset_index()
 print(f"mean_ranking_arg_post_2000_df: {mean_ranking_arg_post_2000_df.shape}")
 
-for i, row in mean_ranking_arg_post_2000_df.iterrows():    
-    print(f"id: {row['id']}, avg: {row['rating']}")
+# for i, row in mean_ranking_arg_post_2000_df.iterrows():    
+#     print(f"id: {row['id']}, avg: {row['rating']}")
+    
+print(mean_ranking_arg_post_2000_df.iloc[mean_ranking_arg_post_2000_df['rating'].idxmax()])
+print(mean_ranking_arg_post_2000_df.iloc[mean_ranking_arg_post_2000_df['rating'].idxmin()])
 
 # Q5
 

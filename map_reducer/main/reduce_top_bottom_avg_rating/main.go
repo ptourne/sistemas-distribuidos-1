@@ -6,7 +6,7 @@ import (
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
-	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
+	mp "github.com/ptourne/sistemas-distribuidos-1/map_reducer"
 )
 
 var WORKER_ID = os.Getenv("WORKER_ID")
@@ -26,7 +26,7 @@ type Acc struct {
 type Res = common.Row
 
 func main() {
-	mapReducer, err := map_reducer.NewMapReducer[In, Acc, Res]("reduce_top_bottom_avg_rating", "joiner_ratings", 2, &TopBottomReduce{}, []string{"q3"},  []string{})
+	mapReducer, err := mp.NewMapReducer("reduce_top_bottom_avg_rating", "joiner_ratings", 2, &TopBottomReduce{}, []string{"q3"},  []string{})
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)
 		return
@@ -52,7 +52,8 @@ type TopBottomReduce struct{}
 // 	}
 
 func (r TopBottomReduce) Map(in In) []Acc {
-	return []Acc{{
+	log.Infof("Map: %v", in)
+	acc:= []Acc{{
 		Top: Movie{
 			ID:     in.Strings["movieID"],
 			Title:  in.Strings["title"],
@@ -64,6 +65,8 @@ func (r TopBottomReduce) Map(in In) []Acc {
 			Rating: in.Floats["avg_rating"],
 		},
 	}}
+	log.Infof("Map result: %v", acc)
+	return acc
 }
 
 func isGreater(a Movie, b Movie) bool {
@@ -96,7 +99,7 @@ func (r TopBottomReduce) Output(acc Acc) []Res {
 
 func (a *Acc) Merge(b Acc) {
 	if b.Top.Rating > a.Top.Rating {
-		a.Top = a.Top
+		a.Top = b.Top
 	}
 	if b.Bottom.Rating < a.Bottom.Rating {
 		a.Bottom = b.Bottom

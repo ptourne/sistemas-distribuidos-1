@@ -23,6 +23,6 @@ type MapAvgRating struct {
 }
 
 func (m MapAvgRating) Transform(input *common.Row, output *common.Row) error {
-	output.Floats["avg_rating"] = float64(input.Numerics["rating"]) / float64(input.Numerics["count"])
+	output.Floats["avg_rating"] = (float64(input.Numerics["rating"]) / float64(input.Numerics["count"])) / float64(10)
 	return nil
 }

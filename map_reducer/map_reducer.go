@@ -11,7 +11,7 @@ import (
 )
 
 var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
+var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
 
 // MapReducer is a struct that represents a map-reduce operation.
 //
@@ -140,7 +140,7 @@ func (mr *MapReducer[I, A, R]) Run() error {
 func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 	res := make(chan error)
 	task := func() {
-		log.Debugf("Starting map-reduce operation")
+		log.Infof("Starting map-reduce operation")
 		timeoutStep, backoff := ExponentialBackoffDuration(0)
 		log.Debugf("reduceBattchess(%d)", backoff)
 		var err error
@@ -291,7 +291,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			err = ack()
 			timeoutStep, backoff = ExponentialBackoffDuration(0)
 			reduced := mr.MapReduce.Reduce(batch)
-			// log.Debugf("Reduced partial result: %v", reduced)
+			log.Infof("Reduced partial result: %v", reduced)
 			err = mr.PartialResultSender.Send(&reduced)
 			if err != nil {
 				err = fmt.Errorf("error sending partial result: %w", err)
@@ -335,7 +335,7 @@ func (mr *MapReducer[I, A, R]) readInput() <-chan error {
 		var err error
 		defer func() {
 			mr.InputClosed = true
-			log.Debugf("Input closed")
+			log.Infof("Input closed")
 			res <- err
 		}()
 		for {
