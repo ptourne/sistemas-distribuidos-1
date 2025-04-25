@@ -72,6 +72,8 @@ func (c *Client) ReceivingQuerysResults() error {
 				printRowQ1(movie)
 			case "Q2":
 				printRowQ2(movie)
+			case "Q3":
+				printRowQ3(movie)
 			default:
 				log.Infof("Query no soportada: %s", queryType)
 			}
@@ -166,4 +168,8 @@ func printRowQ1(row common.Row) {
 
 func printRowQ2(row common.Row) {
 	log.Infof("country:%s, budget:%d", row.Strings["country"], row.Numerics["budget_sum"])
+}
+
+func printRowQ3(row common.Row) {
+	log.Infof("movieID:%s, title:%s, avg_rating:%f", row.Strings["movieID"], row.Strings["title"], row.Floats["avg_rating"])
 }

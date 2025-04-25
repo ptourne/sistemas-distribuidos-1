@@ -415,6 +415,18 @@ OuterLoop:
 	// }
 
 	log.Infof("Verifying Q3")
+	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q3"))
+	if err != nil {
+		log.Errorf("Failed to send message: %v", err)
+	}
+	// expectedOutputQ3 := []common.Row{
+	// 	{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
+	// 	{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
+	// }
+	expectedOutputQ3 := []common.Row{
+		{Floats: map[string]float64{"avg_rating": 5.0}, Strings: map[string]string{"title": "The Mugger", "movieID": "6636"}},
+		{Floats: map[string]float64{"avg_rating": 3.5}, Strings: map[string]string{"title": "Don't Look Down", "movieID": "45722"}},
+	}
 	countRatings := 0
 	timer := time.NewTimer(time.Minute * 100)
 	for {
@@ -437,8 +449,17 @@ OuterLoop:
 			break
 		}
 		receivedRating := envelope.Msg()
-		//log.Infof("Received film debug: %+v", receivedCredit)
 		countRatings++
+		expectedOutputQ3 = removeQ2(expectedOutputQ3, receivedRating)
+		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedRating))
+		if err != nil {
+			log.Errorf("Failed to send message: %v", err)
+			continue
+		}
+		if len(expectedOutputQ3) == 0 {
+			log.Infof("All expected actors received")
+			break
+		}
 		log.Infof("Received %d ratings: %+v", countRatings, receivedRating)
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")

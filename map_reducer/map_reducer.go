@@ -202,7 +202,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 		countProducers := func() (int, error) {
 			if time.Since(lastProducerCount) > time.Second {
 				lastProducerCount = time.Now()
-				log.Infof("Calling count producers from worker '%s'", WORKER_ID)
+				// log.Deb("Calling count producers from worker '%s'", WORKER_ID)
 				return mr.PartialResultReceiver.CountProducers()
 			}
 			return producerCount, nil
