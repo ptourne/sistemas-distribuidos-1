@@ -72,6 +72,8 @@ OuterLoop:
 				printRowQ2(movie)
 			case "Q4":
 				printRowQx(movie)
+			case "Q3":
+				printRowQ3(movie)
 			case "Q5":
 				printRowQx(movie)
 			default:
@@ -167,6 +169,10 @@ func printRowQ1(row common.Row) {
 
 func printRowQ2(row common.Row) {
 	log.Infof("country:%s, budget:%d", row.Strings["country"], row.Numerics["budget_sum"])
+}
+
+func printRowQ3(row common.Row) {
+	log.Infof("movieID:%s, title:%s, avg_rating:%f", row.Strings["movieID"], row.Strings["title"], row.Floats["avg_rating"])
 }
 
 func printRowQx(row common.Row) {

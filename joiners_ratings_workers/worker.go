@@ -45,6 +45,7 @@ func (w *Worker) Run() {
 	closed := 0
 	var envelope middleware.Envelope[common.Row]
 	var ok bool
+	currentTask := w.Tasks
 	for {
 		select {
 		case envelope, ok = <-inputChannels[0]:
@@ -69,7 +70,6 @@ func (w *Worker) Run() {
 			continue
 		}
 
-		currentTask := w.Tasks
 		row := envelope.Msg()
 		result := currentTask.ProcessAndSend(row)
 		if result != nil {
@@ -80,6 +80,7 @@ func (w *Worker) Run() {
 		err = envelope.Ack(false)
 		unwrap(err, "Failed to ack message")
 	}
+	currentTask.Finish()
 }
 
 func unwrap(err error, msg string) {

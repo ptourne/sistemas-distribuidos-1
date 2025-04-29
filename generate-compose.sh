@@ -98,6 +98,8 @@ compose_rabbitmq() {
             interval: 10s
             timeout: 10s
             retries: 10
+        volumes:
+            - ${PWD}/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 "
 }
 # volumes:
@@ -384,6 +386,7 @@ compose_reduce_by_movieId() {
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=$worker_id
+            - WORKER_CONDI=1
         networks:
             - local_net
         depends_on:
@@ -412,9 +415,9 @@ done
 for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
     compose_reduce_top_5_by_budgets $i >> $file_name
 done
-# for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
-#     compose_reduce_top_bottom_avg_ratings $i >> $file_name
-# done
+for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
+    compose_reduce_top_bottom_avg_ratings $i >> $file_name
+done
 for i in $(seq 1 $number_of_reduce_by_sentiment); do
     compose_reduce_by_sentiment $i >> $file_name
 done

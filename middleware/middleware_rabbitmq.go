@@ -582,7 +582,7 @@ func producerCountResExchangeName(readExchangeName string) string {
 }
 
 func (r *ReceiverRabbitmq[T]) CountProducers() (int, error) {
-	log.Infof("Calling count producers '%s'-'%s'", r.input.exchangeName, r.input.queueName)
+	// log.Infof("Calling count producers '%s'-'%s'", r.input.exchangeName, r.input.queueName)
 	producerCount := 0
 	reqID := rand.UintN(1000000000)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Second)

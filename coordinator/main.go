@@ -268,7 +268,7 @@ OuterLoop:
 		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 	}
 
-	timer := time.NewTimer(time.Minute * 30)
+	timer := time.NewTimer(time.Hour)
 
 	log.Infof("Verifying Q1")
 	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q1"))
@@ -287,27 +287,25 @@ OuterLoop:
 			}
 		}
 		if !ok {
-			log.Infof("No more films")
+			log.Infof("No more countries")
 			break
 		}
-		receivedMovie := envelope.Msg()
-		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedMovie))
+		receivedCountry := envelope.Msg()
+		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedCountry))
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)
 			continue
 		}
-		// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
-		// log.Infof("Received film debug: %+v", receivedMovie)
-		expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedMovie)
+		log.Infof("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
+		log.Infof("Received country debug: %+v", receivedCountry)
+		expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedCountry)
 		if len(expectedOutputQ1) == 0 {
 			log.Infof("All expected films received")
 			break
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 20)
 	}
-	timer.Stop()
 	if len(expectedOutputQ1) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
 	}
@@ -326,9 +324,8 @@ OuterLoop:
 		{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	}
 
-	timer = time.NewTimer(time.Minute * 30)
 	for {
-		envelope, ok, err := q2Receiver.Next(nil)
+		envelope, ok, err := q2Receiver.Next(timer)
 		if err != nil {
 			if err.Error() == "timeout reached while waiting for message" {
 				log.Infof("Timeout reached while waiting for message")
@@ -357,15 +354,56 @@ OuterLoop:
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 20)
 	}
-	timer.Stop()
 	if len(expectedOutputQ2) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
 	}
 
+	log.Infof("Verifying Q3")
+	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q3"))
+	if err != nil {
+		log.Errorf("Failed to send message: %v", err)
+	}
+	expectedOutputQ3 := []common.Row{
+		{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
+		{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
+	}
+	for {
+		envelope, ok, err := q3Receiver.Next(timer)
+		if err != nil {
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message")
+				break
+			} else {
+				log.Errorf("Failed to read message: %v", err)
+				continue
+			}
+		}
+		if !ok {
+			log.Infof("No more films")
+			break
+		}
+		receivedMovie := envelope.Msg()
+		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedMovie))
+		if err != nil {
+			log.Errorf("Failed to send message: %v", err)
+			continue
+		}
+		// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
+		// log.Infof("Received film debug: %+v", receivedMovie)
+		expectedOutputQ3 = removeQ3(expectedOutputQ3, receivedMovie)
+		if len(expectedOutputQ3) == 0 {
+			log.Infof("All expected films received")
+			break
+		}
+		err = envelope.Ack(true)
+		unwrap(err, "Failed to ack message")
+	}
+	if len(expectedOutputQ3) > 0 {
+		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ3)
+	}
+
 	log.Infof("Verifying Q4")
-	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q4"))
 	expectedOutputQ4 := []common.Row{
 		{Numerics: map[string]uint{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
 		{Numerics: map[string]uint{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
@@ -379,7 +417,6 @@ OuterLoop:
 		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
 	}
 	countCredit := 0
-	timer = time.NewTimer(time.Minute * 30)
 	for {
 		envelope, ok, err := q4Receiver.Next(timer)
 		if err != nil {
@@ -401,81 +438,30 @@ OuterLoop:
 		}
 		countCredit++
 		receivedActor := envelope.Msg()
-
-		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedActor))
 		log.Infof("Received country: %s %v", receivedActor.Strings["actor"], receivedActor.Numerics["count"])
 		log.Infof("Received country debug: %+v", receivedActor)
-		expectedOutputQ4 = removeQ2(expectedOutputQ4, receivedActor)
+		expectedOutputQ4 = removeQ4(expectedOutputQ4, receivedActor)
 		if len(expectedOutputQ4) == 0 {
 			log.Infof("All expected actors received")
 			break
 		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 200)
 	}
-	timer.Stop()
 	if len(expectedOutputQ4) > 0 {
 		log.Errorf("Not all expected actors received. Missing %v", expectedOutputQ4)
 	}
 
-	// log.Infof("Verifying Q3")
-	// countRatings := 0
-	// timer := time.NewTimer(time.Minute * 1)
-	// for {
-	// 	envelope, ok, err := q3Receiver.Next(timer)
-	// 	if err != nil {
-	// 		if err.Error() == "close channel was closed" {
-	// 			log.Infof("Channel was closed")
-	// 			break
-	// 		}
-	// 		if err.Error() == "timeout reached while waiting for message" {
-	// 			log.Infof("Timeout reached while waiting for message")
-	// 			break
-	// 		} else {
-	// 			log.Errorf("Failed to read message: %v", err)
-	// 			continue
-	// 		}
-	// 	}
-	// 	if !ok {
-	// 		log.Infof("No more ratings")
-	// 		break
-	// 	}
-	// 	receivedRating := envelope.Msg()
-	// 	//log.Infof("Received film debug: %+v", receivedCredit)
-	// 	countRatings++
-	// 	log.Infof("Received %d ratings: %+v", countRatings, receivedRating)
-	// 	err = envelope.Ack(true)
-	// 	unwrap(err, "Failed to ack message")
-	// 	timer.Reset(time.Second * 40)
-	// }
-	// timer.Stop()
-	// log.Infof("Finished receiving ratings: received %d ratings", countRatings)
-	// expected:
-	// 10000 ratings => 5 res
-	//	id: 16, avg: 3.6875
-	// 	id: 1653, avg: 3.8214285714285716
-	// 	id: 1956, avg: 4.25
-	// 	id: 45722, avg: 3.5
-	// 	id: 6636, avg: 5.0
-	// 50000 ratings => 6 res
-	// 	id: 16, avg: 3.787878787878788
-	// 	id: 1653, avg: 3.73
-	// 	id: 1956, avg: 3.75
-	// 	id: 45722, avg: 3.2777777777777777
-	// 	id: 6636, avg: 5.0
-	// 100000 ratings => 7 res
-	// 	id: 16, avg: 3.8732394366197185
-	// 	id: 1653, avg: 3.7666666666666666
-	// 	id: 1956, avg: 3.9038461538461537
-	// 	id: 45722, avg: 3.3706896551724137
-	// 	id: 48596, avg: 0.5
-	// 	id: 6636, avg: 4.333333333333333
-	// 	id: 69278, avg: 2.5
+	// Expected:
+	// NEGATIVE    5453.397595
+	// POSITIVE    5668.650541
+	expectedOutputQ5 := []common.Row{
+		{Strings: map[string]string{"sentiment": "NEGATIVE"}, Floats: map[string]float64{"avg_rate": 5453.397595}},
+		{Strings: map[string]string{"sentiment": "POSITIVE"}, Floats: map[string]float64{"avg_rate": 5668.650541}},
+	}
 
 	log.Infof("Verifying Q5")
 	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q5"))
-	timer = time.NewTimer(time.Minute * 5)
 	for {
 		envelope, ok, err := q5Receiver.Next(timer)
 		if err != nil {
@@ -499,15 +485,21 @@ OuterLoop:
 
 		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedSentiment))
 		log.Infof("Received sentiment debug: %+v", receivedSentiment)
+		expectedOutputQ5 = removeQ5(expectedOutputQ5, receivedSentiment)
+		if len(expectedOutputQ5) == 0 {
+			log.Infof("All expected films received")
+			break
+		}
 
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message")
-		timer.Reset(time.Second * 40)
 	}
+	if len(expectedOutputQ5) > 0 {
+		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ5)
+	}
+	log.Infof("All expected films received")
+
 	timer.Stop()
-	// Expected:
-	// NEGATIVE    5453.397595
-	// POSITIVE    5668.650541
 }
 
 func removeQ1(slice []common.Row, movie common.Row) []common.Row {
@@ -547,6 +539,47 @@ func stringSlicesEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func removeQ3(slice []common.Row, movie common.Row) []common.Row {
+	for i, v := range slice {
+		if v.Strings["title"] == movie.Strings["title"] && v.Strings["movieID"] == movie.Strings["movieID"] {
+			log.Infof("Film matched expected")
+			return slices.Delete(slice, i, i+1)
+		}
+	}
+	log.Errorf("Film not matched expected")
+	return slice
+}
+
+func removeQ4(slice []common.Row, actor common.Row) []common.Row {
+	for i, v := range slice {
+		if v.Strings["actor"] == actor.Strings["actor"] {
+			if v.Numerics["count"] == actor.Numerics["count"] {
+				log.Infof("Actor matched expected")
+			} else {
+				log.Errorf("Count not matched expected: %d != %d", actor.Numerics["count"], v.Numerics["count"])
+			}
+			return slices.Delete(slice, i, i+1)
+		}
+	}
+	log.Errorf("Actor not matched expected")
+	return slice
+}
+
+func removeQ5(expectedOutputQ5 []common.Row, receivedSentiment common.Row) []common.Row {
+	for i, v := range expectedOutputQ5 {
+		if v.Strings["sentiment"] == receivedSentiment.Strings["sentiment"] {
+			if v.Floats["avg_rate"]-receivedSentiment.Floats["avg_rate"] < 0.0001 {
+				log.Infof("Sentiment matched expected")
+			} else {
+				log.Errorf("Avg rate not matched expected: %f != %f", receivedSentiment.Floats["avg_rate"], v.Floats["avg_rate"])
+			}
+			return slices.Delete(expectedOutputQ5, i, i+1)
+		}
+	}
+	log.Errorf("Sentiment not matched expected")
+	return expectedOutputQ5
 }
 
 // adult,belongs_to_collection,budget,genres,homepage,id,imdb_id,original_language,

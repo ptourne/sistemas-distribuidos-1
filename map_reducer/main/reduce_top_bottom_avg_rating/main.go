@@ -6,7 +6,7 @@ import (
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
-	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
+	map_reducer "github.com/ptourne/sistemas-distribuidos-1/map_reducer"
 )
 
 var WORKER_ID = os.Getenv("WORKER_ID")
@@ -42,7 +42,8 @@ func main() {
 type TopBottomReduce struct{}
 
 func (r TopBottomReduce) Map(in In) []Acc {
-	return []Acc{{
+	log.Infof("Map: %v", in)
+	acc := []Acc{{
 		Top: Movie{
 			ID:     in.Strings["movieID"],
 			Title:  in.Strings["title"],
@@ -54,10 +55,8 @@ func (r TopBottomReduce) Map(in In) []Acc {
 			Rating: in.Floats["avg_rating"],
 		},
 	}}
-}
-
-func isGreater(a Movie, b Movie) bool {
-	return a.Rating > b.Rating
+	log.Infof("Map result: %v", acc)
+	return acc
 }
 
 func (r TopBottomReduce) Reduce(acc []Acc) Acc {
@@ -86,7 +85,7 @@ func (r TopBottomReduce) Output(acc Acc) []Res {
 
 func (a *Acc) Merge(b Acc) {
 	if b.Top.Rating > a.Top.Rating {
-		a.Top = a.Top
+		a.Top = b.Top
 	}
 	if b.Bottom.Rating < a.Bottom.Rating {
 		a.Bottom = b.Bottom

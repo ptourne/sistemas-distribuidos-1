@@ -54,7 +54,7 @@ func (f *JoinerRatings) ProcessAndSend(row common.Row) error {
 			return nil
 		}
 		err = f.processMovieAndSendRatings(row)
-	} else if _, ok := row.Numerics["rating"]; ok { // cambiar por avg_rating
+	} else if _, ok := row.Floats["avg_rating"]; ok { 
 		err = f.processRating(row)
 	} else {
 		log.Warnf("Received row with no recognizable ID: %+v", row)
@@ -91,7 +91,7 @@ func (f *JoinerRatings) processRating(row common.Row) error {
 	f.ratingsProcessed++
 	movieID := row.Strings["movieID"]
 	avg_rating := row.Floats["avg_rating"]
-	log.Infof("Processing rating %v", f.ratingsProcessed)
+	log.Infof("Processing rating %v : %v", f.ratingsProcessed, row)
 
 	lastDigit := string(movieID[len(movieID)-1])
 
@@ -200,7 +200,7 @@ func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
 		return nil, err
 	}
 
-	var avg_rating float64 // ToDo: cambiar por float64 cuando este el reducer testeado
+	var avg_rating float64 
 	var found = false
 	for {
 		data, err := reader.Read()

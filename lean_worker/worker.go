@@ -21,7 +21,7 @@ type Worker struct {
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
+var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
 
 type TType int
 
@@ -48,13 +48,14 @@ func (w *Worker) Run() {
 	}
 	log.Infof("Connected to task %s", w.TasksBin.Name())
 	for {
+		currentTask := w.TasksBin
+
 		envelope, ok := <-inputChannels[0] 
 		if !ok {
 			log.Infof("Channel closed, exiting...")
+			currentTask.Finish()
 			break
 		}
-		currentTask := w.TasksBin
-
 		row := envelope.Msg()
 		result := currentTask.ProcessAndSend(row)
 		if result != nil {
