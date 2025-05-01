@@ -5,4 +5,5 @@ type Serializable interface {
 	Encode() ([]byte, error)
 	// Decode decodes the byte slice into the object.
 	Decode(data []byte) error
+	// FinishMsg() T
 }

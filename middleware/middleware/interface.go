@@ -7,7 +7,7 @@ import (
 )
 
 // ver de declare, tratr de devovler un struct, ghacer read/write
-type MiddlewareCola[T codec.Serializable] interface {
+type Connection[T codec.Serializable] interface {
 	ConsumeFrom(sourceName string, groupName string, peers int, prefetch int) (Receiver[T], error)
 	ConsumeFromRK(sourceName string, groupName string, t string, routingkey string, peers int, prefetch int) (Receiver[T], error)
 	WriteTo(writeExchangeName string, subscribers []string) (Sender[T], error)
