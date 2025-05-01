@@ -1,35 +1,51 @@
-package middleware
+package rabbitmq
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/binary"
 	"fmt"
 	"math/rand/v2"
 	"sync/atomic"
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type MiddlewareRabbitmq[T any] struct {
+type RabbitMQConnector struct {
 	Conn *amqp.Connection
 }
 
-type ReceiverRabbitmq[T any] struct {
+func Connector() (*RabbitMQConnector, error) {
+	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to RabbitMQ: %v", err)
+	}
+	return &RabbitMQConnector{Conn: conn}, nil
+}
+
+func NewMiddleware[T codec.Serializable](c *RabbitMQConnector) middleware.Connection[T] {
+	return &middlewareRabbitmq[T]{Conn: c.Conn}
+}
+
+type middlewareRabbitmq[T codec.Serializable] struct {
+	Conn *amqp.Connection
+}
+
+type receiverRabbitmq[T codec.Serializable] struct {
 	input                        ReceiverChannel[T]
-	close                        ReceiverChannel[CloseNotification]
-	producerCountReq             SenderChannel[CountProducerReq]
-	producerCountRes             ReceiverChannel[CountProducerReq]
+	close                        ReceiverChannel[*CloseNotification]
+	producerCountReq             SenderChannel[*CountProducerReq]
+	producerCountRes             ReceiverChannel[*CountProducerReq]
 	asumeNoInFlightMsgs          bool
 	timeCloseNotificationArrived *time.Time
 	lastProducerCount            int
-	// isBlocked           atomic.Bool
-	// isClosed            atomic.Bool
 }
 
-type ReceiverChannel[T any] struct {
+type ReceiverChannel[T codec.Serializable] struct {
 	exchangeName string
 	queueName    string
 	amqpCh       *amqp.Channel
@@ -44,22 +60,22 @@ func (r *ReceiverChannel[T]) Close() {
 	}
 }
 
-type EnvelopeRabbitmq[T any] struct {
+type EnvelopeRabbitmq[T codec.Serializable] struct {
 	msg T
 	tag *amqp.Delivery
 }
 
-type SenderRabbitmq[T any] struct {
+type SenderRabbitmq[T codec.Serializable] struct {
 	exchangeName             string
 	output                   SenderChannel[T]
-	close                    *SenderChannel[CloseNotification]
+	close                    *SenderChannel[*CloseNotification]
 	producerCountReplier     chan struct{}
 	producerCountReplierKill *chan struct{}
 	isBlocked                atomic.Bool
 	isClosed                 atomic.Bool
 }
 
-type SenderChannel[T any] struct {
+type SenderChannel[T codec.Serializable] struct {
 	exchangeName string
 	ch           *amqp.Channel
 }
@@ -74,7 +90,7 @@ func (s *SenderChannel[T]) Close() {
 
 var log = logger.NewConsoleLogger("middleware", logger.Info)
 
-func NewRabbitmq[T any]() (MiddlewareCola[T], error) {
+func NewRabbitmq[T codec.Serializable]() (middleware.Connection[T], error) {
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	for range 5 {
 		if err == nil {
@@ -89,13 +105,13 @@ func NewRabbitmq[T any]() (MiddlewareCola[T], error) {
 		return nil, err
 	}
 
-	middleware := MiddlewareRabbitmq[T]{
+	middleware := middlewareRabbitmq[T]{
 		Conn: conn,
 	}
 	return &middleware, nil
 }
 
-func (m *MiddlewareRabbitmq[T]) Close() error {
+func (m *middlewareRabbitmq[T]) Close() error {
 	log.Infof("CLOSING MIDDLEWARE")
 	if m.Conn != nil {
 		m.Conn.Close()
@@ -104,11 +120,11 @@ func (m *MiddlewareRabbitmq[T]) Close() error {
 	return nil
 }
 
-func (m *ReceiverRabbitmq[T]) Qos(prefetchCount int, prefetchSize int) error {
+func (m *receiverRabbitmq[T]) Qos(prefetchCount int, prefetchSize int) error {
 	return m.input.amqpCh.Qos(prefetchCount, prefetchSize, false)
 }
 
-func (r *ReceiverRabbitmq[T]) Close() error {
+func (r *receiverRabbitmq[T]) Close() error {
 	log.Debugf("CLOSING RECEIVER: '%s', '%s", r.input.exchangeName, r.input.queueName)
 	r.input.Close()
 	r.close.Close()
@@ -119,6 +135,14 @@ func (r *ReceiverRabbitmq[T]) Close() error {
 
 type CloseNotification struct{}
 
+func (c CloseNotification) Encode() ([]byte, error) {
+	return []byte{}, nil
+}
+
+func (c *CloseNotification) Decode(data []byte) error {
+	return nil
+}
+
 func (s *SenderRabbitmq[T]) Close() error {
 	log.Debugf("CLOSING SENDER")
 	s.output.Close()
@@ -126,7 +150,7 @@ func (s *SenderRabbitmq[T]) Close() error {
 		for range 20 {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			err := s.close.Publish(ctx, CloseNotification{})
+			err := s.close.Publish(ctx, &CloseNotification{})
 
 			if err != nil {
 				return fmt.Errorf("failed to publish a message: %v in chan %s", err, closeExchangeName(s.exchangeName))
@@ -143,7 +167,7 @@ func (s *SenderRabbitmq[T]) Close() error {
 	return nil
 }
 
-func (m *MiddlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string) (Receiver[T], error) {
+func (m *middlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string) (middleware.Receiver[T], error) {
 	log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' ", sourceName, groupName)
 	if sourceName == "" {
 		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
@@ -154,7 +178,7 @@ func (m *MiddlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string)
 	return m.createReadQueueRK(sourceName, groupName, "fanout", "")
 }
 
-func (m *MiddlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, t string, routingKey string) (Receiver[T], error) {
+func (m *middlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, t string, routingKey string) (middleware.Receiver[T], error) {
 	log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' ", sourceName, groupName)
 	if sourceName == "" {
 		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
@@ -165,28 +189,28 @@ func (m *MiddlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName strin
 	return m.createReadQueueRK(sourceName, groupName, t, routingKey)
 }
 
-func (m *MiddlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queueName string, t string, routingKey string) (Receiver[T], error) {
+func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queueName string, t string, routingKey string) (middleware.Receiver[T], error) {
 	input, err := createConsumerRK[T, T](m, readExchangeName, queueName, t, routingKey)
 	if err != nil {
 		return nil, err
 	}
 
-	close, err := createConsumerRK[T, CloseNotification](m, closeExchangeName(readExchangeName), "", "fanout", "")
+	close, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName), "", "fanout", "")
 	if err != nil {
 		return nil, err
 	}
 
-	producerCountRes, err := createConsumerRK[T, CountProducerReq](m, producerCountResExchangeName(readExchangeName), "", "fanout", "")
+	producerCountRes, err := createConsumerRK[T, *CountProducerReq](m, producerCountResExchangeName(readExchangeName), "", "fanout", "")
 	if err != nil {
 		return nil, err
 	}
 
-	producerCountReq, err := CreateProducerRK[T, CountProducerReq](m, producerCountReqExchangeName(readExchangeName), "fanout")
+	producerCountReq, err := CreateProducerRK[T, *CountProducerReq](m, producerCountReqExchangeName(readExchangeName), "fanout")
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
 
-	receiver := &ReceiverRabbitmq[T]{
+	receiver := &receiverRabbitmq[T]{
 		input:             input,
 		close:             close,
 		producerCountReq:  *producerCountReq,
@@ -198,7 +222,7 @@ func (m *MiddlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 	return receiver, nil
 }
 
-func CreateProducerRK[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string, t string) (*SenderChannel[I], error) {
+func CreateProducerRK[T, I codec.Serializable](m *middlewareRabbitmq[T], readExchangeName string, t string) (*SenderChannel[I], error) {
 	producerCountReqCh, err := m.Conn.Channel()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open a channel: %v", err)
@@ -220,7 +244,7 @@ func CreateProducerRK[T, I any](m *MiddlewareRabbitmq[T], readExchangeName strin
 	return &newVar, nil
 }
 
-func createConsumerRK[T, I any](m *MiddlewareRabbitmq[T], readExchangeName string, queueName string, t string, routingKey string) (ReceiverChannel[I], error) {
+func createConsumerRK[T, I codec.Serializable](m *middlewareRabbitmq[T], readExchangeName string, queueName string, t string, routingKey string) (ReceiverChannel[I], error) {
 	inputQueue, inputCh, err := m.createQueueRK(readExchangeName, queueName, t, routingKey)
 	if err != nil {
 		return ReceiverChannel[I]{}, nil
@@ -240,7 +264,7 @@ func createConsumerRK[T, I any](m *MiddlewareRabbitmq[T], readExchangeName strin
 	return ReceiverChannel[I]{readExchangeName, queueName, inputCh, &msgs}, nil
 }
 
-func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string) (Sender[T], error) {
+func (m *middlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string) (middleware.Sender[T], error) {
 	subscribersMap := make(map[string][]string)
 	for _, sub := range subscribers {
 		subscribersMap[sub] = []string{""}
@@ -248,14 +272,14 @@ func (m *MiddlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 	return m.WriteToRK(outputName, subscribersMap, "fanout")
 }
 
-func (m *MiddlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[string][]string, t string) (Sender[T], error) {
+func (m *middlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[string][]string, t string) (middleware.Sender[T], error) {
 	log.Infof("Creating WriteTo exchange '%s'", outputName)
 	output, err := CreateProducerRK[T, T](m, outputName, t)
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
 
-	closep, err := CreateProducerRK[T, CloseNotification](m, closeExchangeName(outputName), "fanout")
+	closep, err := CreateProducerRK[T, *CloseNotification](m, closeExchangeName(outputName), "fanout")
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
@@ -275,12 +299,12 @@ func (m *MiddlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 		}
 	}
 
-	producerCountReq, err := createConsumerRK[T, CountProducerReq](m, producerCountReqExchangeName(outputName), "", "fanout", "")
+	producerCountReq, err := createConsumerRK[T, *CountProducerReq](m, producerCountReqExchangeName(outputName), "", "fanout", "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to register a consumer %v", err)
 	}
 
-	producerCountRes, err := CreateProducerRK[T, CountProducerReq](m, producerCountResExchangeName(outputName), "fanout")
+	producerCountRes, err := CreateProducerRK[T, *CountProducerReq](m, producerCountResExchangeName(outputName), "fanout")
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
@@ -297,7 +321,7 @@ func (m *MiddlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 			select {
 			case msg := <-*producerCountReq.C:
 				log.Infof("RECEIVED producer count request: '%s' from '%s'", producerCountReq.exchangeName, producerCountReq.queueName)
-				req, ok, err := processMsg[CountProducerReq](msg)
+				req, ok, err := processMsg[*CountProducerReq](msg)
 				if err != nil {
 					log.Errorf("error getting count producer request: %s when processing message '%s' from '%s' as '%s'", err, string(msg.Body), producerCountReq.exchangeName, producerCountReq.queueName)
 					return
@@ -342,9 +366,9 @@ func (s *SenderChannel[T]) Publish(ctx context.Context, msg T) error {
 }
 
 func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey string) error {
-	buf, err := json.Marshal(msg)
+	buf, err := msg.Encode()
 	if err != nil {
-		return fmt.Errorf("failed to marshal reply: %v", err)
+		return fmt.Errorf("failed to encode message: %v", err)
 	}
 	// log.Debugf("PUBLISHING message '%s' in chan %s", string(buf), s.exchangeName)
 	err = s.ch.PublishWithContext(ctx,
@@ -353,7 +377,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 		false,          // mandatory
 		false,          // immediate
 		amqp.Publishing{
-			ContentType: "text/json",
+			ContentType: "application/message",
 			Body:        buf,
 		})
 	if err != nil {
@@ -364,7 +388,21 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 }
 
 type CountProducerReq struct {
-	ID uint `json:"id"`
+	ID uint64
+}
+
+func (c CountProducerReq) Encode() ([]byte, error) {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, c.ID)
+	return b, nil
+}
+
+func (c *CountProducerReq) Decode(b []byte) error {
+	if len(b) != 8 {
+		return fmt.Errorf("invalid buffer length")
+	}
+	c.ID = binary.BigEndian.Uint64(b)
+	return nil
 }
 
 // Returns:
@@ -373,7 +411,7 @@ type CountProducerReq struct {
 // - error: An error if occurred during processing, nil otherwise.
 //
 // If timer triggers, the function returns an error: "timeout reached while waiting for message"
-func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, error) {
+func (r *receiverRabbitmq[T]) Next(timeout *time.Timer) (middleware.Envelope[T], bool, error) {
 	if r.input.amqpCh == nil {
 		return nil, false, fmt.Errorf("read channel is not initialized")
 	}
@@ -418,7 +456,7 @@ func (r *ReceiverRabbitmq[T]) Next(timeout *time.Timer) (Envelope[T], bool, erro
 
 }
 
-func (r *ReceiverRabbitmq[T]) nextHandleCloseMsg(ok bool, timeout *time.Timer) (Envelope[T], bool, error) {
+func (r *receiverRabbitmq[T]) nextHandleCloseMsg(ok bool, timeout *time.Timer) (middleware.Envelope[T], bool, error) {
 	if !ok {
 		return nil, false, fmt.Errorf("close channel was closed")
 	}
@@ -427,7 +465,7 @@ func (r *ReceiverRabbitmq[T]) nextHandleCloseMsg(ok bool, timeout *time.Timer) (
 	return r.nextIfNotifedClosed(timeout)
 }
 
-func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope[T], bool, error) {
+func (r *receiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (middleware.Envelope[T], bool, error) {
 	// log.Infof("nextIfNotifedClosed")
 	const timeUntilArrivalToBroker = time.Millisecond * 500
 	const transmissionTime = time.Millisecond * 500
@@ -457,14 +495,14 @@ func (r *ReceiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (Envelope
 	}
 }
 
-func processMsg[T any](msg amqp.Delivery) (Envelope[T], bool, error) {
-	var receivedMovie T
-	err := json.Unmarshal(msg.Body, &receivedMovie)
+func processMsg[T codec.Serializable](msg amqp.Delivery) (middleware.Envelope[T], bool, error) {
+	var received T
+	err := received.Decode(msg.Body)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to unmarshal film: %v", err)
+		return nil, false, fmt.Errorf("failed to decode item: %v", err)
 	}
 	envelope := EnvelopeRabbitmq[T]{
-		msg: receivedMovie,
+		msg: received,
 		tag: &msg,
 	}
 	return &envelope, true, nil
@@ -516,11 +554,11 @@ func (s *SenderRabbitmq[T]) SendRK(row *T, routingKey string) error {
 	return nil
 }
 
-func (m *MiddlewareRabbitmq[T]) createQueue(exchangeName string, groupName string) (*amqp.Queue, *amqp.Channel, error) {
+func (m *middlewareRabbitmq[T]) createQueue(exchangeName string, groupName string) (*amqp.Queue, *amqp.Channel, error) {
 	return m.createQueueRK(exchangeName, groupName, "fanaout", "")
 }
 
-func (m *MiddlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName string, t string, routingKey string) (*amqp.Queue, *amqp.Channel, error) {
+func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName string, t string, routingKey string) (*amqp.Queue, *amqp.Channel, error) {
 	ch, err := m.Conn.Channel()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open a channel: %v", err)
@@ -581,12 +619,12 @@ func producerCountResExchangeName(readExchangeName string) string {
 	return fmt.Sprintf("%s_count_res", readExchangeName)
 }
 
-func (r *ReceiverRabbitmq[T]) CountProducers() (int, error) {
+func (r *receiverRabbitmq[T]) CountProducers() (int, error) {
 	// log.Infof("Calling count producers '%s'-'%s'", r.input.exchangeName, r.input.queueName)
 	producerCount := 0
-	reqID := rand.UintN(1000000000)
+	reqID := rand.Uint64N(1000000000)
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Second)
-	err := r.producerCountReq.Publish(ctx, CountProducerReq{reqID})
+	err := r.producerCountReq.Publish(ctx, &CountProducerReq{ID: reqID})
 	if err != nil {
 		cancel()
 		return 0, err
@@ -601,7 +639,7 @@ func (r *ReceiverRabbitmq[T]) CountProducers() (int, error) {
 		default:
 			select {
 			case msg := <-*r.producerCountRes.C:
-				rep, _, err := processMsg[CountProducerReq](msg)
+				rep, _, err := processMsg[*CountProducerReq](msg)
 				if err != nil {
 					rep.Nack(false)
 					return 0, err
