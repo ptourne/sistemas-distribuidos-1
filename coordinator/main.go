@@ -12,10 +12,8 @@ import (
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
-
-const MIDDLEWARE = "rabbitmq"
 
 var log = logger.NewConsoleLogger("coordinator", logger.Info)
 
@@ -40,15 +38,14 @@ func (r *RatingB) Decode(data []byte) {
 }
 
 func main() {
-	middlewareChan, err := middleware.NewRabbitmq[common.Row]()
+	connector, err := rabbitmq.Connector()
 	if err != nil {
-		unwrap(err, "Failed to create middleware")
+		log.Errorf("Failed to connect middleware: %v", err)
+		return
 	}
-	middlewareChanByte, err := middleware.NewRabbitmq[[]byte]()
-	if err != nil {
-		unwrap(err, "Failed to create middleware")
-	}
-	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+	middlewareChan := rabbitmq.NewMiddleware[*common.Row](connector)
+	middlewareChanByte := rabbitmq.NewMiddleware[*common.FileChunk](connector)
+	log.Infof("Connected to middleware")
 
 	defer middlewareChan.Close()
 
