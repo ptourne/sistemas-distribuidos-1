@@ -9,9 +9,11 @@ LABEL intermediateStageToBeDeleted=true
 
 RUN mkdir -p /build/client
 RUN mkdir -p /build/common
+RUN mkdir -p /build/middleware
 
 WORKDIR /build/client
 COPY ./common /build/common
+COPY ./middleware /build/middleware
 COPY ./client/go.mod ./client/go.sum ./
 RUN go mod download
 

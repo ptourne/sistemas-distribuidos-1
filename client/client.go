@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 )
 
 const CHUNK_SIZE = 1024
@@ -44,7 +45,7 @@ OuterLoop:
 		}
 
 		packetSize := binary.BigEndian.Uint32(sizeBuf[0:4])
-		packetType := common.TypeRow(binary.BigEndian.Uint32(sizeBuf[4:8]))
+		packetType := model.TypeRow(binary.BigEndian.Uint32(sizeBuf[4:8]))
 		dataBuf := make([]byte, packetSize)
 		_, err = io.ReadFull(c.conn, dataBuf)
 		if err != nil {
@@ -53,13 +54,13 @@ OuterLoop:
 		}
 
 		switch packetType {
-		case common.QueryName:
+		case model.QueryName:
 			data := string(dataBuf)
 			queryType = data
 			log.Infof("Query: %s", data)
 
-		case common.QueryRow:
-			var movie common.Row
+		case model.QueryRow:
+			var movie model.Row
 			err = json.Unmarshal(dataBuf, &movie)
 			if err != nil {
 				log.Errorf("Error unmarshaling data: %v", err)
@@ -80,7 +81,7 @@ OuterLoop:
 				log.Infof("Query no soportada: %s", queryType)
 			}
 
-		case common.FinishQuerys:
+		case model.FinishQuerys:
 			log.Infof("Recibido FINISH QUERYS")
 			err = common.SendAck(c.conn)
 			if err != nil {
@@ -163,18 +164,18 @@ func (c *Client) StopClient() {
 	log.Infof("Client stopped")
 }
 
-func printRowQ1(row common.Row) {
+func printRowQ1(row model.Row) {
 	log.Infof("movieId:%s, movieTitle:%s, movieGenres:%v, movieProductionCountries:%v", row.Strings["movieID"], row.Strings["title"], row.Arrays["genres"], row.Arrays["production_countries"])
 }
 
-func printRowQ2(row common.Row) {
+func printRowQ2(row model.Row) {
 	log.Infof("country:%s, budget:%d", row.Strings["country"], row.Numerics["budget_sum"])
 }
 
-func printRowQ3(row common.Row) {
+func printRowQ3(row model.Row) {
 	log.Infof("movieID:%s, title:%s, avg_rating:%f", row.Strings["movieID"], row.Strings["title"], row.Floats["avg_rating"])
 }
 
-func printRowQx(row common.Row) {
+func printRowQx(row model.Row) {
 	log.Infof("Row: %+v", row)
 }

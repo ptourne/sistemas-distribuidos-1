@@ -10,26 +10,26 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
 type JoinerCredits struct {
-	inputToProcess      task.Task[common.Row, common.Row]
-	inputToSave         task.Task[common.Row, common.Row]
-	taskReceiverCredits middleware.Receiver[common.Row]
-	taskReceiverMovies  middleware.Receiver[common.Row]
-	taskSender          middleware.Sender[common.Row]
+	inputToProcess      task.Task[*model.Row, *model.Row]
+	inputToSave         task.Task[*model.Row, *model.Row]
+	taskReceiverCredits middleware.Receiver[*model.Row]
+	taskReceiverMovies  middleware.Receiver[*model.Row]
+	taskSender          middleware.Sender[*model.Row]
 	creditsProcessed    int
 	doneCredits         atomic.Bool
-	pendingMovies       map[string]common.Row
+	pendingMovies       map[string]*model.Row
 	pendingMoviesMu     sync.Mutex
 	subscribers         []string
 }
 
-func NewJoinerCredits(inputToProcess task.Task[common.Row, common.Row], inputToSave task.Task[common.Row, common.Row], subscribers []string) task.Task[common.Row, common.Row] {
-	joiner := JoinerCredits{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make(map[string]common.Row), sync.Mutex{}, subscribers}
+func NewJoinerCredits(inputToProcess task.Task[*model.Row, *model.Row], inputToSave task.Task[*model.Row, *model.Row], subscribers []string) task.Task[*model.Row, *model.Row] {
+	joiner := JoinerCredits{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make(map[string]*model.Row), sync.Mutex{}, subscribers}
 	joiner.doneCredits.Store(false)
 	return &joiner
 }
@@ -42,7 +42,7 @@ func (f *JoinerCredits) Name() string {
 	return "joiner_credits"
 }
 
-func (f *JoinerCredits) ProcessAndSend(row common.Row) error {
+func (f *JoinerCredits) ProcessAndSend(row *model.Row) error {
 	var err error
 	if movieID, ok := row.Strings["movieID"]; ok && movieID != "" {
 		//log.Infof("Processing movie: %s", movieID)
@@ -64,7 +64,7 @@ func (f *JoinerCredits) ProcessAndSend(row common.Row) error {
 	return err
 }
 
-func (f *JoinerCredits) processMovieAndSendActors(row common.Row) error {
+func (f *JoinerCredits) processMovieAndSendActors(row *model.Row) error {
 
 	output, err := f.processMovie(row)
 	if err != nil {
@@ -74,7 +74,7 @@ func (f *JoinerCredits) processMovieAndSendActors(row common.Row) error {
 	return f.sendActors(output, err)
 }
 
-func (f *JoinerCredits) sendActors(output []*common.Row, err error) error {
+func (f *JoinerCredits) sendActors(output []*model.Row, err error) error {
 	if err != nil {
 		//log.Errorf("Failed to process movie: %v", err)
 		return err
@@ -92,7 +92,7 @@ func (f *JoinerCredits) sendActors(output []*common.Row, err error) error {
 	return nil
 }
 
-func (f *JoinerCredits) processCredit(row common.Row) error {
+func (f *JoinerCredits) processCredit(row *model.Row) error {
 	f.creditsProcessed++
 	movieID := row.Strings["ID"]
 	cast := row.Arrays["cast"]
@@ -184,8 +184,8 @@ func (f *JoinerCredits) processCredit(row common.Row) error {
 	return nil
 }
 
-func (f *JoinerCredits) processMovie(row common.Row) ([]*common.Row, error) {
-	var flattenCast []*common.Row
+func (f *JoinerCredits) processMovie(row *model.Row) ([]*model.Row, error) {
+	var flattenCast []*model.Row
 	movieID := row.Strings["movieID"]
 	//log.Infof("Processing movie: %s", movieID)
 	lastDigit := string(movieID[len(movieID)-1])
@@ -242,13 +242,13 @@ func (f *JoinerCredits) processMovie(row common.Row) ([]*common.Row, error) {
 
 }
 
-func flattenCastList(castList []string, movieID string) []*common.Row {
-	var flattenCast []*common.Row
+func flattenCastList(castList []string, movieID string) []*model.Row {
+	var flattenCast []*model.Row
 
 	for _, actor := range castList {
 		actor = strings.Trim(actor, " ")
 		if actor != "" {
-			flattenCast = append(flattenCast, &common.Row{
+			flattenCast = append(flattenCast, &model.Row{
 				Strings: map[string]string{
 					"movieID": movieID,
 					"actor":   actor,
@@ -259,7 +259,7 @@ func flattenCastList(castList []string, movieID string) []*common.Row {
 	return flattenCast
 }
 
-func (f *JoinerCredits) Connect(middlewareConnection middleware.MiddlewareCola[common.Row], _ middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
+func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
 	groupQueueName := fmt.Sprintf("joiner_%s_credits", WORKER_ID)
 	f.taskReceiverCredits, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName) //, true)
@@ -278,8 +278,8 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.MiddlewareCola[c
 	}
 
 	//lint:ignore S1019 Ignorar reflect.Select en este archivo
-	inputChannelMovies := make(chan middleware.Envelope[common.Row], 0)
-	inputChannelCredits := make(chan middleware.Envelope[common.Row])
+	inputChannelMovies := make(chan middleware.Envelope[*model.Row], 0)
+	inputChannelCredits := make(chan middleware.Envelope[*model.Row])
 
 	go func() {
 		for {
@@ -322,7 +322,7 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.MiddlewareCola[c
 		close(inputChannelMovies)
 	}()
 
-	inputChannel := make([]chan middleware.Envelope[common.Row], 2)
+	inputChannel := make([]chan middleware.Envelope[*model.Row], 2)
 	inputChannel[0] = inputChannelMovies
 	inputChannel[1] = inputChannelCredits
 	return inputChannel, nil

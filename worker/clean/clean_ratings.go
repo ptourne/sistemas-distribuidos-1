@@ -4,8 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
@@ -31,12 +31,12 @@ func (r *Rating) Decode(data []byte) {
 
 type CleanRatings struct {
 	input        string
-	taskReceiver middleware.Receiver[[]byte]
-	taskSender   middleware.Sender[common.Row]
+	taskReceiver middleware.Receiver[*model.FileChunk]
+	taskSender   middleware.Sender[*model.Row]
 	subscribers  map[string][]string
 }
 
-func NewCleanRatings(input task.Task[common.Row, []byte], subscribers map[string][]string) task.Task[[]byte, common.Row] {
+func NewCleanRatings(input task.Task[*model.Row, *model.FileChunk], subscribers map[string][]string) task.Task[*model.FileChunk, *model.Row] {
 	return &CleanRatings{input.Name(), nil, nil, subscribers}
 }
 
@@ -48,8 +48,8 @@ func (f CleanRatings) Name() string {
 	return "clean_ratings"
 }
 
-func (f CleanRatings) ProcessAndSend(row []byte) error {
-	output := f.process(row)
+func (f CleanRatings) ProcessAndSend(row *model.FileChunk) error {
+	output := f.process(row.Bytes) // TODO: this should be a different model
 	if output == nil {
 		return nil
 	}
@@ -58,7 +58,7 @@ func (f CleanRatings) ProcessAndSend(row []byte) error {
 	return f.taskSender.SendRK(output, routingKey)
 }
 
-func (f CleanRatings) process(row []byte) *common.Row {
+func (f CleanRatings) process(row []byte) *model.Row {
 	rating := &Rating{}
 	rating.Decode(row)
 	// requiredFields := []string{
@@ -88,19 +88,19 @@ func (f CleanRatings) process(row []byte) *common.Row {
 
 	// log.Debugf("Clean ALL: movieID: %s, rating: %v", row.Strings["movieID"], rating)
 
-	res := &common.Row{
+	res := &model.Row{
 		Strings: map[string]string{
 			"movieID": fmt.Sprintf("%d", rating.Id),
 		},
-		Numerics: map[string]uint{
-			"rating": uint(rating.Rating),
-		},
+		Numerics: map[string]uint64{
+			"rating": uint64(rating.Rating),
+		}, //Todo use codec.Decimals
 	}
 	// log.Debugf("rating: %v", res)
 	return res
 }
 
-func (f *CleanRatings) Connect(middIn middleware.MiddlewareCola[[]byte], middOut middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[[]byte], error) {
+func (f *CleanRatings) Connect(middIn middleware.Connection[*model.FileChunk], middOut middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.FileChunk], error) {
 	var err error
 	f.taskReceiver, err = middIn.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
@@ -114,7 +114,7 @@ func (f *CleanRatings) Connect(middIn middleware.MiddlewareCola[[]byte], middOut
 	}
 
 	//lint:ignore S1019 Ignorar reflect.Select en este archivo
-	inputChannel := make(chan middleware.Envelope[[]byte], 0)
+	inputChannel := make(chan middleware.Envelope[*model.FileChunk], 0)
 	go func() {
 		for {
 			envelope, ok, err := f.taskReceiver.Next(nil)
@@ -134,7 +134,7 @@ func (f *CleanRatings) Connect(middIn middleware.MiddlewareCola[[]byte], middOut
 		}
 		close(inputChannel)
 	}()
-	channels := []chan middleware.Envelope[[]byte]{inputChannel}
+	channels := []chan middleware.Envelope[*model.FileChunk]{inputChannel}
 
 	return channels, nil
 }

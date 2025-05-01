@@ -19,18 +19,6 @@ type RabbitMQConnector struct {
 	Conn *amqp.Connection
 }
 
-func Connector() (*RabbitMQConnector, error) {
-	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to RabbitMQ: %v", err)
-	}
-	return &RabbitMQConnector{Conn: conn}, nil
-}
-
-func NewMiddleware[T codec.Serializable](c *RabbitMQConnector) middleware.Connection[T] {
-	return &middlewareRabbitmq[T]{Conn: c.Conn}
-}
-
 type middlewareRabbitmq[T codec.Serializable] struct {
 	Conn *amqp.Connection
 }
@@ -90,7 +78,7 @@ func (s *SenderChannel[T]) Close() {
 
 var log = logger.NewConsoleLogger("middleware", logger.Info)
 
-func NewRabbitmq[T codec.Serializable]() (middleware.Connection[T], error) {
+func Connector() (*RabbitMQConnector, error) {
 	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	for range 5 {
 		if err == nil {
@@ -102,13 +90,13 @@ func NewRabbitmq[T codec.Serializable]() (middleware.Connection[T], error) {
 		conn, err = amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to RabbitMQ: %v", err)
 	}
+	return &RabbitMQConnector{Conn: conn}, nil
+}
 
-	middleware := middlewareRabbitmq[T]{
-		Conn: conn,
-	}
-	return &middleware, nil
+func NewMiddleware[T codec.Serializable](c *RabbitMQConnector) middleware.Connection[T] {
+	return &middlewareRabbitmq[T]{Conn: c.Conn}
 }
 
 func (m *middlewareRabbitmq[T]) Close() error {
@@ -536,16 +524,16 @@ func (r *EnvelopeRabbitmq[T]) Nack(multiple bool) error {
 	return nil
 }
 
-func (s *SenderRabbitmq[T]) Send(row *T) error {
+func (s *SenderRabbitmq[T]) Send(row T) error {
 	return s.SendRK(row, "")
 }
 
-func (s *SenderRabbitmq[T]) SendRK(row *T, routingKey string) error {
+func (s *SenderRabbitmq[T]) SendRK(row T, routingKey string) error {
 	if s.exchangeName == "" {
 		return fmt.Errorf("write exchange is not initialized")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	err := s.output.PublishRK(ctx, *row, routingKey)
+	err := s.output.PublishRK(ctx, row, routingKey)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
@@ -555,7 +543,7 @@ func (s *SenderRabbitmq[T]) SendRK(row *T, routingKey string) error {
 }
 
 func (m *middlewareRabbitmq[T]) createQueue(exchangeName string, groupName string) (*amqp.Queue, *amqp.Channel, error) {
-	return m.createQueueRK(exchangeName, groupName, "fanaout", "")
+	return m.createQueueRK(exchangeName, groupName, "fanout", "")
 }
 
 func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName string, t string, routingKey string) (*amqp.Queue, *amqp.Channel, error) {

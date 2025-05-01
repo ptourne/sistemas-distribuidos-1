@@ -3,20 +3,20 @@ package clean
 import (
 	"fmt"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
 type CleanMovies struct {
-	input        task.Task[common.Row, common.Row]
-	taskReceiver middleware.Receiver[common.Row]
-	taskSender   middleware.Sender[common.Row]
+	input        task.Task[*model.Row, *model.Row]
+	taskReceiver middleware.Receiver[*model.Row]
+	taskSender   middleware.Sender[*model.Row]
 	subscribers  []string
 }
 
-func NewCleanMovies(input task.Task[common.Row, common.Row], subscribers []string) task.Task[common.Row, common.Row] {
+func NewCleanMovies(input task.Task[*model.Row, *model.Row], subscribers []string) task.Task[*model.Row, *model.Row] {
 	return &CleanMovies{input, nil, nil, subscribers}
 }
 
@@ -28,7 +28,7 @@ func (f CleanMovies) Name() string {
 	return "clean_movies"
 }
 
-func (f CleanMovies) ProcessAndSend(row common.Row) error {
+func (f CleanMovies) ProcessAndSend(row *model.Row) error {
 	output := f.process(row)
 	if output == nil {
 		return nil
@@ -36,7 +36,7 @@ func (f CleanMovies) ProcessAndSend(row common.Row) error {
 	return f.taskSender.Send(output)
 }
 
-func (f CleanMovies) process(row common.Row) *common.Row {
+func (f CleanMovies) process(row *model.Row) *model.Row {
 	requiredFields := []string{
 		row.Strings["movieID"],
 		row.Strings["title"],
@@ -84,13 +84,13 @@ func (f CleanMovies) process(row common.Row) *common.Row {
 		return nil
 	}
 
-	budget, ok := utils.ParseInt(row.Strings["budget"])
+	budget, ok := utils.ParseUint64(row.Strings["budget"])
 	if !ok {
 		log.Warnf("could not parse budget: %s", row.Strings["budget"])
 		return nil
 	}
 
-	revenue, ok := utils.ParseInt(row.Strings["revenue"])
+	revenue, ok := utils.ParseUint64(row.Strings["revenue"])
 	if !ok {
 		log.Warnf("could not parse revenue: %s", row.Strings["revenue"])
 		return nil
@@ -98,7 +98,7 @@ func (f CleanMovies) process(row common.Row) *common.Row {
 
 	log.Debugf("Clean ALL: title: %s, production_countries: %v, release_date: %v", row.Strings["title"], productionCountries, releaseYear)
 
-	return &common.Row{
+	return &model.Row{
 		Strings: map[string]string{
 			"movieID":  row.Strings["movieID"],
 			"title":    row.Strings["title"],
@@ -108,8 +108,8 @@ func (f CleanMovies) process(row common.Row) *common.Row {
 			"production_countries": productionCountries,
 			"genres":               genres,
 		},
-		Numerics: map[string]uint{
-			"release_date": releaseYear,
+		Numerics: map[string]uint64{
+			"release_date": uint64(releaseYear),
 			"budget":       budget,
 			"revenue":      revenue,
 		},
@@ -117,7 +117,7 @@ func (f CleanMovies) process(row common.Row) *common.Row {
 	}
 }
 
-func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[common.Row], _ middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
+func (f *CleanMovies) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
 	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
@@ -129,7 +129,7 @@ func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[com
 	}
 
 	//lint:ignore S1019 Ignorar reflect.Select en este archivo
-	inputChannel := make(chan middleware.Envelope[common.Row], 0)
+	inputChannel := make(chan middleware.Envelope[*model.Row], 0)
 	go func() {
 		for {
 			envelope, ok, err := f.taskReceiver.Next(nil)
@@ -149,7 +149,7 @@ func (f *CleanMovies) Connect(middlewareConnection middleware.MiddlewareCola[com
 		}
 		close(inputChannel)
 	}()
-	channels := []chan middleware.Envelope[common.Row]{inputChannel}
+	channels := []chan middleware.Envelope[*model.Row]{inputChannel}
 
 	return channels, nil
 }

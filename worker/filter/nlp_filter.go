@@ -1,12 +1,12 @@
 package filter
 
 import (
-	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	nlp "github.com/ptourne/sistemas-distribuidos-1/worker/nlp/go_client" // Add this import
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterSentimentAndRate(input string, subscribers []string, grpcAddr string) task.Task[common.Row, common.Row] {
+func NewFilterSentimentAndRate(input string, subscribers []string, grpcAddr string) task.Task[*model.Row, *model.Row] {
 	mapper, err := nlp.NewSentimentAndRateMap(grpcAddr)
 	if err != nil {
 		log.Errorf("Error creating SentimentAndRateMap: %v", err)

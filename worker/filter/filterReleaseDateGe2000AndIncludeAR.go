@@ -3,11 +3,11 @@ package filter
 import (
 	"slices"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterReleaseDateGe2000AndIncludeAR(input string, subscribers []string) task.Task[common.Row, common.Row] {
+func NewFilterReleaseDateGe2000AndIncludeAR(input string, subscribers []string) task.Task[*model.Row, *model.Row] {
 	return &GenericFilter{
 		name:              "filter_release_date_ge_2000_and_include_ar",
 		input:             input,
@@ -29,7 +29,7 @@ type ArrayIncludes struct {
 	Expected string
 }
 
-func (c ArrayIncludes) Passes(row common.Row) (bool, error) {
+func (c ArrayIncludes) Passes(row *model.Row) (bool, error) {
 	if val, ok := row.Arrays[c.Column]; ok {
 		return slices.Contains(val, c.Expected), nil
 	}

@@ -3,8 +3,8 @@ package filter
 import (
 	"fmt"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 )
 
 type NumericOperator int
@@ -21,10 +21,10 @@ const (
 type NumericCondition struct {
 	Column   string
 	Operator NumericOperator
-	Value    uint
+	Value    uint64
 }
 
-func (c NumericCondition) Passes(row common.Row) (bool, error) {
+func (c NumericCondition) Passes(row *model.Row) (bool, error) {
 	if val, ok := row.Numerics[c.Column]; ok {
 		switch c.Operator {
 		case Equal:
@@ -45,11 +45,11 @@ func (c NumericCondition) Passes(row common.Row) (bool, error) {
 }
 
 type Condition interface {
-	Passes(row common.Row) (bool, error)
+	Passes(row *model.Row) (bool, error)
 }
 
 type Map interface {
-	Transform(input *common.Row, output *common.Row) error
+	Transform(input *model.Row, output *model.Row) error
 }
 
 type GenericFilter struct {
@@ -61,8 +61,8 @@ type GenericFilter struct {
 	KeptFloatFields   []string
 	KeptArrayFields   []string
 	Maps              []Map
-	taskReceiver      middleware.Receiver[common.Row]
-	taskSender        middleware.Sender[common.Row]
+	taskReceiver      middleware.Receiver[*model.Row]
+	taskSender        middleware.Sender[*model.Row]
 	subscribers       []string
 }
 
@@ -74,7 +74,7 @@ func (f *GenericFilter) Input() string {
 	return f.input
 }
 
-func (f GenericFilter) ProcessAndSend(row common.Row) error {
+func (f GenericFilter) ProcessAndSend(row *model.Row) error {
 	output := f.process(row)
 	if output == nil {
 		return nil
@@ -82,7 +82,7 @@ func (f GenericFilter) ProcessAndSend(row common.Row) error {
 	return f.taskSender.Send(output)
 }
 
-func (f GenericFilter) process(row common.Row) *common.Row {
+func (f GenericFilter) process(row *model.Row) *model.Row {
 	for _, condition := range f.Conditions {
 		passes, err := condition.Passes(row)
 		if err != nil {
@@ -94,9 +94,9 @@ func (f GenericFilter) process(row common.Row) *common.Row {
 			return nil
 		}
 	}
-	res := &common.Row{
+	res := &model.Row{
 		Strings:  make(map[string]string),
-		Numerics: make(map[string]uint),
+		Numerics: make(map[string]uint64),
 		Floats:   make(map[string]float64),
 		Arrays:   make(map[string][]string),
 	}
@@ -121,7 +121,7 @@ func (f GenericFilter) process(row common.Row) *common.Row {
 		}
 	}
 	for _, mapf := range f.Maps {
-		err := mapf.Transform(&row, res)
+		err := mapf.Transform(row, res)
 		if err != nil {
 			log.Errorf("Error during map transformation: %v", err)
 			return nil
@@ -138,7 +138,7 @@ func (f GenericFilter) String() string {
 	return fmt.Sprintf("GenericFilter{Conditions: %v}", f.Conditions)
 }
 
-func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[common.Row], _ middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
+func (f *GenericFilter) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
 	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
@@ -150,7 +150,7 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[c
 	}
 
 	//lint:ignore S1019 Ignorar reflect.Select en este archivo
-	inputChannel := make(chan middleware.Envelope[common.Row], 0)
+	inputChannel := make(chan middleware.Envelope[*model.Row], 0)
 	go func() {
 		for {
 			envelope, ok, err := f.taskReceiver.Next(nil)
@@ -170,7 +170,7 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.MiddlewareCola[c
 		}
 		close(inputChannel)
 	}()
-	channels := []chan middleware.Envelope[common.Row]{inputChannel}
+	channels := []chan middleware.Envelope[*model.Row]{inputChannel}
 
 	return channels, nil
 }

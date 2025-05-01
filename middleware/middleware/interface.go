@@ -29,7 +29,7 @@ type Envelope[T codec.Serializable] interface {
 }
 
 type Sender[T codec.Serializable] interface {
-	Send(row *T) error
-	SendRK(row *T, routingKey string) error
+	Send(row T) error
+	SendRK(row T, routingKey string) error
 	Close() error
 }

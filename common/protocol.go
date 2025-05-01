@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"io"
 	"net"
+
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 )
 
 type TypeMsg int
 
 const (
 	FileName TypeMsg = iota
-	FinishFile 
+	FinishFile
 	FileData
 	AllFilesSent
 )
-
 
 func WriteFull(writer io.Writer, buf []byte, n int) error {
 	sent := 0
@@ -33,7 +34,7 @@ func WriteProtocolTypeMsg(conn net.Conn, buf []byte, n int, typeMsg TypeMsg) err
 	return writeProtocol(conn, buf, n, int(typeMsg))
 }
 
-func WriteProtocolTypeRow(conn net.Conn, buf []byte, n int, typeRow TypeRow) error {
+func WriteProtocolTypeRow(conn net.Conn, buf []byte, n int, typeRow model.TypeRow) error {
 	return writeProtocol(conn, buf, n, int(typeRow))
 }
 
@@ -56,13 +57,12 @@ func SendAck(conn net.Conn) error {
 	return err
 }
 
-
 func waitAck(conn net.Conn) error {
 	ackBuf := make([]byte, 3)
 	_, err := io.ReadFull(conn, ackBuf)
 	if err != nil {
 		return fmt.Errorf("error recibiendo ACK: %v", err)
-		
+
 	}
 	if string(ackBuf) != "ACK" {
 		return fmt.Errorf("ACK inválido: %s", string(ackBuf))

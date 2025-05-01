@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
 var WORKER_ID = os.Getenv("WORKER_ID")
@@ -18,7 +20,7 @@ var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.De
 // I is the type of the input data.
 // A is the type of the accumulator.
 // R is the type of the final result.
-type MapReducer[I, A, R any] struct {
+type MapReducer[I, A, R codec.Serializable] struct {
 	BatchSize             uint
 	Input                 middleware.Receiver[I]
 	PartialResultSender   middleware.Sender[A]
@@ -26,11 +28,11 @@ type MapReducer[I, A, R any] struct {
 	MapReduce             MapReduce[I, A, R]
 	Output                middleware.Sender[R]
 	InputClosed           bool
-	RoutingKeys		  	 []string
+	RoutingKeys           []string
 }
 
 // batchSize is the number of top groups you reduce at once
-func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapReducer MapReduce[I, A, R], subscribers []string, routingKeys []string) (*MapReducer[I, A, R], error) {
+func NewMapReducer[I, A, R codec.Serializable](name string, input string, batchSize uint, mapReducer MapReduce[I, A, R], subscribers []string, routingKeys []string) (*MapReducer[I, A, R], error) {
 	var t string = "direct"
 	subscribersMap := make(map[string][]string)
 	for _, subscriber := range subscribers {
@@ -46,28 +48,26 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 	if batchSize < 2 {
 		return nil, fmt.Errorf("batchSize must be at least two")
 	}
-	connIn, err := middleware.NewRabbitmq[I]()
+	connector, err := rabbitmq.Connector()
 	if err != nil {
 		return nil, err
 	}
+	connIn := rabbitmq.NewMiddleware[I](connector)
+
 	inputCh, err := connIn.ConsumeFromRK(input, name, t, routingKeys[0])
 	if err != nil {
 		return nil, err
 	}
-	connOut, err := middleware.NewRabbitmq[R]()
-	if err != nil {
-		return nil, err
-	}
+	connOut := rabbitmq.NewMiddleware[R](connector)
+
 	output, err := connOut.WriteToRK(name, subscribersMap, t)
 	if err != nil {
 		return nil, err
 	}
 
-	accName := accName(name) 
-	connAcc, err := middleware.NewRabbitmq[A]()
-	if err != nil {
-		return nil, err
-	}
+	accName := accName(name)
+	connAcc := rabbitmq.NewMiddleware[A](connector)
+
 	accIn, err := connAcc.ConsumeFrom(accName, name)
 	if err != nil {
 		return nil, err
@@ -185,7 +185,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			timeoutStep, backoff = ExponentialBackoffDuration(0)
 			reduced := mr.MapReduce.Reduce(batch)
 			// log.Debugf("Reduced partial result: %v", reduced)
-			err = mr.PartialResultSender.Send(&reduced)
+			err = mr.PartialResultSender.Send(reduced)
 			if err != nil {
 				err = fmt.Errorf("error sending partial result: %w", err)
 				return
@@ -221,7 +221,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			}
 			if len(batch) < int(mr.BatchSize) {
 				var condi = os.Getenv("WORKER_CONDI")
-				if WORKER_ID != "1" && condi== "" {
+				if WORKER_ID != "1" && condi == "" {
 					log.Infof("Retiring")
 					return
 				}
@@ -240,7 +240,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			timeoutStep, backoff = ExponentialBackoffDuration(0)
 			reduced := mr.MapReduce.Reduce(batch)
 			// log.Debugf("Reduced partial result: %v", reduced)
-			err = mr.PartialResultSender.Send(&reduced)
+			err = mr.PartialResultSender.Send(reduced)
 			if err != nil {
 				err = fmt.Errorf("error sending partial result: %w", err)
 				return
@@ -276,7 +276,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 					log.Debugf("Reduced partial result: %v", reduced)
 					outputs := mr.MapReduce.Output(reduced)
 					for _, output := range outputs {
-						err = mr.Output.Send(&output)
+						err = mr.Output.Send(output)
 						if err != nil {
 							err = fmt.Errorf("error sending output: %w", err)
 							return
@@ -292,7 +292,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 			timeoutStep, backoff = ExponentialBackoffDuration(0)
 			reduced := mr.MapReduce.Reduce(batch)
 			log.Infof("Reduced partial result: %v", reduced)
-			err = mr.PartialResultSender.Send(&reduced)
+			err = mr.PartialResultSender.Send(reduced)
 			if err != nil {
 				err = fmt.Errorf("error sending partial result: %w", err)
 				return
@@ -355,7 +355,7 @@ func (mr *MapReducer[I, A, R]) readInput() <-chan error {
 			// log.Debugf("Mapping row: %v", msg)
 			acc := mr.MapReduce.Map(msg)
 			for _, a := range acc {
-				err = mr.PartialResultSender.Send(&a)
+				err = mr.PartialResultSender.Send(a)
 				if err != nil {
 					err = fmt.Errorf("error sending partial result: %w", err)
 					return

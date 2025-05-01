@@ -12,6 +12,8 @@ import (
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
@@ -43,8 +45,8 @@ func main() {
 		log.Errorf("Failed to connect middleware: %v", err)
 		return
 	}
-	middlewareChan := rabbitmq.NewMiddleware[*common.Row](connector)
-	middlewareChanByte := rabbitmq.NewMiddleware[*common.FileChunk](connector)
+	middlewareChan := rabbitmq.NewMiddleware[*model.Row](connector)
+	middlewareChanByte := rabbitmq.NewMiddleware[*model.FileChunk](connector)
 	log.Infof("Connected to middleware")
 
 	defer middlewareChan.Close()
@@ -116,7 +118,7 @@ func main() {
 	defer allQuerysToEndpointSender.Close()
 
 	//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-	inputChannel := make(chan middleware.Envelope[[]byte], 0)
+	inputChannel := make(chan middleware.Envelope[*model.FileChunk], 0)
 
 	go func() {
 		for {
@@ -141,17 +143,18 @@ OuterLoop:
 	for {
 		msgEnvelope := <-inputChannel
 		msg := msgEnvelope.Msg()
-		typeMsgRaw := binary.BigEndian.Uint32(msg[0:4])
+		bytes := msg.Bytes
+		typeMsgRaw := binary.BigEndian.Uint32(bytes[0:4])
 		tipo := common.TypeMsg(typeMsgRaw)
 		log.Infof("Received message type: %v", tipo)
 		msgEnvelope.Ack(false)
 		switch tipo {
 		case common.FileName:
-			fileName := string(msg[4:])
-			var sender middleware.Sender[common.Row]
+			fileName := string(bytes[4:])
+			var sender middleware.Sender[*model.Row]
 			var amount int
 			var expectedLen int
-			var create func([]string) common.Row
+			var create func([]string) *model.Row
 			switch fileName {
 			case moviesMetadataName:
 				log.Infof("Received file: %s", fileName)
@@ -205,7 +208,7 @@ OuterLoop:
 
 				if fileName != ratingsName {
 					row := create(data)
-					sender.Send(&row)
+					sender.Send(row)
 				} else {
 					num, err := strconv.Atoi(data[1])
 					unwrap(err, "Failed to convert string to int")
@@ -220,7 +223,7 @@ OuterLoop:
 						Rating: uint8(val),
 					}
 					v := rating.Encode()
-					ratingsSender.Send(&v)
+					ratingsSender.Send(&model.FileChunk{Bytes: v})
 				}
 
 			}
@@ -238,7 +241,7 @@ OuterLoop:
 	}
 	log.Infof("CSV processing completed")
 
-	expectedOutputQ1 := []common.Row{
+	expectedOutputQ1 := []*model.Row{
 		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
 		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
 		{Strings: map[string]string{"title": "The City of No Limits"}, Arrays: map[string][]string{"genres": []string{"Thriller", "Drama"}}},
@@ -268,7 +271,7 @@ OuterLoop:
 	timer := time.NewTimer(time.Hour)
 
 	log.Infof("Verifying Q1")
-	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q1"))
+	err = allQuerysToEndpointSender.Send(model.RowQueryName("Q1"))
 	if err != nil {
 		log.Errorf("Failed to send message: %v", err)
 	}
@@ -288,7 +291,7 @@ OuterLoop:
 			break
 		}
 		receivedCountry := envelope.Msg()
-		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedCountry))
+		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedCountry))
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)
 			continue
@@ -308,17 +311,17 @@ OuterLoop:
 	}
 
 	log.Infof("Verifying Q2")
-	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q2"))
+	err = allQuerysToEndpointSender.Send(model.RowQueryName("Q2"))
 	if err != nil {
 		log.Errorf("Failed to send message: %v", err)
 	}
 	// Incorrect current answer
-	expectedOutputQ2 := []common.Row{
-		{Numerics: map[string]uint{"budget_sum": 120153886644}, Strings: map[string]string{"country": "US"}},
-		{Numerics: map[string]uint{"budget_sum": 2256831838}, Strings: map[string]string{"country": "FR"}},
-		{Numerics: map[string]uint{"budget_sum": 1611604610}, Strings: map[string]string{"country": "GB"}},
-		{Numerics: map[string]uint{"budget_sum": 1169682797}, Strings: map[string]string{"country": "IN"}},
-		{Numerics: map[string]uint{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
+	expectedOutputQ2 := []*model.Row{
+		{Numerics: map[string]uint64{"budget_sum": 120153886644}, Strings: map[string]string{"country": "US"}},
+		{Numerics: map[string]uint64{"budget_sum": 2256831838}, Strings: map[string]string{"country": "FR"}},
+		{Numerics: map[string]uint64{"budget_sum": 1611604610}, Strings: map[string]string{"country": "GB"}},
+		{Numerics: map[string]uint64{"budget_sum": 1169682797}, Strings: map[string]string{"country": "IN"}},
+		{Numerics: map[string]uint64{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	}
 
 	for {
@@ -337,7 +340,7 @@ OuterLoop:
 			break
 		}
 		receivedCountry := envelope.Msg()
-		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedCountry))
+		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedCountry))
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)
 			continue
@@ -357,11 +360,11 @@ OuterLoop:
 	}
 
 	log.Infof("Verifying Q3")
-	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q3"))
+	err = allQuerysToEndpointSender.Send(model.RowQueryName("Q3"))
 	if err != nil {
 		log.Errorf("Failed to send message: %v", err)
 	}
-	expectedOutputQ3 := []common.Row{
+	expectedOutputQ3 := []*model.Row{
 		{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
 		{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
 	}
@@ -381,7 +384,7 @@ OuterLoop:
 			break
 		}
 		receivedMovie := envelope.Msg()
-		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedMovie))
+		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedMovie))
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)
 			continue
@@ -401,17 +404,17 @@ OuterLoop:
 	}
 
 	log.Infof("Verifying Q4")
-	expectedOutputQ4 := []common.Row{
-		{Numerics: map[string]uint{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
-		{Numerics: map[string]uint{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
-		{Numerics: map[string]uint{"count": 7}, Strings: map[string]string{"actor": "Inés Efron"}},
-		{Numerics: map[string]uint{"count": 7}, Strings: map[string]string{"actor": "Leonardo Sbaraglia"}},
-		{Numerics: map[string]uint{"count": 7}, Strings: map[string]string{"actor": "Valeria Bertuccelli"}},
-		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Arturo Goetz"}},
-		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Diego Peretti"}},
-		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Pablo Echarri"}},
-		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
-		{Numerics: map[string]uint{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
+	expectedOutputQ4 := []*model.Row{
+		{Numerics: map[string]uint64{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
+		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
+		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Inés Efron"}},
+		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Leonardo Sbaraglia"}},
+		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Valeria Bertuccelli"}},
+		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Arturo Goetz"}},
+		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Diego Peretti"}},
+		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Pablo Echarri"}},
+		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
+		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
 	}
 	countCredit := 0
 	for {
@@ -452,13 +455,13 @@ OuterLoop:
 	// Expected:
 	// NEGATIVE    5453.397595
 	// POSITIVE    5668.650541
-	expectedOutputQ5 := []common.Row{
+	expectedOutputQ5 := []*model.Row{
 		{Strings: map[string]string{"sentiment": "NEGATIVE"}, Floats: map[string]float64{"avg_rate": 5453.397595}},
 		{Strings: map[string]string{"sentiment": "POSITIVE"}, Floats: map[string]float64{"avg_rate": 5668.650541}},
 	}
 
 	log.Infof("Verifying Q5")
-	err = allQuerysToEndpointSender.Send(common.RowQueryName("Q5"))
+	err = allQuerysToEndpointSender.Send(model.RowQueryName("Q5"))
 	for {
 		envelope, ok, err := q5Receiver.Next(timer)
 		if err != nil {
@@ -480,7 +483,7 @@ OuterLoop:
 		}
 		receivedSentiment := envelope.Msg()
 
-		err = allQuerysToEndpointSender.Send(common.RowQuery(receivedSentiment))
+		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedSentiment))
 		log.Infof("Received sentiment debug: %+v", receivedSentiment)
 		expectedOutputQ5 = removeQ5(expectedOutputQ5, receivedSentiment)
 		if len(expectedOutputQ5) == 0 {
@@ -499,7 +502,7 @@ OuterLoop:
 	timer.Stop()
 }
 
-func removeQ1(slice []common.Row, movie common.Row) []common.Row {
+func removeQ1(slice []*model.Row, movie *model.Row) []*model.Row {
 	for i, v := range slice {
 		if v.Strings["title"] == movie.Strings["title"] && stringSlicesEqual(v.Arrays["genres"], movie.Arrays["genres"]) {
 			log.Infof("Film matched expected")
@@ -510,7 +513,7 @@ func removeQ1(slice []common.Row, movie common.Row) []common.Row {
 	return slice
 }
 
-func removeQ2(slice []common.Row, country common.Row) []common.Row {
+func removeQ2(slice []*model.Row, country *model.Row) []*model.Row {
 	for i, v := range slice {
 		if v.Strings["country"] == country.Strings["country"] {
 			if v.Numerics["budget_sum"] == country.Numerics["budget_sum"] {
@@ -538,7 +541,7 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
-func removeQ3(slice []common.Row, movie common.Row) []common.Row {
+func removeQ3(slice []*model.Row, movie *model.Row) []*model.Row {
 	for i, v := range slice {
 		if v.Strings["title"] == movie.Strings["title"] && v.Strings["movieID"] == movie.Strings["movieID"] {
 			log.Infof("Film matched expected")
@@ -549,7 +552,7 @@ func removeQ3(slice []common.Row, movie common.Row) []common.Row {
 	return slice
 }
 
-func removeQ4(slice []common.Row, actor common.Row) []common.Row {
+func removeQ4(slice []*model.Row, actor *model.Row) []*model.Row {
 	for i, v := range slice {
 		if v.Strings["actor"] == actor.Strings["actor"] {
 			if v.Numerics["count"] == actor.Numerics["count"] {
@@ -564,7 +567,7 @@ func removeQ4(slice []common.Row, actor common.Row) []common.Row {
 	return slice
 }
 
-func removeQ5(expectedOutputQ5 []common.Row, receivedSentiment common.Row) []common.Row {
+func removeQ5(expectedOutputQ5 []*model.Row, receivedSentiment *model.Row) []*model.Row {
 	for i, v := range expectedOutputQ5 {
 		if v.Strings["sentiment"] == receivedSentiment.Strings["sentiment"] {
 			if v.Floats["avg_rate"]-receivedSentiment.Floats["avg_rate"] < 0.0001 {
@@ -584,11 +587,11 @@ func removeQ5(expectedOutputQ5 []common.Row, receivedSentiment common.Row) []com
 // production_countries,
 // release_date,revenue,runtime,spoken_languages,status,tagline,title,video,vote_average,vote_count
 
-func Film(data []string) common.Row {
+func Film(data []string) *model.Row {
 	budget, genres, id, overview, production_countries, release_date, revenue, title :=
 		data[2], data[3], data[5], data[9], data[13], data[14], data[15], data[20]
 
-	return common.Row{
+	return &model.Row{
 		Strings: map[string]string{
 			"movieID":              id,
 			"title":                title,
@@ -602,8 +605,8 @@ func Film(data []string) common.Row {
 	}
 }
 
-func Credit(data []string) common.Row {
-	return common.Row{
+func Credit(data []string) *model.Row {
+	return &model.Row{
 		Strings: map[string]string{
 			"ID":   data[2],
 			"cast": data[0],
@@ -611,8 +614,8 @@ func Credit(data []string) common.Row {
 	}
 }
 
-func Rating(data []string) common.Row {
-	return common.Row{
+func Rating(data []string) *model.Row {
+	return &model.Row{
 		Strings: map[string]string{
 			"movieID": data[1],
 			"rating":  data[2],
@@ -627,7 +630,7 @@ func unwrap(err error, msg string) {
 }
 
 type ConnReader struct {
-	ch                  chan middleware.Envelope[[]byte]
+	ch                  chan middleware.Envelope[*model.FileChunk]
 	lastReadNotIncluded []byte
 }
 
@@ -646,12 +649,13 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 		return 0, fmt.Errorf("invalid message es NIL")
 	}
 	msg := msgEnvelope.Msg()
-	if len(msg) < 4 {
+	bytes := msg.Bytes
+	if len(bytes) < 4 {
 		return 0, fmt.Errorf("invalid message length")
 	}
-	typeMsgRaw := binary.BigEndian.Uint32(msg[0:4])
+	typeMsgRaw := binary.BigEndian.Uint32(bytes[0:4])
 	tipo := common.TypeMsg(typeMsgRaw)
-	data := msg[4:]
+	data := bytes[4:]
 	log.Debugf("Received message data: %v", string(data))
 	cantCopyFromData := min(remainingCapacity, len(data))
 	switch tipo {

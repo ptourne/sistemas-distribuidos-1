@@ -1,46 +1,48 @@
 package map_reducer_sentiment
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
 var WORKER_ID = os.Getenv("WORKER_ID")
 
 var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID), logger.Info)
 
-type In = common.Row
+type In = *model.Row
 type Acc struct {
-	Sums  map[string]uint `json:"sums" validate:"required"`
-	Count map[string]uint    `json:"count" validate:"required"`
+	Sums  map[string]uint64
+	Count map[string]uint64
 }
-type Res = common.Row
+type Res = *model.Row
 
-type MapReducerSum = map_reducer.MapReducer[In, Acc, Res]
+type MapReducerSum = map_reducer.MapReducer[In, *Acc, Res]
 
 func NewMapReducerByMovieId(name string, input string, routingKeys []string, batchSize uint, subscribers []string) (*MapReducerSum, error) {
-	return NewMapReducer[In, Acc, Res](name, input, batchSize, &SumMapReduce{}, subscribers, routingKeys)
+	return NewMapReducer[In, *Acc, Res](name, input, batchSize, &SumMapReduce{}, subscribers, routingKeys)
 }
 
 type SumMapReduce struct {
 }
 
-func (r SumMapReduce) Map(in In) []Acc {
+func (r SumMapReduce) Map(in In) []*Acc {
 	rating := in.Numerics["rating"]
 	movieId := in.Strings["movieID"]
 
-	return []Acc{
-		{Sums: map[string]uint{movieId: rating},
-		Count: map[string]uint{movieId: 1}},
+	return []*Acc{
+		{Sums: map[string]uint64{movieId: rating},
+			Count: map[string]uint64{movieId: 1}},
 	}
 }
 
-func (r SumMapReduce) Reduce(acc []Acc) Acc {
+func (r SumMapReduce) Reduce(acc []*Acc) *Acc {
 	newAcc := acc[0]
 	for _, acc := range acc[1:] {
 		newAcc.Merge(acc)
@@ -48,12 +50,12 @@ func (r SumMapReduce) Reduce(acc []Acc) Acc {
 	return newAcc
 }
 
-func (r SumMapReduce) Output(acc Acc) []Res {
-	output := make([]common.Row, len(acc.Sums))
+func (r SumMapReduce) Output(acc *Acc) []Res {
+	output := make([]*model.Row, len(acc.Sums))
 	i := 0
 	for movieId, rating := range acc.Sums {
-		output[i] = common.Row{
-			Numerics: map[string]uint{"count": acc.Count[movieId], "rating": rating},
+		output[i] = &model.Row{
+			Numerics: map[string]uint64{"count": acc.Count[movieId], "rating": rating},
 			Strings:  map[string]string{"movieID": movieId},
 			Arrays:   map[string][]string{},
 			Floats:   map[string]float64{},
@@ -63,7 +65,7 @@ func (r SumMapReduce) Output(acc Acc) []Res {
 	return output
 }
 
-func (a *Acc) Merge(b Acc) {
+func (a *Acc) Merge(b *Acc) {
 	for movieId, rating := range b.Sums {
 		prevVal := a.Sums[movieId]
 		a.Sums[movieId] = rating + prevVal
@@ -73,9 +75,9 @@ func (a *Acc) Merge(b Acc) {
 	}
 }
 
-func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapReducer map_reducer.MapReduce[I, A, R], subscribers []string, routingKeys []string) (*map_reducer.MapReducer[I, A, R], error) {
+func NewMapReducer[I, A, R codec.Serializable](name string, input string, batchSize uint, mapReducer map_reducer.MapReduce[I, A, R], subscribers []string, routingKeys []string) (*map_reducer.MapReducer[I, A, R], error) {
 	var t string = "direct"
-	nameId :=fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID)
+	nameId := fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID)
 	// subscribersMap := make(map[string][]string)
 	// for _, subscriber := range subscribers {
 	// 	subscribersMap[subscriber] = []string{""}
@@ -89,28 +91,25 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 	if batchSize < 2 {
 		return nil, fmt.Errorf("batchSize must be at least two")
 	}
-	connIn, err := middleware.NewRabbitmq[I]()
+
+	connector, err := rabbitmq.Connector()
 	if err != nil {
 		return nil, err
 	}
+
+	connIn := rabbitmq.NewMiddleware[I](connector)
 	inputCh, err := connIn.ConsumeFromRK(input, nameId, t, routingKeys[0])
 	if err != nil {
 		return nil, err
 	}
-	connOut, err := middleware.NewRabbitmq[R]()
-	if err != nil {
-		return nil, err
-	}
+	connOut := rabbitmq.NewMiddleware[R](connector)
 	output, err := connOut.WriteTo(name, subscribers)
 	if err != nil {
 		return nil, err
 	}
 
-	accName := accName(nameId, routingKeys[0]) 
-	connAcc, err := middleware.NewRabbitmq[A]()
-	if err != nil {
-		return nil, err
-	}
+	accName := accName(nameId, routingKeys[0])
+	connAcc := rabbitmq.NewMiddleware[A](connector)
 	accIn, err := connAcc.ConsumeFrom(accName, nameId)
 	if err != nil {
 		return nil, err
@@ -136,4 +135,25 @@ func NewMapReducer[I, A, R any](name string, input string, batchSize uint, mapRe
 
 func accName(name string, routingKey string) string {
 	return name + "_acc"
+}
+
+func (a Acc) Encode() ([]byte, error) {
+	codec.MapEncode(a.Sums, codec.Uint64Encode)
+	codec.MapEncode(a.Count, codec.Uint64Encode)
+	return nil, nil
+}
+
+func (a *Acc) Decode(data []byte) error {
+	r := bytes.NewReader(data)
+	sums, err := codec.MapDecode(r, codec.Uint64Decode)
+	if err != nil {
+		return err
+	}
+	counts, err := codec.MapDecode(r, codec.Uint64Decode)
+	if err != nil {
+		return err
+	}
+	a.Sums = sums
+	a.Count = counts
+	return nil
 }

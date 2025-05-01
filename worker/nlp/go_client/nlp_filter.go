@@ -3,7 +3,7 @@ package nlp
 import (
 	"context"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	pb "github.com/ptourne/sistemas-distribuidos-1/worker/nlp/proto"
 
 	"google.golang.org/grpc"
@@ -23,7 +23,7 @@ func NewSentimentAndRateMap(addr string) (*SentimentAndRateMap, error) {
 	return &SentimentAndRateMap{client: client}, nil
 }
 
-func (m *SentimentAndRateMap) Transform(row *common.Row, output *common.Row) error {
+func (m *SentimentAndRateMap) Transform(row *model.Row, output *model.Row) error {
 	// Sentiment
 	overview := row.Strings["overview"]
 	resp, err := m.client.Analyze(context.Background(), &pb.SentimentRequest{Text: overview})
