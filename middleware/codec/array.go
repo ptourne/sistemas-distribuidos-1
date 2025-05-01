@@ -1,18 +1,39 @@
 package codec
 
+import (
+	"fmt"
+	"io"
+)
+
 func ArrayEncode[T any](value []T, encoder func(T) ([]byte, error)) ([]byte, error) {
-	lenBytes, err := Uint64Encode(uint64(len(value)))
+	bytes, err := Uint64Encode(uint64(len(value)))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to encode array length: %w", err)
 	}
 
-	dataBytes := make([]byte, 0)
 	for _, v := range value {
 		data, err := encoder(v)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to encode array element: %w", err)
 		}
-		dataBytes = append(dataBytes, data...)
+		bytes = append(bytes, data...)
 	}
-	return append(lenBytes, dataBytes...), nil
+	return bytes, nil
+}
+
+func ArrayDecode[T any](r io.Reader, decoder func(io.Reader) (T, error)) ([]T, error) {
+	length, err := Uint64Decode(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode array length: %w", err)
+	}
+
+	result := make([]T, length)
+	for i := range length {
+		value, err := decoder(r)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode array element at index %d: %w", i, err)
+		}
+		result[i] = value
+	}
+	return result, nil
 }

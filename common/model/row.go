@@ -3,6 +3,7 @@ package model
 import (
 	"bytes"
 	"fmt"
+	"io"
 
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 )
@@ -15,7 +16,7 @@ type Row struct {
 	Type     TypeRow
 }
 
-type TypeRow int
+type TypeRow uint8
 
 const (
 	QueryName TypeRow = iota
@@ -33,6 +34,10 @@ func RowQuery(row Row) *Row {
 }
 
 func (r Row) Encode() ([]byte, error) {
+	typeBytes, err := codec.Uint8Encode(uint8(r.Type))
+	if err != nil {
+		return nil, fmt.Errorf("error encoding type: %w", err)
+	}
 	numerics, err := codec.MapEncode(r.Numerics, codec.Uint64Encode)
 	if err != nil {
 		return nil, fmt.Errorf("error encoding numerics: %w", err)
@@ -41,7 +46,9 @@ func (r Row) Encode() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error encoding strings: %w", err)
 	}
-	arrays, err := codec.MapEncode(r.Arrays, codec.ArrayEncode)
+	arrays, err := codec.MapEncode(r.Arrays, func(arr []string) ([]byte, error) {
+		return codec.ArrayEncode(arr, codec.StringEncode)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("error encoding arrays: %w", err)
 	}
@@ -49,11 +56,37 @@ func (r Row) Encode() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error encoding floats: %w", err)
 	}
-	return bytes.Join([][]byte{numerics, strings, arrays, floats}, []byte{}), nil
+	return bytes.Join([][]byte{typeBytes, numerics, strings, arrays, floats}, []byte{}), nil
 }
 
 func (r *Row) Decode(data []byte) error {
-	r := bytes.NewReader(data)
-	// codec.MapDecode(r,
-
+	reader := bytes.NewReader(data)
+	rowType, err := codec.Uint8Decode(reader)
+	if err != nil {
+		return fmt.Errorf("error decoding type: %w", err)
+	}
+	numerics, err := codec.MapDecode(reader, codec.Uint64Decode)
+	if err != nil {
+		return fmt.Errorf("error decoding numerics: %w", err)
+	}
+	strings, err := codec.MapDecode(reader, codec.StringDecode)
+	if err != nil {
+		return fmt.Errorf("error decoding strings: %w", err)
+	}
+	arrays, err := codec.MapDecode(reader, func(r io.Reader) ([]string, error) {
+		return codec.ArrayDecode(r, codec.StringDecode)
+	})
+	if err != nil {
+		return fmt.Errorf("error decoding arrays: %w", err)
+	}
+	floats, err := codec.MapDecode(reader, codec.Float64Decode)
+	if err != nil {
+		return fmt.Errorf("error decoding floats: %w", err)
+	}
+	r.Type = TypeRow(rowType)
+	r.Numerics = numerics
+	r.Strings = strings
+	r.Arrays = arrays
+	r.Floats = floats
+	return nil
 }
