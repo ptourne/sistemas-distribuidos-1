@@ -6,8 +6,8 @@ import (
 
 // ver de declare, tratr de devovler un struct, ghacer read/write
 type MiddlewareCola[T any] interface {
-	ConsumeFrom(sourceName string, groupName string) (Receiver[T], error)
-	ConsumeFromRK(sourceName string, groupName string, t string, routingkey string) (Receiver[T], error)
+	ConsumeFrom(sourceName string, groupName string, peers int, prefetch int) (Receiver[T], error)
+	ConsumeFromRK(sourceName string, groupName string, t string, routingkey string, peers int, prefetch int) (Receiver[T], error)
 	WriteTo(writeExchangeName string, subscribers []string) (Sender[T], error)
 	WriteToRK(writeExchangeName string, subscribers map[string][]string, t string) (Sender[T], error)
 	Close() error
@@ -15,7 +15,6 @@ type MiddlewareCola[T any] interface {
 
 type Receiver[T any] interface {
 	Next(timeout *time.Timer) (Envelope[T], bool, error)
-	CountProducers() (int, error)
 	Qos(int, int) error
 	Close() error
 }
