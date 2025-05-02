@@ -1,8 +1,8 @@
 package rabbitmq
 
 import (
+	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"math/rand/v2"
 	"sync/atomic"
@@ -15,15 +15,16 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// TODO implement Close()
 type RabbitMQConnector struct {
 	Conn *amqp.Connection
 }
 
-type middlewareRabbitmq[T codec.Serializable] struct {
+type middlewareRabbitmq[T codec.Serializable[T]] struct {
 	Conn *amqp.Connection
 }
 
-type receiverRabbitmq[T codec.Serializable] struct {
+type receiverRabbitmq[T codec.Serializable[T]] struct {
 	input                        ReceiverChannel[T]
 	close                        ReceiverChannel[*CloseNotification]
 	producerCountReq             SenderChannel[*CountProducerReq]
@@ -33,7 +34,7 @@ type receiverRabbitmq[T codec.Serializable] struct {
 	lastProducerCount            int
 }
 
-type ReceiverChannel[T codec.Serializable] struct {
+type ReceiverChannel[T codec.Serializable[T]] struct {
 	exchangeName string
 	queueName    string
 	amqpCh       *amqp.Channel
@@ -48,12 +49,12 @@ func (r *ReceiverChannel[T]) Close() {
 	}
 }
 
-type EnvelopeRabbitmq[T codec.Serializable] struct {
+type EnvelopeRabbitmq[T codec.Serializable[T]] struct {
 	msg T
 	tag *amqp.Delivery
 }
 
-type SenderRabbitmq[T codec.Serializable] struct {
+type SenderRabbitmq[T codec.Serializable[T]] struct {
 	exchangeName             string
 	output                   SenderChannel[T]
 	close                    *SenderChannel[*CloseNotification]
@@ -63,7 +64,7 @@ type SenderRabbitmq[T codec.Serializable] struct {
 	isClosed                 atomic.Bool
 }
 
-type SenderChannel[T codec.Serializable] struct {
+type SenderChannel[T codec.Serializable[T]] struct {
 	exchangeName string
 	ch           *amqp.Channel
 }
@@ -76,10 +77,38 @@ func (s *SenderChannel[T]) Close() {
 	}
 }
 
+type configuration struct {
+	User     string
+	Password string
+	Host     string
+	Port     uint16
+}
+
+func NewConfiguration(user, password, host string, port uint16) configuration {
+	return configuration{
+		User:     user,
+		Password: password,
+		Host:     host,
+		Port:     port,
+	}
+}
+
+func DefaultConfiguration() configuration {
+	return NewConfiguration("guest", "guest", "rabbitmq", 5672)
+}
+
+func Url(c configuration) string {
+	return fmt.Sprintf("amqp://%s:%s@%s:%d/", c.User, c.Password, c.Host, c.Port)
+}
+
 var log = logger.NewConsoleLogger("middleware", logger.Info)
 
 func Connector() (*RabbitMQConnector, error) {
-	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+	return ConnectorCustom(DefaultConfiguration())
+}
+func ConnectorCustom(config configuration) (*RabbitMQConnector, error) {
+	url := Url(config)
+	conn, err := amqp.Dial(url)
 	for range 5 {
 		if err == nil {
 			break
@@ -87,7 +116,7 @@ func Connector() (*RabbitMQConnector, error) {
 		log.Errorf("Failed to connect to RabbitMQ: %v", err)
 		time.Sleep(5 * time.Second)
 		log.Infof("Retrying connection...")
-		conn, err = amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+		conn, err = amqp.Dial(url)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to RabbitMQ: %v", err)
@@ -95,7 +124,7 @@ func Connector() (*RabbitMQConnector, error) {
 	return &RabbitMQConnector{Conn: conn}, nil
 }
 
-func NewMiddleware[T codec.Serializable](c *RabbitMQConnector) middleware.Connection[T] {
+func NewMiddleware[T codec.Serializable[T]](c *RabbitMQConnector) middleware.Connection[T] {
 	return &middlewareRabbitmq[T]{Conn: c.Conn}
 }
 
@@ -127,8 +156,8 @@ func (c CloseNotification) Encode() ([]byte, error) {
 	return []byte{}, nil
 }
 
-func (c *CloseNotification) Decode(data []byte) error {
-	return nil
+func (c *CloseNotification) Decode(data []byte) (*CloseNotification, error) {
+	return &CloseNotification{}, nil
 }
 
 func (s *SenderRabbitmq[T]) Close() error {
@@ -210,7 +239,7 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 	return receiver, nil
 }
 
-func CreateProducerRK[T, I codec.Serializable](m *middlewareRabbitmq[T], readExchangeName string, t string) (*SenderChannel[I], error) {
+func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middlewareRabbitmq[T], readExchangeName string, t string) (*SenderChannel[I], error) {
 	producerCountReqCh, err := m.Conn.Channel()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open a channel: %v", err)
@@ -232,7 +261,7 @@ func CreateProducerRK[T, I codec.Serializable](m *middlewareRabbitmq[T], readExc
 	return &newVar, nil
 }
 
-func createConsumerRK[T, I codec.Serializable](m *middlewareRabbitmq[T], readExchangeName string, queueName string, t string, routingKey string) (ReceiverChannel[I], error) {
+func createConsumerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middlewareRabbitmq[T], readExchangeName string, queueName string, t string, routingKey string) (ReceiverChannel[I], error) {
 	inputQueue, inputCh, err := m.createQueueRK(readExchangeName, queueName, t, routingKey)
 	if err != nil {
 		return ReceiverChannel[I]{}, nil
@@ -380,17 +409,16 @@ type CountProducerReq struct {
 }
 
 func (c CountProducerReq) Encode() ([]byte, error) {
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, c.ID)
-	return b, nil
+	return codec.Uint64Encode(c.ID)
 }
 
-func (c *CountProducerReq) Decode(b []byte) error {
-	if len(b) != 8 {
-		return fmt.Errorf("invalid buffer length")
+func (c *CountProducerReq) Decode(b []byte) (*CountProducerReq, error) {
+	r := bytes.NewReader(b)
+	id, err := codec.Uint64Decode(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode ID: %v", err)
 	}
-	c.ID = binary.BigEndian.Uint64(b)
-	return nil
+	return &CountProducerReq{ID: id}, nil
 }
 
 // Returns:
@@ -483,9 +511,9 @@ func (r *receiverRabbitmq[T]) nextIfNotifedClosed(timeout *time.Timer) (middlewa
 	}
 }
 
-func processMsg[T codec.Serializable](msg amqp.Delivery) (middleware.Envelope[T], bool, error) {
-	var received T
-	err := received.Decode(msg.Body)
+func processMsg[T codec.Serializable[T]](msg amqp.Delivery) (middleware.Envelope[T], bool, error) {
+	var nul T
+	received, err := nul.Decode(msg.Body)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to decode item: %v", err)
 	}

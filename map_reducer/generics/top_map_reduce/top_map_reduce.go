@@ -115,18 +115,16 @@ func (c CountryBudget) Encode() ([]byte, error) {
 	return bytes.Join([][]byte{name, budgetSum}, []byte{}), nil
 }
 
-func (c *CountryBudget) Decode(r io.Reader) error {
+func (c *CountryBudget) Decode(r io.Reader) (*CountryBudget, error) {
 	name, err := codec.StringDecode(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	budgetSum, err := codec.Uint64Decode(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	c.Name = name
-	c.BudgetSum = budgetSum
-	return nil
+	return &CountryBudget{Name: name, BudgetSum: budgetSum}, nil
 }
 
 func (a Acc) Encode() ([]byte, error) {
@@ -135,19 +133,19 @@ func (a Acc) Encode() ([]byte, error) {
 	})
 }
 
-func (a *Acc) Decode(data []byte) error {
+func (a *Acc) Decode(data []byte) (*Acc, error) {
 	r := bytes.NewReader(data)
 	topSize, err := codec.Uint64Decode(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	top := make([]CountryBudget, topSize)
 	for i := range top {
-		err := top[i].Decode(r)
+		pointer, err := (&CountryBudget{}).Decode(r)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		top[i] = *pointer
 	}
-	a.Top = top
-	return nil
+	return &Acc{Top: top}, nil
 }

@@ -96,16 +96,16 @@ func (d *Decimal) Encode() ([]byte, error) {
 	return append(integerBytes, fracBuf[4-fractionByteCount:]...), nil
 }
 
-func (d *Decimal) Decode(r io.Reader) error {
+func (d *Decimal) Decode(r io.Reader) (*Decimal, error) {
 	integer, err := Uint64Decode(r)
 	if err != nil {
-		return fmt.Errorf("error decoding integer: %w", err)
+		return nil, fmt.Errorf("error decoding integer: %w", err)
 	}
 
 	fractionByteCount := d.fractionByteCount()
 	fractionBytes, err := DoRead(fractionByteCount, r)
 	if err != nil {
-		return fmt.Errorf("error decoding fraction: %w", err)
+		return nil, fmt.Errorf("error decoding fraction: %w", err)
 	}
 
 	paddedFractionBytes := make([]byte, 4)
@@ -113,10 +113,11 @@ func (d *Decimal) Decode(r io.Reader) error {
 
 	fraction := binary.BigEndian.Uint32(paddedFractionBytes)
 
-	d.Integer = integer
-	d.Fraction = fraction
-
-	return nil
+	return &Decimal{
+		Integer:        integer,
+		Fraction:       fraction,
+		FractionDigits: d.FractionDigits,
+	}, nil
 }
 
 func (d *Decimal) fractionByteCount() uint64 {

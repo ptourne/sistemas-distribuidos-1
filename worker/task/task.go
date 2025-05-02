@@ -10,7 +10,7 @@ type Operation interface {
 	ProcessAndSend(row model.Row) *model.Row
 }
 
-type Task[I, O codec.Serializable] interface {
+type Task[I codec.Serializable[I], O codec.Serializable[O]] interface {
 	ProcessAndSend(row I) error
 	Input() string
 	Name() string

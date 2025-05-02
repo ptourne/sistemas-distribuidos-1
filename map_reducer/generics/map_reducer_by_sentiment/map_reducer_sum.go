@@ -71,17 +71,15 @@ func (a Acc) Encode() ([]byte, error) {
 	return nil, nil
 }
 
-func (a *Acc) Decode(data []byte) error {
+func (a *Acc) Decode(data []byte) (*Acc, error) {
 	r := bytes.NewReader(data)
 	sums, err := codec.MapDecode(r, codec.Float64Decode)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	counts, err := codec.MapDecode(r, codec.Uint64Decode)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	a.Sums = sums
-	a.Count = counts
-	return nil
+	return &Acc{Sums: sums, Count: counts}, nil
 }

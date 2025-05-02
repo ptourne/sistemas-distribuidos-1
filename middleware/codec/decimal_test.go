@@ -57,8 +57,7 @@ func TestDecimalCodec(t *testing.T) {
 			blob := append(encoded, garbage...)
 			r := bytes.NewReader(blob)
 
-			decoded := NewDecimal(test.value.FractionDigits)
-			err = decoded.Decode(r)
+			decoded, err := NewDecimal(test.value.FractionDigits).Decode(r)
 			assert.NoError(t, err, "Decode failed: %v", err)
 
 			assert.Equal(t, test.value, *decoded)

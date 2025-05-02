@@ -75,7 +75,7 @@ func (a *Acc) Merge(b *Acc) {
 	}
 }
 
-func NewMapReducer[I, A, R codec.Serializable](name string, input string, batchSize uint, mapReducer map_reducer.MapReduce[I, A, R], subscribers []string, routingKeys []string) (*map_reducer.MapReducer[I, A, R], error) {
+func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]](name string, input string, batchSize uint, mapReducer map_reducer.MapReduce[I, A, R], subscribers []string, routingKeys []string) (*map_reducer.MapReducer[I, A, R], error) {
 	var t string = "direct"
 	nameId := fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID)
 	// subscribersMap := make(map[string][]string)
@@ -143,17 +143,15 @@ func (a Acc) Encode() ([]byte, error) {
 	return nil, nil
 }
 
-func (a *Acc) Decode(data []byte) error {
+func (a *Acc) Decode(data []byte) (*Acc, error) {
 	r := bytes.NewReader(data)
 	sums, err := codec.MapDecode(r, codec.Uint64Decode)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	counts, err := codec.MapDecode(r, codec.Uint64Decode)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	a.Sums = sums
-	a.Count = counts
-	return nil
+	return &Acc{Sums: sums, Count: counts}, nil
 }

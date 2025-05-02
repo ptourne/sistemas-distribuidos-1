@@ -81,11 +81,11 @@ func unwrap(err error, msg string) {
 	}
 }
 
-type SourceTask[O codec.Serializable] struct {
+type SourceTask[O codec.Serializable[O]] struct {
 	name string
 }
 
-func NewSourceTask[O codec.Serializable](name string) task.Task[*model.Row, O] {
+func NewSourceTask[O codec.Serializable[O]](name string) task.Task[*model.Row, O] {
 	return &SourceTask[O]{name}
 }
 

@@ -19,16 +19,15 @@ func (c FileChunk) Encode() ([]byte, error) {
 	return append(len, c.Bytes...), nil
 }
 
-func (c *FileChunk) Decode(data []byte) error {
+func (c *FileChunk) Decode(data []byte) (*FileChunk, error) {
 	r := bytes.NewReader(data)
 	len, err := codec.Uint64Decode(r)
 	if err != nil {
-		return fmt.Errorf("failed to decode length: %w", err)
+		return nil, fmt.Errorf("failed to decode length: %w", err)
 	}
 	bytes, err := codec.DoRead(len, r)
 	if err != nil {
-		return fmt.Errorf("failed to read bytes: %w", err)
+		return nil, fmt.Errorf("failed to read bytes: %w", err)
 	}
-	c.Bytes = bytes
-	return nil
+	return &FileChunk{Bytes: bytes}, nil
 }

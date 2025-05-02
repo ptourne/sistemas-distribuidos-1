@@ -115,18 +115,16 @@ func (a ActorMovieCount) Encode() ([]byte, error) {
 	return bytes.Join([][]byte{actor, count}, []byte{}), nil
 }
 
-func (a *ActorMovieCount) Decode(r io.Reader) error {
+func (a *ActorMovieCount) Decode(r io.Reader) (*ActorMovieCount, error) {
 	actor, err := codec.StringDecode(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	count, err := codec.Uint64Decode(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	a.Actor = actor
-	a.Count = count
-	return nil
+	return &ActorMovieCount{Actor: actor, Count: count}, nil
 }
 
 func (a Acc) Encode() ([]byte, error) {
@@ -135,16 +133,15 @@ func (a Acc) Encode() ([]byte, error) {
 	})
 }
 
-func (a *Acc) Decode(data []byte) error {
+func (a *Acc) Decode(data []byte) (*Acc, error) {
 	r := bytes.NewReader(data)
 	top, err := codec.ArrayDecode(r, func(r io.Reader) (ActorMovieCount, error) {
-		actor := ActorMovieCount{}
-		err := actor.Decode(r)
-		return actor, err
+		actor := &ActorMovieCount{}
+		actor, err := actor.Decode(r)
+		return *actor, err
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	a.Top = top
-	return nil
+	return &Acc{Top: top}, nil
 }

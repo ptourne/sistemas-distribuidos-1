@@ -65,12 +65,11 @@ func (a Acc) Encode() ([]byte, error) {
 	return codec.MapEncode(a.Sums, codec.Uint64Encode)
 }
 
-func (a *Acc) Decode(data []byte) error {
+func (a *Acc) Decode(data []byte) (*Acc, error) {
 	r := bytes.NewReader(data)
-	val, err := codec.MapDecode(r, codec.Uint64Decode)
+	sums, err := codec.MapDecode(r, codec.Uint64Decode)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	a.Sums = val
-	return nil
+	return &Acc{Sums: sums}, nil
 }

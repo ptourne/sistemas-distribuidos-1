@@ -59,34 +59,35 @@ func (r Row) Encode() ([]byte, error) {
 	return bytes.Join([][]byte{typeBytes, numerics, strings, arrays, floats}, []byte{}), nil
 }
 
-func (r *Row) Decode(data []byte) error {
+func (r *Row) Decode(data []byte) (*Row, error) {
 	reader := bytes.NewReader(data)
 	rowType, err := codec.Uint8Decode(reader)
 	if err != nil {
-		return fmt.Errorf("error decoding type: %w", err)
+		return nil, fmt.Errorf("error decoding type: %w", err)
 	}
 	numerics, err := codec.MapDecode(reader, codec.Uint64Decode)
 	if err != nil {
-		return fmt.Errorf("error decoding numerics: %w", err)
+		return nil, fmt.Errorf("error decoding numerics: %w", err)
 	}
 	strings, err := codec.MapDecode(reader, codec.StringDecode)
 	if err != nil {
-		return fmt.Errorf("error decoding strings: %w", err)
+		return nil, fmt.Errorf("error decoding strings: %w", err)
 	}
 	arrays, err := codec.MapDecode(reader, func(r io.Reader) ([]string, error) {
 		return codec.ArrayDecode(r, codec.StringDecode)
 	})
 	if err != nil {
-		return fmt.Errorf("error decoding arrays: %w", err)
+		return nil, fmt.Errorf("error decoding arrays: %w", err)
 	}
 	floats, err := codec.MapDecode(reader, codec.Float64Decode)
 	if err != nil {
-		return fmt.Errorf("error decoding floats: %w", err)
+		return nil, fmt.Errorf("error decoding floats: %w", err)
 	}
-	r.Type = TypeRow(rowType)
-	r.Numerics = numerics
-	r.Strings = strings
-	r.Arrays = arrays
-	r.Floats = floats
-	return nil
+	return &Row{
+		Type:     TypeRow(rowType),
+		Numerics: numerics,
+		Strings:  strings,
+		Arrays:   arrays,
+		Floats:   floats,
+	}, nil
 }

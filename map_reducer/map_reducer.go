@@ -20,7 +20,7 @@ var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.De
 // I is the type of the input data.
 // A is the type of the accumulator.
 // R is the type of the final result.
-type MapReducer[I, A, R codec.Serializable] struct {
+type MapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]] struct {
 	BatchSize             uint
 	Input                 middleware.Receiver[I]
 	PartialResultSender   middleware.Sender[A]
@@ -32,7 +32,7 @@ type MapReducer[I, A, R codec.Serializable] struct {
 }
 
 // batchSize is the number of top groups you reduce at once
-func NewMapReducer[I, A, R codec.Serializable](name string, input string, batchSize uint, mapReducer MapReduce[I, A, R], subscribers []string, routingKeys []string) (*MapReducer[I, A, R], error) {
+func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]](name string, input string, batchSize uint, mapReducer MapReduce[I, A, R], subscribers []string, routingKeys []string) (*MapReducer[I, A, R], error) {
 	var t string = "direct"
 	subscribersMap := make(map[string][]string)
 	for _, subscriber := range subscribers {

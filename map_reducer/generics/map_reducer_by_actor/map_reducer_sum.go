@@ -65,12 +65,11 @@ func (a Acc) Encode() ([]byte, error) {
 	return nil, nil
 }
 
-func (a *Acc) Decode(data []byte) error {
+func (a *Acc) Decode(data []byte) (*Acc, error) {
 	r := bytes.NewReader(data)
 	count, err := codec.MapDecode(r, codec.Uint64Decode)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	a.Count = count
-	return nil
+	return &Acc{Count: count}, nil
 }

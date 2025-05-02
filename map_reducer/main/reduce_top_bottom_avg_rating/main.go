@@ -134,21 +134,22 @@ func (a Acc) Encode() ([]byte, error) {
 	return bytes.Join([][]byte{topMovie, bottomMovie}, []byte{}), nil
 }
 
-func (a *Acc) Decode(data []byte) error {
+func (a *Acc) Decode(data []byte) (*Acc, error) {
 	r := bytes.NewReader(data)
 	topMovie := &Movie{}
 	err := topMovie.Decode(r)
 	if err != nil {
-		return fmt.Errorf("error decoding top movie: %w", err)
+		return nil, fmt.Errorf("error decoding top movie: %w", err)
 	}
 	bottomMovie := &Movie{}
 	err = bottomMovie.Decode(r)
 	if err != nil {
-		return fmt.Errorf("error decoding bottom movie: %w", err)
+		return nil, fmt.Errorf("error decoding bottom movie: %w", err)
 	}
-	a.Top = *topMovie
-	a.Bottom = *bottomMovie
-	return nil
+	return &Acc{
+		Top:    *topMovie,
+		Bottom: *bottomMovie,
+	}, nil
 }
 
 func (a *Acc) Merge(b *Acc) {
