@@ -25,10 +25,23 @@ type Envelope[T codec.Serializable] interface {
 	Msg() T
 	Ack(multiple bool) error
 	Nack(multiple bool) error
+	Cid() string
+	Type() TypeMsg
 }
 
+
+type TypeMsg int
+
+const (
+	QueryName TypeMsg = iota
+	QueryRow
+	FinishQuerys
+	FinishCid
+	FinishDone
+)
+
 type Sender[T codec.Serializable] interface {
-	Send(row *T) error
-	SendRK(row *T, routingKey string) error
+	Send(row *T, cid string, t TypeMsg) error
+	SendRK(row *T, routingKey string, cid string, t TypeMsg) error
 	Close() error
 }
