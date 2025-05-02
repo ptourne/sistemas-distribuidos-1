@@ -26,23 +26,23 @@ type RabbitMQConnector struct {
 }
 
 type ReceiverChannel[T codec.Serializable[T]] struct {
-	exchangeName 	string
-	queueName    	string
-	amqpCh       	*amqp.Channel
-	C            	*<-chan amqp.Delivery
+	exchangeName string
+	queueName    string
+	amqpCh       *amqp.Channel
+	C            *<-chan amqp.Delivery
 }
 
 type receiverRabbitmq[T codec.Serializable[T]] struct {
-	input           ReceiverChannel[T]
-	closeReceiver   ReceiverChannel[*CloseNotification]
-	closeSender 	SenderChannel[*CloseNotification]
-	finishCids   	map[string]struct {
-		finishDonePending  int
-		msg 				middleware.Envelope[T]
+	input         ReceiverChannel[T]
+	closeReceiver ReceiverChannel[*CloseNotification]
+	closeSender   SenderChannel[*CloseNotification]
+	finishCids    map[string]struct {
+		finishDonePending int
+		msg               middleware.Envelope[T]
 	}
-	peers 			int
-	prefetch 		int
-	prefetchCids 	map[string]int
+	peers        int
+	prefetch     int
+	prefetchCids map[string]int
 }
 
 type CloseNotification struct{}
@@ -59,7 +59,6 @@ func NewMiddleware[T codec.Serializable[T]](c *RabbitMQConnector) middleware.Con
 	return &middlewareRabbitmq[T]{Conn: c.Conn}
 }
 
-
 func (r *ReceiverChannel[T]) Close() {
 	if r.amqpCh != nil {
 		log.Debugf("Clossing channel '%s', '%s'", r.exchangeName, r.queueName)
@@ -69,21 +68,21 @@ func (r *ReceiverChannel[T]) Close() {
 }
 
 type EnvelopeRabbitmq[T codec.Serializable[T]] struct {
-	msg T
-	tag *amqp.Delivery
-	finishesDone []struct{ 
-		sender *SenderChannel[*CloseNotification] 
-		cid string
+	msg          T
+	tag          *amqp.Delivery
+	finishesDone []struct {
+		sender *SenderChannel[*CloseNotification]
+		cid    string
 	}
 	cid string
-	t middleware.TypeMsg
+	t   middleware.TypeMsg
 }
 
 type SenderRabbitmq[T codec.Serializable[T]] struct {
-	exchangeName             string
-	output                   SenderChannel[T]
-	isBlocked                atomic.Bool
-	isClosed                 atomic.Bool
+	exchangeName string
+	output       SenderChannel[T]
+	isBlocked    atomic.Bool
+	isClosed     atomic.Bool
 }
 
 type SenderChannel[T codec.Serializable[T]] struct {
@@ -123,7 +122,7 @@ func Url(c configuration) string {
 	return fmt.Sprintf("amqp://%s:%s@%s:%d/", c.User, c.Password, c.Host, c.Port)
 }
 
-var log = logger.NewConsoleLogger("middleware", logger.Info)
+var log = logger.NewConsoleLogger("middleware", logger.Debug)
 
 func Connector() (*RabbitMQConnector, error) {
 	return ConnectorCustom(DefaultConfiguration())
@@ -146,7 +145,6 @@ func ConnectorCustom(config configuration) (*RabbitMQConnector, error) {
 	return &RabbitMQConnector{Conn: conn}, nil
 }
 
-
 func (m *middlewareRabbitmq[T]) Close() error {
 	log.Infof("CLOSING MIDDLEWARE")
 	if m.Conn != nil {
@@ -155,7 +153,6 @@ func (m *middlewareRabbitmq[T]) Close() error {
 	}
 	return nil
 }
-
 
 func (r *receiverRabbitmq[T]) Close() error {
 	log.Debugf("CLOSING RECEIVER: '%s', '%s", r.input.exchangeName, r.input.queueName)
@@ -182,7 +179,7 @@ func (m *middlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string,
 	return m.createReadQueueRK(sourceName, groupName, "fanout", "", peers, prefetch)
 }
 
-func (m *middlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, t string, routingKey string, peers int,prefetch int) (middleware.Receiver[T], error) {
+func (m *middlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, t string, routingKey string, peers int, prefetch int) (middleware.Receiver[T], error) {
 	log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' ", sourceName, groupName)
 	if sourceName == "" {
 		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
@@ -194,7 +191,7 @@ func (m *middlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName strin
 }
 
 func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queueName string, t string, routingKey string, peers int, prefetch int) (middleware.Receiver[T], error) {
-	
+
 	input, err := createConsumerRK[T, T](m, readExchangeName, queueName, t, routingKey)
 	if err != nil {
 		return nil, err
@@ -212,16 +209,16 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 	}
 
 	receiver := &receiverRabbitmq[T]{
-		input:             input,
-		closeReceiver:     closeReceiver,
-		closeSender:       closeSender,
-		peers :            peers,
-		prefetch:          prefetch,
-		finishCids:        make(map[string]struct {
+		input:         input,
+		closeReceiver: closeReceiver,
+		closeSender:   closeSender,
+		peers:         peers,
+		prefetch:      prefetch,
+		finishCids: make(map[string]struct {
 			finishDonePending int
-			msg                 middleware.Envelope[T]
+			msg               middleware.Envelope[T]
 		}),
-		prefetchCids:      make(map[string]int),
+		prefetchCids: make(map[string]int),
 	}
 
 	return receiver, nil
@@ -299,8 +296,8 @@ func (m *middlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 	}
 
 	sender := &SenderRabbitmq[T]{
-		exchangeName:  outputName,
-		output:        output,
+		exchangeName: outputName,
+		output:       output,
 	}
 	sender.isBlocked.Store(false)
 	sender.isClosed.Store(false)
@@ -310,7 +307,6 @@ func (m *middlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 func (s *SenderChannel[T]) Publish(ctx context.Context, msg T, cid string, t middleware.TypeMsg) error {
 	return s.PublishRK(ctx, msg, "", cid, t)
 }
-
 
 func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey string, cid string, t middleware.TypeMsg) error {
 	buf, err := msg.Encode()
@@ -326,8 +322,8 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 		amqp.Publishing{
 			ContentType: "application/message",
 			Body:        buf,
-			Headers:     amqp.Table{
-				"cid": cid,
+			Headers: amqp.Table{
+				"cid":  cid,
 				"type": t.String(),
 			},
 		})
@@ -337,7 +333,6 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	log.Debugf("PUBLISHED message in chan %s", s.exchangeName)
 	return nil
 }
-
 
 // Returns:
 // - Envelope[T]: The next message from the input channel.
@@ -354,10 +349,11 @@ func (r *receiverRabbitmq[T]) Next(timeout *time.Timer) (middleware.Envelope[T],
 	if timeout != nil {
 		timeoutC = timeout.C
 	}
-
+	var timeoutPrefetchCid <-chan time.Time = time.After(1 * time.Second)
 	for {
 		select {
 		case msg, ok := <-*r.input.C:
+			log.Debugf("Received message from input '%s'", r.input.exchangeName)
 			if !ok {
 				return nil, false, fmt.Errorf("read channel was closed")
 			}
@@ -366,17 +362,18 @@ func (r *receiverRabbitmq[T]) Next(timeout *time.Timer) (middleware.Envelope[T],
 				return nil, false, fmt.Errorf("failed to process close notification: %v", err)
 			}
 
-			finishesDone := make([] struct{
+			finishesDone := make([]struct {
 				sender *SenderChannel[*CloseNotification]
-				cid string
+				cid    string
 			}, 0)
 			for cid := range r.prefetchCids {
 				r.prefetchCids[cid]--
 				if r.prefetchCids[cid] == 0 {
-					finishesDone = append(finishesDone, struct{
+					log.Debugf("Cid prefetch emptied %s", cid)
+					finishesDone = append(finishesDone, struct {
 						sender *SenderChannel[*CloseNotification]
-						cid string
-					} { 
+						cid    string
+					}{
 						&r.closeSender,
 						cid,
 					})
@@ -384,28 +381,31 @@ func (r *receiverRabbitmq[T]) Next(timeout *time.Timer) (middleware.Envelope[T],
 				}
 			}
 			if msgProcessEnvelope.Type() == middleware.FinishCid {
+				log.Debugf("Finish received for Cid %s", msgProcessEnvelope.Cid())
 				r.finishCids[msgProcessEnvelope.Cid()] = struct {
 					finishDonePending int
-					msg                 middleware.Envelope[T]
+					msg               middleware.Envelope[T]
 				}{
 					finishDonePending: r.peers + 1,
-					msg: msgProcessEnvelope,
+					msg:               msgProcessEnvelope,
 				}
 				r.closeSender.Publish(context.Background(), &CloseNotification{}, msgProcessEnvelope.Cid(), middleware.FinishCid)
+				log.Debugf("Finish sent for Cid %s", msgProcessEnvelope.Cid())
 				r.closeSender.Publish(context.Background(), &CloseNotification{}, msgProcessEnvelope.Cid(), middleware.FinishDone)
-				for _, finishDone := range finishesDone  {
+				for _, finishDone := range finishesDone {
+					log.Debugf("Finish done sent for Cid %s", finishDone.cid)
 					err = finishDone.sender.Publish(context.Background(), &CloseNotification{}, finishDone.cid, middleware.FinishDone)
 					if err != nil {
 						return nil, false, fmt.Errorf("failed to ack message in close notification: %v", err)
 					}
 				}
-				continue	
+				continue
 			}
 			msgProcessEnvelope.finishesDone = finishesDone
 			return msgProcessEnvelope, true, nil
 
-
 		case msg, ok := <-*r.closeReceiver.C:
+			log.Debugf("Received message from close receiver '%s'", r.closeReceiver.exchangeName)
 			if !ok {
 				return nil, false, fmt.Errorf("read channel was closed")
 			}
@@ -419,39 +419,46 @@ func (r *receiverRabbitmq[T]) Next(timeout *time.Timer) (middleware.Envelope[T],
 			t := msgProcessEnvelope.Type()
 
 			if t == middleware.FinishDone {
+				log.Debugf("Finish done received for Cid %s", cid)
 				finishCid, exists := r.finishCids[cid]
 				if !exists {
 					continue
 				} else {
 					finishCid.finishDonePending--
 					r.finishCids[cid] = finishCid
+					log.Debugf("Finish done pending for Cid %s: %d", cid, finishCid.finishDonePending)
 					if finishCid.finishDonePending == 0 {
 						log.Debugf("Finishes done received for Cid %s", cid)
 						delete(r.finishCids, cid)
-						return finishCid.msg, false, nil					
+						return finishCid.msg, false, nil
 					}
 				}
-			} else if t == middleware.FinishCid { 
+			} else if t == middleware.FinishCid {
 				log.Infof("Finish received for Cid %s", cid)
 				_, exists := r.finishCids[cid]
 				if exists {
 					continue
 				}
 				r.prefetchCids[cid] = r.prefetch + PREFETCH_MAX
+				log.Debugf("Finish received for Cid %s", cid)
 			} else {
 				return nil, false, fmt.Errorf("unknown type %d", t)
 			}
-			
-		case <-timeoutC:
+
+		case <-timeoutPrefetchCid:
 			//todo eliminar los finishCids han llegado y mandarles el msg
+			log.Debugf("Timeout prefetch cid")
 			for CidMsg := range r.prefetchCids {
+				log.Debugf("Finish done sent for Cid %s", CidMsg)
 				err := r.closeSender.Publish(context.Background(), &CloseNotification{}, CidMsg, middleware.FinishDone)
 				if err != nil {
 					return nil, false, fmt.Errorf("failed to ack message in close notification: %v", err)
 				}
 				delete(r.prefetchCids, CidMsg)
 			}
-
+			timeoutPrefetchCid = nil
+			continue
+		case <-timeoutC:
 			return nil, false, fmt.Errorf("timeout reached while waiting for message")
 		}
 	}
@@ -479,20 +486,20 @@ func processMsg[T codec.Serializable[T]](msg amqp.Delivery) (*EnvelopeRabbitmq[T
 		return nil, fmt.Errorf("type missing from header")
 	}
 
-	typeMessage, err:= middleware.FromStringTypeMsg(typeMessageRaw.(string))
+	typeMessage, err := middleware.FromStringTypeMsg(typeMessageRaw.(string))
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode type message: %v", err)
 	}
-	
+
 	envelope := EnvelopeRabbitmq[T]{
 		msg: received,
 		tag: &msg,
 		finishesDone: []struct {
 			sender *SenderChannel[*CloseNotification]
-			cid string
+			cid    string
 		}{},
 		cid: cid,
-		t:  typeMessage,
+		t:   typeMessage,
 	}
 	return &envelope, nil
 }
@@ -517,7 +524,7 @@ func (r *EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to ack message: %v", err)
 	}
-	for _, finishDone := range r.finishesDone  {
+	for _, finishDone := range r.finishesDone {
 		err = finishDone.sender.Publish(context.Background(), &CloseNotification{}, finishDone.cid, middleware.FinishDone)
 		if err != nil {
 			return fmt.Errorf("failed to ack message in close notification: %v", err)
