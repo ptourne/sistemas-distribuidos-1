@@ -88,21 +88,37 @@ func newTimmer() *time.Timer {
 	return time.NewTimer(time.Second * 5)
 }
 
+type AsyncDeployRabbitRes struct {
+	container *Container
+	config    configuration
+	err       error
+}
+
 func TestRabbitMQMiddleware(t *testing.T) {
 	provider := NewContainerProvider(baseConfig)
+	asyncDeployRabbit := func() chan AsyncDeployRabbitRes {
+		ch := make(chan AsyncDeployRabbitRes)
+		go func() {
+			container, config, err := provider.DeployRabbitmq()
+			ch <- AsyncDeployRabbitRes{container, config, err}
+		}()
+		return ch
+	}
+	test1 := asyncDeployRabbit()
+	test2 := asyncDeployRabbit()
 
 	t.Run("OneMessage", func(t *testing.T) {
-		container, config, err := provider.DeployRabbitmq()
-		assert.NoError(t, err)
-		defer container.Teardown()
+		init := <-test1
+		assert.NoError(t, init.err)
+		defer init.container.Teardown()
 
-		senderConnector, err := ConnectorCustom(config)
+		senderConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		senderMiddleware := NewMiddleware[*Ball](senderConnector)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
 		assert.NoError(t, err)
 
-		receiverConnector, err := ConnectorCustom(config)
+		receiverConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
 		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver")
@@ -133,17 +149,17 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	})
 
 	t.Run("TwoMessages", func(t *testing.T) {
-		container, config, err := provider.DeployRabbitmq()
-		assert.NoError(t, err)
-		defer container.Teardown()
+		init := <-test2
+		assert.NoError(t, init.err)
+		defer init.container.Teardown()
 
-		senderConnector, err := ConnectorCustom(config)
+		senderConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		senderMiddleware := NewMiddleware[*Ball](senderConnector)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
 		assert.NoError(t, err)
 
-		receiverConnector, err := ConnectorCustom(config)
+		receiverConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
 		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver")
