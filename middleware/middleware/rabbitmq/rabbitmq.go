@@ -340,15 +340,11 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 // - error: An error if occurred during processing, nil otherwise.
 //
 // If timer triggers, the function returns an error: "timeout reached while waiting for message"
-func (r *receiverRabbitmq[T]) Next(timeout *time.Timer) (middleware.Envelope[T], bool, error) {
+func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T], bool, error) {
 	if r.input.amqpCh == nil {
 		return nil, false, fmt.Errorf("read channel is not initialized")
 	}
 
-	var timeoutC <-chan time.Time = nil
-	if timeout != nil {
-		timeoutC = timeout.C
-	}
 	var timeoutPrefetchCid <-chan time.Time = time.After(1 * time.Second)
 	for {
 		select {
@@ -435,7 +431,8 @@ func (r *receiverRabbitmq[T]) Next(timeout *time.Timer) (middleware.Envelope[T],
 				}
 				timeoutPrefetchCid = nil
 				continue
-			case <-timeoutC:
+			case <-ctx.Done():
+				log.Debugf("Timeout reached while waiting for message")
 				return nil, false, fmt.Errorf("timeout reached while waiting for message")
 			}
 		}

@@ -1,8 +1,8 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
-	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 )
@@ -17,7 +17,7 @@ type Connection[T codec.Serializable[T]] interface {
 }
 
 type Receiver[T codec.Serializable[T]] interface {
-	Next(timeout *time.Timer) (Envelope[T], bool, error)
+	Next(ctx context.Context) (Envelope[T], bool, error)
 	Close() error
 }
 
