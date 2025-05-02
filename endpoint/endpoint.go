@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
 const MIDDLEWARE = "rabbitmq"
@@ -39,17 +41,15 @@ func NewEndpoint() (*Endpoint, error) {
 }
 
 func (e *Endpoint) Run() error {
-	middlewareChanByte, err := middleware.NewRabbitmq[[]byte]()
+	connector, err := rabbitmq.Connector()
 	if err != nil {
-		return fmt.Errorf("failed to create middleware connection: %v", err)
+		log.Fatalf("Failed to connect to middleware: %s", err)
 	}
+	middlewareChanByte := rabbitmq.NewMiddleware[*model.FileChunk](connector)
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChanByte.Close()
 
-	middlewareChanRow, err := middleware.NewRabbitmq[common.Row]()
-	if err != nil {
-		return fmt.Errorf("failed to create middleware connection: %v", err)
-	}
+	middlewareChanRow := rabbitmq.NewMiddleware[*model.Row](connector)
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChanRow.Close()
 
@@ -75,7 +75,7 @@ func (e *Endpoint) Run() error {
 	return nil
 }
 
-func (e *Endpoint) handleClient(conn net.Conn, ip string, middlewareChanByte middleware.MiddlewareCola[[]byte], middlewareChanRow middleware.MiddlewareCola[common.Row]) error {
+func (e *Endpoint) handleClient(conn net.Conn, ip string, middlewareChanByte middleware.Connection[*model.FileChunk], middlewareChanRow middleware.Connection[*model.Row]) error {
 	err := e.ReceiveFilesFromClient(conn, ip, middlewareChanByte)
 	if err != nil {
 		return fmt.Errorf("error recibiendo archivos: %v", err)
@@ -98,7 +98,7 @@ func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
 	return conn, remoteAddr, nil
 }
 
-func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[common.Row]) error {
+func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlewareChan middleware.Connection[*model.Row]) error {
 	allQuerysToEndpointName := "all_querys_to_endpoint"
 	receiverAllQuerysToEndpoint, err := middlewareChan.ConsumeFrom(allQuerysToEndpointName, allQuerysToEndpointName)
 	if err != nil {
@@ -121,7 +121,7 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 		if !ok {
 			log.Infof("No more querys")
 			bufAck := []byte("FinishQuerys")
-			err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), common.FinishQuerys)
+			err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), model.FinishQuerys)
 			if err != nil {
 				log.Errorf("Failed to send message: %v", err)
 			}
@@ -130,9 +130,9 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 		receivedMovie := envelope.Msg()
 		var bufAck []byte
 		switch receivedMovie.Type {
-		case common.QueryName:
+		case model.QueryName:
 			bufAck = []byte(receivedMovie.Strings["type"])
-		case common.QueryRow:
+		case model.QueryRow:
 			bufAck, err = json.Marshal(receivedMovie)
 			if err != nil {
 				return fmt.Errorf("error in marshal row %v", err)
@@ -154,7 +154,7 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 	return nil
 }
 
-func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.MiddlewareCola[[]byte]) error {
+func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.Connection[*model.FileChunk]) error {
 	fileBytes := "file_bytes"
 	fileBytesSender, err := middlewareChan.WriteTo(fileBytes, []string{"file_bytes"})
 	if err != nil {
@@ -195,7 +195,7 @@ OuterLoop:
 		case common.AllFilesSent:
 			log.Infof("Recibido ALL FILES SENT")
 			typeDataBuf := append(sizeBuf[4:8], dataBuf...)
-			err = fileBytesSender.Send(&typeDataBuf)
+			err = fileBytesSender.Send(&model.FileChunk{Bytes: typeDataBuf})
 			if err != nil {
 				log.Errorf("Error escribiendo al archivo: %v", err)
 				break OuterLoop
@@ -207,7 +207,7 @@ OuterLoop:
 			break OuterLoop
 		}
 		typeDataBuf := append(sizeBuf[4:8], dataBuf...)
-		err = fileBytesSender.Send(&typeDataBuf)
+		err = fileBytesSender.Send(&model.FileChunk{Bytes: typeDataBuf})
 		if err != nil {
 			log.Errorf("Error escribiendo al archivo: %v", err)
 			break OuterLoop

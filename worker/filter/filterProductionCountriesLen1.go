@@ -1,11 +1,11 @@
 package filter
 
 import (
-	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterProductionCountriesLen1(input string, subscribers []string) task.Task[common.Row, common.Row] {
+func NewFilterProductionCountriesLen1(input string, subscribers []string) task.Task[*model.Row, *model.Row] {
 	return &GenericFilter{
 		name:              "filter_one_production_country",
 		input:             input,
@@ -22,7 +22,7 @@ func NewFilterProductionCountriesLen1(input string, subscribers []string) task.T
 type SingleProductionCountryCondition struct {
 }
 
-func (c SingleProductionCountryCondition) Passes(row common.Row) (bool, error) {
+func (c SingleProductionCountryCondition) Passes(row *model.Row) (bool, error) {
 	if val, ok := row.Arrays["production_countries"]; ok {
 		return len(val) == 1, nil
 	}
@@ -32,7 +32,7 @@ func (c SingleProductionCountryCondition) Passes(row common.Row) (bool, error) {
 type MapProductionCountries struct {
 }
 
-func (m MapProductionCountries) Transform(input *common.Row, output *common.Row) error {
+func (m MapProductionCountries) Transform(input *model.Row, output *model.Row) error {
 	output.Strings["country"] = input.Arrays["production_countries"][0]
 	return nil
 }

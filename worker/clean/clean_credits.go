@@ -3,20 +3,20 @@ package clean
 import (
 	"fmt"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
 type CleanCredits struct {
-	input        task.Task[common.Row, common.Row]
-	taskReceiver middleware.Receiver[common.Row]
-	taskSender   middleware.Sender[common.Row]
+	input        task.Task[*model.Row, *model.Row]
+	taskReceiver middleware.Receiver[*model.Row]
+	taskSender   middleware.Sender[*model.Row]
 	subscribers  []string
 }
 
-func NewCleanCredits(input task.Task[common.Row, common.Row], subscribers []string) task.Task[common.Row, common.Row] {
+func NewCleanCredits(input task.Task[*model.Row, *model.Row], subscribers []string) task.Task[*model.Row, *model.Row] {
 	return &CleanCredits{input, nil, nil, subscribers}
 }
 
@@ -28,7 +28,7 @@ func (f CleanCredits) Name() string {
 	return "clean_credits"
 }
 
-func (f CleanCredits) ProcessAndSend(row common.Row) error {
+func (f CleanCredits) ProcessAndSend(row *model.Row) error {
 	output := f.process(row)
 	if output == nil {
 		log.Infof("Row dropped: %+v by cleaner", row)
@@ -37,7 +37,7 @@ func (f CleanCredits) ProcessAndSend(row common.Row) error {
 	return f.taskSender.Send(output)
 }
 
-func (f CleanCredits) process(row common.Row) *common.Row {
+func (f CleanCredits) process(row *model.Row) *model.Row {
 	requiredFields := []string{
 		row.Strings["ID"],
 		row.Strings["cast"],
@@ -63,7 +63,7 @@ func (f CleanCredits) process(row common.Row) *common.Row {
 
 	log.Debugf("Clean ALL: ID: %s, cast: %v", row.Strings["ID"], cast)
 
-	return &common.Row{
+	return &model.Row{
 		Strings: map[string]string{
 			"ID": row.Strings["ID"],
 		},
@@ -73,7 +73,7 @@ func (f CleanCredits) process(row common.Row) *common.Row {
 	}
 }
 
-func (f *CleanCredits) Connect(middlewareConnection middleware.MiddlewareCola[common.Row], _ middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
+func (f *CleanCredits) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
 	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
 	if err != nil {
@@ -85,7 +85,7 @@ func (f *CleanCredits) Connect(middlewareConnection middleware.MiddlewareCola[co
 	}
 
 	//lint:ignore S1019 Ignorar reflect.Select en este archivo
-	inputChannel := make(chan middleware.Envelope[common.Row], 0)
+	inputChannel := make(chan middleware.Envelope[*model.Row], 0)
 	go func() {
 		for {
 			envelope, ok, err := f.taskReceiver.Next(nil)
@@ -106,7 +106,7 @@ func (f *CleanCredits) Connect(middlewareConnection middleware.MiddlewareCola[co
 		close(inputChannel)
 	}()
 
-	channels := []chan middleware.Envelope[common.Row]{inputChannel}
+	channels := []chan middleware.Envelope[*model.Row]{inputChannel}
 	return channels, nil
 }
 

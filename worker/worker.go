@@ -8,9 +8,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 
 	//"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
 
@@ -24,8 +26,8 @@ import (
 const MIDDLEWARE = "rabbitmq"
 
 type Worker struct {
-	TasksBin []task.Task[[]byte, common.Row]
-	Tasks    []task.Task[common.Row, common.Row]
+	TasksBin []task.Task[*model.FileChunk, *model.Row]
+	Tasks    []task.Task[*model.Row, *model.Row]
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
@@ -39,11 +41,12 @@ const (
 )
 
 func (w *Worker) Run() {
-	middlewareConnection, err := middleware.NewRabbitmq[common.Row]()
+	connector, err := rabbitmq.Connector()
 	if err != nil {
-		unwrap(err, "Failed to create middleware")
+		log.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	middlewareConnectionBin, err := middleware.NewRabbitmq[[]byte]()
+	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
+	middlewareConnectionBin := rabbitmq.NewMiddleware[*model.FileChunk](connector)
 	if err != nil {
 		unwrap(err, "Failed to create middleware")
 	}
@@ -52,8 +55,8 @@ func (w *Worker) Run() {
 	defer middlewareConnectionBin.Close()
 	var cases []reflect.SelectCase
 	//cases := make([]reflect.SelectCase, len(w.Tasks))
-	var taskRefs []task.Task[common.Row, common.Row]
-	var taskBinRefs []task.Task[[]byte, common.Row]
+	var taskRefs []task.Task[*model.Row, *model.Row]
+	var taskBinRefs []task.Task[*model.FileChunk, *model.Row]
 
 	taskClosedChannels := map[string]int{}
 	taskChannelCounts := map[string]int{}
@@ -134,14 +137,14 @@ func (w *Worker) Run() {
 				}
 				continue
 			}
-			envelope, ok := val.Interface().(middleware.Envelope[[]byte])
+			envelope, ok := val.Interface().(middleware.Envelope[*model.FileChunk])
 			if !ok {
 				panic("Failed to cast to envelope")
 			}
-			row := envelope.Msg()
-			result := currentTask.ProcessAndSend(row)
+			fileChunk := envelope.Msg()
+			result := currentTask.ProcessAndSend(fileChunk)
 			if result != nil {
-				log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
+				log.Errorf("Failed to process fileChunk: %v by task: %v", fileChunk, currentTask.Name())
 				continue
 			}
 			// log.Debugf("TO ACK msg %v worker", envelope.Msg())
@@ -173,7 +176,7 @@ func (w *Worker) Run() {
 			}
 
 			log.Debugf("Received message from channel %d", i)
-			envelope, ok := val.Interface().(middleware.Envelope[common.Row])
+			envelope, ok := val.Interface().(middleware.Envelope[*model.Row])
 			if !ok {
 				panic("Failed to cast to envelope")
 			}
@@ -204,15 +207,15 @@ func unwrap(err error, msg string) {
 	}
 }
 
-type SourceTask[O any] struct {
+type SourceTask[O codec.Serializable[O]] struct {
 	name string
 }
 
-func NewSourceTask[O any](name string) task.Task[common.Row, O] {
+func NewSourceTask[O codec.Serializable[O]](name string) task.Task[*model.Row, O] {
 	return &SourceTask[O]{name}
 }
 
-func (t *SourceTask[O]) ProcessAndSend(r common.Row) error {
+func (t *SourceTask[O]) ProcessAndSend(r *model.Row) error {
 	return nil
 }
 
@@ -228,13 +231,13 @@ func (t *SourceTask[O]) Finish() error {
 	return nil
 }
 
-func (t *SourceTask[O]) Connect(_ middleware.MiddlewareCola[common.Row], _ middleware.MiddlewareCola[O]) ([]chan middleware.Envelope[common.Row], error) {
+func (t *SourceTask[O]) Connect(_ middleware.Connection[*model.Row], _ middleware.Connection[O]) ([]chan middleware.Envelope[*model.Row], error) {
 	return nil, nil
 }
 
 func NewWorker() Worker {
-	movies_metadata := NewSourceTask[common.Row]("movies_metadata")
-	credits := NewSourceTask[common.Row]("credits")
+	movies_metadata := NewSourceTask[*model.Row]("movies_metadata")
+	credits := NewSourceTask[*model.Row]("credits")
 	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country", "map_sentiment_rate"})
 
 	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS")) // TODO: cambiar en el compose
@@ -266,7 +269,7 @@ func NewWorker() Worker {
 	filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers)
 
 	return Worker{
-		Tasks: []task.Task[common.Row, common.Row]{
+		Tasks: []task.Task[*model.Row, *model.Row]{
 			movies_metadata_clean,
 			// ratings_clean,
 			credits_clean,

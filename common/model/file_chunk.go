@@ -1,8 +1,8 @@
 package model
 
 import (
+	"bytes"
 	"fmt"
-	"io"
 
 	codec "github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 )
@@ -19,15 +19,15 @@ func (c FileChunk) Encode() ([]byte, error) {
 	return append(len, c.Bytes...), nil
 }
 
-func (c *FileChunk) Decode(r io.Reader) error {
+func (c *FileChunk) Decode(data []byte) (*FileChunk, error) {
+	r := bytes.NewReader(data)
 	len, err := codec.Uint64Decode(r)
 	if err != nil {
-		return fmt.Errorf("failed to decode length: %w", err)
+		return nil, fmt.Errorf("failed to decode length: %w", err)
 	}
-	data, err := codec.DoRead(len, r)
+	bytes, err := codec.DoRead(len, r)
 	if err != nil {
-		return fmt.Errorf("failed to read data: %w", err)
+		return nil, fmt.Errorf("failed to read bytes: %w", err)
 	}
-	c.Bytes = data
-	return nil
+	return &FileChunk{Bytes: bytes}, nil
 }

@@ -5,9 +5,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 
 	//"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
@@ -17,7 +19,7 @@ import (
 const MIDDLEWARE = "rabbitmq"
 
 type Worker struct {
-	TasksBin task.Task[[]byte, common.Row]
+	TasksBin task.Task[*model.FileChunk, *model.Row]
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
@@ -31,11 +33,12 @@ const (
 )
 
 func (w *Worker) Run() {
-	middlewareConnection, err := middleware.NewRabbitmq[common.Row]()
+	connector, err := rabbitmq.Connector()
 	if err != nil {
-		unwrap(err, "Failed to create middleware")
+		log.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	middlewareConnectionBin, err := middleware.NewRabbitmq[[]byte]()
+	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
+	middlewareConnectionBin := rabbitmq.NewMiddleware[*model.FileChunk](connector)
 	if err != nil {
 		unwrap(err, "Failed to create middleware")
 	}
@@ -50,7 +53,7 @@ func (w *Worker) Run() {
 	for {
 		currentTask := w.TasksBin
 
-		envelope, ok := <-inputChannels[0] 
+		envelope, ok := <-inputChannels[0]
 		if !ok {
 			log.Infof("Channel closed, exiting...")
 			currentTask.Finish()
@@ -78,15 +81,15 @@ func unwrap(err error, msg string) {
 	}
 }
 
-type SourceTask[O any] struct {
+type SourceTask[O codec.Serializable[O]] struct {
 	name string
 }
 
-func NewSourceTask[O any](name string) task.Task[common.Row, O] {
+func NewSourceTask[O codec.Serializable[O]](name string) task.Task[*model.Row, O] {
 	return &SourceTask[O]{name}
 }
 
-func (t *SourceTask[O]) ProcessAndSend(r common.Row) error {
+func (t *SourceTask[O]) ProcessAndSend(r *model.Row) error {
 	return nil
 }
 
@@ -102,24 +105,24 @@ func (t *SourceTask[O]) Finish() error {
 	return nil
 }
 
-func (t *SourceTask[O]) Connect(_ middleware.MiddlewareCola[common.Row], _ middleware.MiddlewareCola[O]) ([]chan middleware.Envelope[common.Row], error) {
+func (t *SourceTask[O]) Connect(_ middleware.Connection[*model.Row], _ middleware.Connection[O]) ([]chan middleware.Envelope[*model.Row], error) {
 	return nil, nil
 }
 
 func NewWorker() Worker {
-	ratings := NewSourceTask[[]byte]("ratings")
+	ratings := NewSourceTask[*model.FileChunk]("ratings")
 	subscribers := map[string][]string{
-        "reduce_by_movieId_1": []string{"0"},
-		"reduce_by_movieId_2": []string{"1"},
-		"reduce_by_movieId_3": []string{"2"},
-		"reduce_by_movieId_4": []string{"3"},
-		"reduce_by_movieId_5": []string{"4"},
-		"reduce_by_movieId_6": []string{"5"},
-		"reduce_by_movieId_7": []string{"6"},
-		"reduce_by_movieId_8": []string{"7"},
-		"reduce_by_movieId_9": []string{"8"},
+		"reduce_by_movieId_1":  []string{"0"},
+		"reduce_by_movieId_2":  []string{"1"},
+		"reduce_by_movieId_3":  []string{"2"},
+		"reduce_by_movieId_4":  []string{"3"},
+		"reduce_by_movieId_5":  []string{"4"},
+		"reduce_by_movieId_6":  []string{"5"},
+		"reduce_by_movieId_7":  []string{"6"},
+		"reduce_by_movieId_8":  []string{"7"},
+		"reduce_by_movieId_9":  []string{"8"},
 		"reduce_by_movieId_10": []string{"9"},
-    }	
+	}
 	ratings_clean := clean.NewCleanRatings(ratings, subscribers)
 	return Worker{
 		TasksBin: ratings_clean,

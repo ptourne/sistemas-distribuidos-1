@@ -5,9 +5,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 
 	"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
@@ -16,7 +18,7 @@ import (
 const MIDDLEWARE = "rabbitmq"
 
 type Worker struct {
-	Tasks task.Task[common.Row, common.Row]
+	Tasks task.Task[*model.Row, *model.Row]
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
@@ -30,10 +32,11 @@ const (
 )
 
 func (w *Worker) Run() {
-	middlewareConnection, err := middleware.NewRabbitmq[common.Row]()
+	connector, err := rabbitmq.Connector()
 	if err != nil {
-		unwrap(err, "Failed to create middleware")
+		log.Fatalf("Failed to connect to middleware: %s", err)
 	}
+	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
 
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 
@@ -43,7 +46,7 @@ func (w *Worker) Run() {
 	}
 	log.Infof("Connected to task %s", w.Tasks.Name())
 	closed := 0
-	var envelope middleware.Envelope[common.Row]
+	var envelope middleware.Envelope[*model.Row]
 	var ok bool
 	currentTask := w.Tasks
 	for {
@@ -94,15 +97,15 @@ func unwrap(err error, msg string) {
 	}
 }
 
-type SourceTask[O any] struct {
+type SourceTask[O codec.Serializable[O]] struct {
 	name string
 }
 
-func NewSourceTask[O any](name string) task.Task[common.Row, O] {
+func NewSourceTask[O codec.Serializable[O]](name string) task.Task[*model.Row, O] {
 	return &SourceTask[O]{name}
 }
 
-func (t *SourceTask[O]) ProcessAndSend(r common.Row) error {
+func (t *SourceTask[O]) ProcessAndSend(r *model.Row) error {
 	return nil
 }
 
@@ -118,13 +121,13 @@ func (t *SourceTask[O]) Finish() error {
 	return nil
 }
 
-func (t *SourceTask[O]) Connect(_ middleware.MiddlewareCola[common.Row], _ middleware.MiddlewareCola[O]) ([]chan middleware.Envelope[common.Row], error) {
+func (t *SourceTask[O]) Connect(_ middleware.Connection[*model.Row], _ middleware.Connection[O]) ([]chan middleware.Envelope[*model.Row], error) {
 	return nil, nil
 }
 
 func NewWorker() Worker {
-	movies_metadata := NewSourceTask[common.Row]("filter_release_date_ge_2000_and_include_ar")
-	ratings := NewSourceTask[common.Row]("filter_avg_rating")
+	movies_metadata := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
+	ratings := NewSourceTask[*model.Row]("filter_avg_rating")
 
 	joiner_ratings := joiner.NewJoinerRatings(movies_metadata, ratings, []string{"reduce_top_bottom_avg_rating"})
 

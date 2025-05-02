@@ -9,26 +9,26 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ptourne/sistemas-distribuidos-1/common"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
 type JoinerRatings struct {
-	inputToProcess      task.Task[common.Row, common.Row]
-	inputToSave         task.Task[common.Row, common.Row]
-	taskReceiverRatings middleware.Receiver[common.Row]
-	taskReceiverMovies  middleware.Receiver[common.Row]
-	taskSender          middleware.Sender[common.Row]
+	inputToProcess      task.Task[*model.Row, *model.Row]
+	inputToSave         task.Task[*model.Row, *model.Row]
+	taskReceiverRatings middleware.Receiver[*model.Row]
+	taskReceiverMovies  middleware.Receiver[*model.Row]
+	taskSender          middleware.Sender[*model.Row]
 	ratingsProcessed    int
 	doneRatings         atomic.Bool
-	pendingMovies       map[string]common.Row
+	pendingMovies       map[string]*model.Row
 	pendingMoviesMu     sync.Mutex
 	subscribers         []string
 }
 
-func NewJoinerRatings(inputToProcess task.Task[common.Row, common.Row], inputToSave task.Task[common.Row, common.Row], subscribers []string) task.Task[common.Row, common.Row] {
-	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make(map[string]common.Row), sync.Mutex{}, subscribers}
+func NewJoinerRatings(inputToProcess task.Task[*model.Row, *model.Row], inputToSave task.Task[*model.Row, *model.Row], subscribers []string) task.Task[*model.Row, *model.Row] {
+	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make(map[string]*model.Row), sync.Mutex{}, subscribers}
 	joiner.doneRatings.Store(false)
 	return &joiner
 }
@@ -41,7 +41,7 @@ func (f *JoinerRatings) Name() string {
 	return "joiner_ratings"
 }
 
-func (f *JoinerRatings) ProcessAndSend(row common.Row) error {
+func (f *JoinerRatings) ProcessAndSend(row *model.Row) error {
 	var err error
 	movieID := row.Strings["movieID"]
 	if title, ok := row.Strings["title"]; ok && title != "" {
@@ -54,7 +54,7 @@ func (f *JoinerRatings) ProcessAndSend(row common.Row) error {
 			return nil
 		}
 		err = f.processMovieAndSendRatings(row)
-	} else if _, ok := row.Floats["avg_rating"]; ok { 
+	} else if _, ok := row.Floats["avg_rating"]; ok {
 		err = f.processRating(row)
 	} else {
 		log.Warnf("Received row with no recognizable ID: %+v", row)
@@ -63,13 +63,13 @@ func (f *JoinerRatings) ProcessAndSend(row common.Row) error {
 	return err
 }
 
-func (f *JoinerRatings) processMovieAndSendRatings(row common.Row) error {
+func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row) error {
 
 	output, err := f.processMovie(row)
 	return f.sendRating(output, err)
 }
 
-func (f *JoinerRatings) sendRating(output *common.Row, err error) error {
+func (f *JoinerRatings) sendRating(output *model.Row, err error) error {
 	if err != nil {
 		//log.Errorf("Failed to process movie: %v", err)
 		return err
@@ -87,7 +87,7 @@ func (f *JoinerRatings) sendRating(output *common.Row, err error) error {
 	return nil
 }
 
-func (f *JoinerRatings) processRating(row common.Row) error {
+func (f *JoinerRatings) processRating(row *model.Row) error {
 	f.ratingsProcessed++
 	movieID := row.Strings["movieID"]
 	avg_rating := row.Floats["avg_rating"]
@@ -154,7 +154,7 @@ func (f *JoinerRatings) processRating(row common.Row) error {
 
 	if found {
 		log.Infof("Processing pending movie: %s", movieID)
-		roeRes := &common.Row{
+		roeRes := &model.Row{
 			Strings: map[string]string{
 				"movieID": movieID,
 				"title":   movie.Strings["title"],
@@ -177,7 +177,7 @@ func (f *JoinerRatings) processRating(row common.Row) error {
 	return nil
 }
 
-func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
+func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, error) {
 	movieID := row.Strings["movieID"]
 	title := row.Strings["title"]
 	//log.Infof("Processing movie: %s", movieID)
@@ -200,7 +200,7 @@ func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
 		return nil, err
 	}
 
-	var avg_rating float64 
+	var avg_rating float64
 	var found = false
 	for {
 		data, err := reader.Read()
@@ -233,7 +233,7 @@ func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
 	}
 	//log.Infof("Average rating for movie %s: %f", movieID, avg)
 
-	rowRes := &common.Row{
+	rowRes := &model.Row{
 		Strings: map[string]string{
 			"movieID": movieID,
 			"title":   title,
@@ -247,7 +247,7 @@ func (f *JoinerRatings) processMovie(row common.Row) (*common.Row, error) {
 
 }
 
-func (f *JoinerRatings) Connect(middlewareConnection middleware.MiddlewareCola[common.Row], _ middleware.MiddlewareCola[common.Row]) ([]chan middleware.Envelope[common.Row], error) {
+func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
 	groupQueueName := fmt.Sprintf("joiner_%s_ratings", WORKER_ID)
 	f.taskReceiverRatings, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName)
@@ -267,8 +267,8 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.MiddlewareCola[c
 	}
 
 	//lint:ignore S1019 Ignorar reflect.Select en este archivo
-	inputChannelMovies := make(chan middleware.Envelope[common.Row], 0)
-	inputChannelRatings := make(chan middleware.Envelope[common.Row])
+	inputChannelMovies := make(chan middleware.Envelope[*model.Row], 0)
+	inputChannelRatings := make(chan middleware.Envelope[*model.Row])
 
 	go func() {
 		for {
@@ -311,7 +311,7 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.MiddlewareCola[c
 		close(inputChannelMovies)
 	}()
 
-	inputChannel := make([]chan middleware.Envelope[common.Row], 2)
+	inputChannel := make([]chan middleware.Envelope[*model.Row], 2)
 	inputChannel[0] = inputChannelMovies
 	inputChannel[1] = inputChannelRatings
 	return inputChannel, nil

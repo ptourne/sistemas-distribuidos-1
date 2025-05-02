@@ -1,37 +1,41 @@
 package top_map_reduce
 
 import (
-	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"bytes"
+	"io"
+
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 )
 
 type ActorMovieCount struct {
-	Actor      string `json:"name" validate:"required"`
-	Count 	   uint   `json:"budget_sum" validate:"required"`
+	Actor string
+	Count uint64
 }
 
-type In = common.Row
+type In = *model.Row
 type Acc struct {
-	Top []ActorMovieCount `json:"top" validate:"required"`
+	Top []ActorMovieCount
 }
-type Res = common.Row
+type Res = *model.Row
 
-type TopMapReducer = map_reducer.MapReducer[In, Acc, Res]
+type TopMapReducer = map_reducer.MapReducer[In, *Acc, Res]
 
 func NewTopMapReducerActor(name string, input string, topSize uint, batchSize uint, subscribers []string) (*TopMapReducer, error) {
-	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &TopMapReduce{topSize}, subscribers, []string{})
+	return map_reducer.NewMapReducer[In, *Acc, Res](name, input, batchSize, &TopMapReduce{topSize}, subscribers, []string{})
 }
 
 type TopMapReduce struct {
 	topSize uint
 }
 
-func (r TopMapReduce) Map(in In) []Acc {
-	return []Acc{
+func (r TopMapReduce) Map(in In) []*Acc {
+	return []*Acc{
 		{Top: []ActorMovieCount{
 			{
-				Actor:      in.Strings["actor"],
-				Count: 		in.Numerics["count"],
+				Actor: in.Strings["actor"],
+				Count: in.Numerics["count"],
 			},
 		}},
 	}
@@ -41,7 +45,7 @@ func isGreater(a ActorMovieCount, b ActorMovieCount) bool {
 	return a.Count > b.Count
 }
 
-func (r TopMapReduce) Reduce(acc []Acc) Acc {
+func (r TopMapReduce) Reduce(acc []*Acc) *Acc {
 	newTop := acc[0]
 	for _, acc := range acc[1:] {
 		newTop.MergeSort(acc, r.topSize)
@@ -49,18 +53,18 @@ func (r TopMapReduce) Reduce(acc []Acc) Acc {
 	return newTop
 }
 
-func (r TopMapReduce) Output(acc Acc) []Res {
-	rows := make([]common.Row, len(acc.Top))
+func (r TopMapReduce) Output(acc *Acc) []Res {
+	rows := make([]*model.Row, len(acc.Top))
 	for i, actor := range acc.Top {
-		rows[i] = common.Row{
+		rows[i] = &model.Row{
 			Strings:  map[string]string{"actor": actor.Actor},
-			Numerics: map[string]uint{"count": actor.Count},
+			Numerics: map[string]uint64{"count": actor.Count},
 		}
 	}
 	return rows
 }
 
-func (a *Acc) MergeSort(b Acc, topSize uint) {
+func (a *Acc) MergeSort(b *Acc, topSize uint) {
 	bTop := b.Top
 	aTop := a.Top
 	newTop := mergeSort(aTop, bTop, isGreater, topSize)
@@ -97,4 +101,47 @@ func mergeSort[T any](a, b []T, isGreater func(T, T) bool, topSize uint) []T {
 		}
 	}
 	return newTop
+}
+
+func (a ActorMovieCount) Encode() ([]byte, error) {
+	actor, err := codec.StringEncode(a.Actor)
+	if err != nil {
+		return nil, err
+	}
+	count, err := codec.Uint64Encode(a.Count)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.Join([][]byte{actor, count}, []byte{}), nil
+}
+
+func (a *ActorMovieCount) Decode(r io.Reader) (*ActorMovieCount, error) {
+	actor, err := codec.StringDecode(r)
+	if err != nil {
+		return nil, err
+	}
+	count, err := codec.Uint64Decode(r)
+	if err != nil {
+		return nil, err
+	}
+	return &ActorMovieCount{Actor: actor, Count: count}, nil
+}
+
+func (a Acc) Encode() ([]byte, error) {
+	return codec.ArrayEncode(a.Top, func(actor ActorMovieCount) ([]byte, error) {
+		return actor.Encode()
+	})
+}
+
+func (a *Acc) Decode(data []byte) (*Acc, error) {
+	r := bytes.NewReader(data)
+	top, err := codec.ArrayDecode(r, func(r io.Reader) (ActorMovieCount, error) {
+		actor := &ActorMovieCount{}
+		actor, err := actor.Decode(r)
+		return *actor, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Acc{Top: top}, nil
 }

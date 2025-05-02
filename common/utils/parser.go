@@ -163,7 +163,7 @@ func DictionaryToListIso(input string) ([]string, bool) {
 	return result, true
 }
 
-func ParseInt(s string) (uint, bool) { // TODO: Handle empty strings
+func ParseUint64(s string) (uint64, bool) { // TODO: Handle empty strings
 	if s == "" {
 		return 0, false
 	}
@@ -171,7 +171,7 @@ func ParseInt(s string) (uint, bool) { // TODO: Handle empty strings
 	if err != nil {
 		return 0, false
 	}
-	return uint(value), true
+	return value, true
 }
 
 func ParseFloat(s string) (float64, bool) { // TODO: Handle empty strings

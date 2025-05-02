@@ -1,11 +1,11 @@
 package filter
 
 import (
-	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterReleaseDateL2010AndIncludeES(input string, subscribers []string) task.Task[common.Row, common.Row] {
+func NewFilterReleaseDateL2010AndIncludeES(input string, subscribers []string) task.Task[*model.Row, *model.Row] {
 	return &GenericFilter{
 		name:              "filter_release_date_l_2010_and_include_es",
 		input:             input,

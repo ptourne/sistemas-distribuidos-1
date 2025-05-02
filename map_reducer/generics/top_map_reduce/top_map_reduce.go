@@ -1,33 +1,37 @@
 package top_map_reduce
 
 import (
-	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"bytes"
+	"io"
+
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 )
 
 type CountryBudget struct {
-	Name      string `json:"name" validate:"required"`
-	BudgetSum uint   `json:"budget_sum" validate:"required"`
+	Name      string
+	BudgetSum uint64
 }
 
-type In = common.Row
+type In = *model.Row
 type Acc struct {
-	Top []CountryBudget `json:"top" validate:"required"`
+	Top []CountryBudget
 }
-type Res = common.Row
+type Res = *model.Row
 
-type TopMapReducer = map_reducer.MapReducer[In, Acc, Res]
+type TopMapReducer = map_reducer.MapReducer[In, *Acc, Res]
 
 func NewTopMapReducer(name string, input string, topSize uint, batchSize uint, subscribers []string) (*TopMapReducer, error) {
-	return map_reducer.NewMapReducer[In, Acc, Res](name, input, batchSize, &TopMapReduce{topSize}, subscribers, []string{})
+	return map_reducer.NewMapReducer[In, *Acc, Res](name, input, batchSize, &TopMapReduce{topSize}, subscribers, []string{})
 }
 
 type TopMapReduce struct {
 	topSize uint
 }
 
-func (r TopMapReduce) Map(in In) []Acc {
-	return []Acc{
+func (r TopMapReduce) Map(in In) []*Acc {
+	return []*Acc{
 		{Top: []CountryBudget{
 			{
 				Name:      in.Strings["country"],
@@ -41,7 +45,7 @@ func isGreater(a CountryBudget, b CountryBudget) bool {
 	return a.BudgetSum > b.BudgetSum
 }
 
-func (r TopMapReduce) Reduce(acc []Acc) Acc {
+func (r TopMapReduce) Reduce(acc []*Acc) *Acc {
 	newTop := acc[0]
 	for _, acc := range acc[1:] {
 		newTop.MergeSort(acc, r.topSize)
@@ -49,18 +53,18 @@ func (r TopMapReduce) Reduce(acc []Acc) Acc {
 	return newTop
 }
 
-func (r TopMapReduce) Output(acc Acc) []Res {
-	rows := make([]common.Row, len(acc.Top))
+func (r TopMapReduce) Output(acc *Acc) []Res {
+	rows := make([]*model.Row, len(acc.Top))
 	for i, country := range acc.Top {
-		rows[i] = common.Row{
+		rows[i] = &model.Row{
 			Strings:  map[string]string{"country": country.Name},
-			Numerics: map[string]uint{"budget_sum": country.BudgetSum},
+			Numerics: map[string]uint64{"budget_sum": country.BudgetSum},
 		}
 	}
 	return rows
 }
 
-func (a *Acc) MergeSort(b Acc, topSize uint) {
+func (a *Acc) MergeSort(b *Acc, topSize uint) {
 	bTop := b.Top
 	aTop := a.Top
 	newTop := mergeSort(aTop, bTop, isGreater, topSize)
@@ -97,4 +101,51 @@ func mergeSort[T any](a, b []T, isGreater func(T, T) bool, topSize uint) []T {
 		}
 	}
 	return newTop
+}
+
+func (c CountryBudget) Encode() ([]byte, error) {
+	name, err := codec.StringEncode(c.Name)
+	if err != nil {
+		return nil, err
+	}
+	budgetSum, err := codec.Uint64Encode(c.BudgetSum)
+	if err != nil {
+		return nil, err
+	}
+	return bytes.Join([][]byte{name, budgetSum}, []byte{}), nil
+}
+
+func (c *CountryBudget) Decode(r io.Reader) (*CountryBudget, error) {
+	name, err := codec.StringDecode(r)
+	if err != nil {
+		return nil, err
+	}
+	budgetSum, err := codec.Uint64Decode(r)
+	if err != nil {
+		return nil, err
+	}
+	return &CountryBudget{Name: name, BudgetSum: budgetSum}, nil
+}
+
+func (a Acc) Encode() ([]byte, error) {
+	return codec.ArrayEncode(a.Top, func(countryBudget CountryBudget) ([]byte, error) {
+		return countryBudget.Encode()
+	})
+}
+
+func (a *Acc) Decode(data []byte) (*Acc, error) {
+	r := bytes.NewReader(data)
+	topSize, err := codec.Uint64Decode(r)
+	if err != nil {
+		return nil, err
+	}
+	top := make([]CountryBudget, topSize)
+	for i := range top {
+		pointer, err := (&CountryBudget{}).Decode(r)
+		if err != nil {
+			return nil, err
+		}
+		top[i] = *pointer
+	}
+	return &Acc{Top: top}, nil
 }
