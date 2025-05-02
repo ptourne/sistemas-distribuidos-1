@@ -330,7 +330,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
 	}
-	log.Debugf("PUBLISHED message in chan %s", s.exchangeName)
+	log.Debugf("PUBLISHED message in chan %s msg:%v with type %v and cid %v", s.exchangeName, msg, t.String(), cid)
 	return nil
 }
 
@@ -352,117 +352,138 @@ func (r *receiverRabbitmq[T]) Next(timeout *time.Timer) (middleware.Envelope[T],
 	var timeoutPrefetchCid <-chan time.Time = time.After(1 * time.Second)
 	for {
 		select {
-		case msg, ok := <-*r.input.C:
-			log.Debugf("Received message from input '%s'", r.input.exchangeName)
-			if !ok {
-				return nil, false, fmt.Errorf("read channel was closed")
+		case msg, ok := <-*r.closeReceiver.C:
+			shouldContinue, shouldReturn, e, b, err := r.newMethod(ok, msg)
+			if shouldContinue {
+				continue
 			}
-			msgProcessEnvelope, err := processMsg[T](msg)
-			if err != nil {
-				return nil, false, fmt.Errorf("failed to process close notification: %v", err)
+			if shouldReturn {
+				return e, b, err
 			}
+		default:
+			select {
+			case msg, ok := <-*r.closeReceiver.C:
+				shouldContinue, shouldReturn, e, b, err := r.newMethod(ok, msg)
+				if shouldContinue {
+					continue
+				}
+				if shouldReturn {
+					return e, b, err
+				}
+			case msg, ok := <-*r.input.C:
+				log.Debugf("Received message: %v, from input '%s'", msg.Body, r.input.exchangeName)
+				if !ok {
+					return nil, false, fmt.Errorf("read channel was closed")
+				}
+				msgProcessEnvelope, err := processMsg[T](msg)
+				if err != nil {
+					return nil, false, fmt.Errorf("failed to process close notification: %v", err)
+				}
 
-			finishesDone := make([]struct {
-				sender *SenderChannel[*CloseNotification]
-				cid    string
-			}, 0)
-			for cid := range r.prefetchCids {
-				r.prefetchCids[cid]--
-				if r.prefetchCids[cid] == 0 {
-					log.Debugf("Cid prefetch emptied %s", cid)
-					finishesDone = append(finishesDone, struct {
-						sender *SenderChannel[*CloseNotification]
-						cid    string
+				finishesDone := make([]struct {
+					sender *SenderChannel[*CloseNotification]
+					cid    string
+				}, 0)
+				for cid := range r.prefetchCids {
+					r.prefetchCids[cid]--
+					if r.prefetchCids[cid] == 0 {
+						log.Debugf("Cid prefetch emptied %s", cid)
+						finishesDone = append(finishesDone, struct {
+							sender *SenderChannel[*CloseNotification]
+							cid    string
+						}{
+							&r.closeSender,
+							cid,
+						})
+						delete(r.prefetchCids, cid)
+					}
+				}
+				if msgProcessEnvelope.Type() == middleware.FinishCid {
+					log.Debugf("Finish received for Cid %s", msgProcessEnvelope.Cid())
+					r.finishCids[msgProcessEnvelope.Cid()] = struct {
+						finishDonePending int
+						msg               middleware.Envelope[T]
 					}{
-						&r.closeSender,
-						cid,
-					})
-					delete(r.prefetchCids, cid)
+						finishDonePending: r.peers + 1,
+						msg:               msgProcessEnvelope,
+					}
+					r.closeSender.Publish(context.Background(), &CloseNotification{}, msgProcessEnvelope.Cid(), middleware.FinishCid)
+					log.Debugf("Finish sent for Cid %s", msgProcessEnvelope.Cid())
+					r.closeSender.Publish(context.Background(), &CloseNotification{}, msgProcessEnvelope.Cid(), middleware.FinishDone)
+					for _, finishDone := range finishesDone {
+						log.Debugf("Finish done sent for Cid %s", finishDone.cid)
+						err = finishDone.sender.Publish(context.Background(), &CloseNotification{}, finishDone.cid, middleware.FinishDone)
+						if err != nil {
+							return nil, false, fmt.Errorf("failed to ack message in close notification: %v", err)
+						}
+					}
+					continue
 				}
-			}
-			if msgProcessEnvelope.Type() == middleware.FinishCid {
-				log.Debugf("Finish received for Cid %s", msgProcessEnvelope.Cid())
-				r.finishCids[msgProcessEnvelope.Cid()] = struct {
-					finishDonePending int
-					msg               middleware.Envelope[T]
-				}{
-					finishDonePending: r.peers + 1,
-					msg:               msgProcessEnvelope,
-				}
-				r.closeSender.Publish(context.Background(), &CloseNotification{}, msgProcessEnvelope.Cid(), middleware.FinishCid)
-				log.Debugf("Finish sent for Cid %s", msgProcessEnvelope.Cid())
-				r.closeSender.Publish(context.Background(), &CloseNotification{}, msgProcessEnvelope.Cid(), middleware.FinishDone)
-				for _, finishDone := range finishesDone {
-					log.Debugf("Finish done sent for Cid %s", finishDone.cid)
-					err = finishDone.sender.Publish(context.Background(), &CloseNotification{}, finishDone.cid, middleware.FinishDone)
+				msgProcessEnvelope.finishesDone = finishesDone
+				return msgProcessEnvelope, true, nil
+
+			case <-timeoutPrefetchCid:
+				//todo eliminar los finishCids han llegado y mandarles el msg
+				log.Debugf("Timeout prefetch cid")
+				for CidMsg := range r.prefetchCids {
+					log.Debugf("Finish done sent for Cid %s", CidMsg)
+					err := r.closeSender.Publish(context.Background(), &CloseNotification{}, CidMsg, middleware.FinishDone)
 					if err != nil {
 						return nil, false, fmt.Errorf("failed to ack message in close notification: %v", err)
 					}
+					delete(r.prefetchCids, CidMsg)
 				}
+				timeoutPrefetchCid = nil
 				continue
+			case <-timeoutC:
+				return nil, false, fmt.Errorf("timeout reached while waiting for message")
 			}
-			msgProcessEnvelope.finishesDone = finishesDone
-			return msgProcessEnvelope, true, nil
-
-		case msg, ok := <-*r.closeReceiver.C:
-			log.Debugf("Received message from close receiver '%s'", r.closeReceiver.exchangeName)
-			if !ok {
-				return nil, false, fmt.Errorf("read channel was closed")
-			}
-			var msgProcessEnvelope middleware.Envelope[*CloseNotification]
-			var err error
-			msgProcessEnvelope, err = processMsg[*CloseNotification](msg)
-			if err != nil {
-				return nil, false, fmt.Errorf("failed to process close notification: %v", err)
-			}
-			cid := msgProcessEnvelope.Cid()
-			t := msgProcessEnvelope.Type()
-
-			if t == middleware.FinishDone {
-				log.Debugf("Finish done received for Cid %s", cid)
-				finishCid, exists := r.finishCids[cid]
-				if !exists {
-					continue
-				} else {
-					finishCid.finishDonePending--
-					r.finishCids[cid] = finishCid
-					log.Debugf("Finish done pending for Cid %s: %d", cid, finishCid.finishDonePending)
-					if finishCid.finishDonePending == 0 {
-						log.Debugf("Finishes done received for Cid %s", cid)
-						delete(r.finishCids, cid)
-						return finishCid.msg, false, nil
-					}
-				}
-			} else if t == middleware.FinishCid {
-				log.Infof("Finish received for Cid %s", cid)
-				_, exists := r.finishCids[cid]
-				if exists {
-					continue
-				}
-				r.prefetchCids[cid] = r.prefetch + PREFETCH_MAX
-				log.Debugf("Finish received for Cid %s", cid)
-			} else {
-				return nil, false, fmt.Errorf("unknown type %d", t)
-			}
-
-		case <-timeoutPrefetchCid:
-			//todo eliminar los finishCids han llegado y mandarles el msg
-			log.Debugf("Timeout prefetch cid")
-			for CidMsg := range r.prefetchCids {
-				log.Debugf("Finish done sent for Cid %s", CidMsg)
-				err := r.closeSender.Publish(context.Background(), &CloseNotification{}, CidMsg, middleware.FinishDone)
-				if err != nil {
-					return nil, false, fmt.Errorf("failed to ack message in close notification: %v", err)
-				}
-				delete(r.prefetchCids, CidMsg)
-			}
-			timeoutPrefetchCid = nil
-			continue
-		case <-timeoutC:
-			return nil, false, fmt.Errorf("timeout reached while waiting for message")
 		}
 	}
 
+}
+
+func (r *receiverRabbitmq[T]) newMethod(ok bool, msg amqp.Delivery) (bool, bool, middleware.Envelope[T], bool, error) {
+	log.Debugf("Received message from close receiver '%s'", r.closeReceiver.exchangeName)
+	if !ok {
+		return false, true, nil, false, fmt.Errorf("read channel was closed")
+	}
+	var msgProcessEnvelope middleware.Envelope[*CloseNotification]
+	var err error
+	msgProcessEnvelope, err = processMsg[*CloseNotification](msg)
+	if err != nil {
+		return false, true, nil, false, fmt.Errorf("failed to process close notification: %v", err)
+	}
+	cid := msgProcessEnvelope.Cid()
+	t := msgProcessEnvelope.Type()
+
+	if t == middleware.FinishDone {
+		log.Debugf("Finish done received for Cid %s", cid)
+		finishCid, exists := r.finishCids[cid]
+		if !exists {
+			return true, false, nil, false, nil
+		} else {
+			finishCid.finishDonePending--
+			r.finishCids[cid] = finishCid
+			log.Debugf("Finish done pending for Cid %s: %d", cid, finishCid.finishDonePending)
+			if finishCid.finishDonePending == 0 {
+				log.Debugf("Finishes done received for Cid %s", cid)
+				delete(r.finishCids, cid)
+				return false, true, finishCid.msg, false, nil
+			}
+		}
+	} else if t == middleware.FinishCid {
+		log.Infof("Finish received for Cid %s", cid)
+		_, exists := r.finishCids[cid]
+		if exists {
+			return true, false, nil, false, nil
+		}
+		r.prefetchCids[cid] = r.prefetch + PREFETCH_MAX
+		log.Debugf("Finish received for Cid %s", cid)
+	} else {
+		return false, true, nil, false, fmt.Errorf("unknown type %d", t)
+	}
+	return false, false, nil, false, nil
 }
 
 func processMsg[T codec.Serializable[T]](msg amqp.Delivery) (*EnvelopeRabbitmq[T], error) {

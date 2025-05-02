@@ -100,18 +100,30 @@ type AsyncDeployRabbitRes struct {
 
 func TestRabbitMQMiddleware(t *testing.T) {
 	provider := NewContainerProvider(baseConfig)
-	asyncDeployRabbit := func() chan AsyncDeployRabbitRes {
+	asyncDeployRabbit := func() (chan AsyncDeployRabbitRes, chan func()) {
 		ch := make(chan AsyncDeployRabbitRes)
+		chTeardown := make(chan func())
 		go func() {
 			container, config, err := provider.DeployRabbitmq()
 			ch <- AsyncDeployRabbitRes{container, config, err}
+			chTeardown <- func() {
+				container.Teardown()
+			}
 		}()
-		return ch
+		return ch, chTeardown
 	}
-	test1 := asyncDeployRabbit()
-	test2 := asyncDeployRabbit()
-	test3 := asyncDeployRabbit()
-	test4 := asyncDeployRabbit()
+	asyncTeardown := func(teardownCh chan func()) {
+		teardown := <-teardownCh
+		teardown()
+	}
+	test1, teardown1 := asyncDeployRabbit()
+	defer asyncTeardown(teardown1)
+	test2, teardown2 := asyncDeployRabbit()
+	defer asyncTeardown(teardown2)
+	test3, teardown3 := asyncDeployRabbit()
+	defer asyncTeardown(teardown3)
+	test4, teardown4 := asyncDeployRabbit()
+	defer asyncTeardown(teardown4)
 
 	t.Run("OneMessage", func(t *testing.T) {
 		init := <-test1
@@ -253,7 +265,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.Equal(t, middleware.FinishCid, received.Type())
 	})
 
-	t.Run("TwoReceiversOneCid", func(t *testing.T) {
+	t.Run("TwoReceiversFinishCidAfterTimeout", func(t *testing.T) {
 		init := <-test4
 		assert.NoError(t, init.err)
 		defer init.container.Teardown()
@@ -373,7 +385,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		}
 	})
 
-	t.Run("TwoReceiversTwoCid", func(t *testing.T) {
+	t.Run("TwoReceiversFinishCidAfterMsgOfDiffCid", func(t *testing.T) {
 		init := <-test4
 		assert.NoError(t, init.err)
 		defer init.container.Teardown()
@@ -383,7 +395,8 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		senderMiddleware := NewMiddleware[*Ball](senderConnector)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
 		assert.NoError(t, err)
-		cid := "1"
+		cid1 := "1"
+		cid2 := "2"
 
 		receiver1Connector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
@@ -398,7 +411,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 
 		sentMsg1 := &Ball{1}
-		err = sender.Send(sentMsg1, cid, middleware.QueryRow)
+		err = sender.Send(sentMsg1, cid1, middleware.QueryRow)
 		assert.NoError(t, err)
 
 		handle1 := make(chan NextAsyncRes)
@@ -430,7 +443,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		}
 
 		sentMsg2 := &Ball{2}
-		err = sender.Send(sentMsg2, cid, middleware.QueryRow)
+		err = sender.Send(sentMsg2, cid1, middleware.QueryRow)
 		assert.NoError(t, err)
 
 		handle1 = make(chan NextAsyncRes)
@@ -461,36 +474,82 @@ func TestRabbitMQMiddleware(t *testing.T) {
 			assert.Error(t, resOther.err)
 		}
 
-		err = sender.Send(sentMsg2, cid, middleware.FinishCid)
+		err = sender.Send(sentMsg2, cid1, middleware.FinishCid)
 		assert.NoError(t, err)
+
+		for i := range 20 {
+			ball := &Ball{uint64(i + 3)}
+			err = sender.Send(ball, cid2, middleware.QueryRow)
+			assert.NoError(t, err)
+		}
 
 		handle1 = make(chan NextAsyncRes)
 		go func() {
-			received, ok, err := receiver1.Next(newTimmer())
-			handle1 <- NextAsyncRes{received, ok, err}
+			for {
+				received, ok, err := receiver1.Next(newTimmer())
+				handle1 <- NextAsyncRes{received, ok, err}
+				if ok {
+					time.Sleep(100 * time.Millisecond)
+				}
+				if err != nil {
+					log.Errorf("Error in receiver1: %v", err)
+					break
+				}
+			}
+			log.Infof("go routine1 finished")
 		}()
 		handle2 = make(chan NextAsyncRes)
 		go func() {
-			received, ok, err := receiver2.Next(newTimmer())
-			handle2 <- NextAsyncRes{received, ok, err}
+			for {
+				received, ok, err := receiver2.Next(newTimmer())
+				handle2 <- NextAsyncRes{received, ok, err}
+				if ok {
+					time.Sleep(100 * time.Millisecond)
+				}
+				if err != nil {
+					log.Errorf("Error in receiver1: %v", err)
+					break
+				}
+			}
+			log.Infof("go routine2 finished")
 		}()
 
-		select {
-		case res := <-handle1:
-			assert.NoError(t, res.err)
-			assert.False(t, res.ok)
-			assert.Equal(t, cid, res.received.Cid())
-			assert.Equal(t, middleware.FinishCid, res.received.Type())
-			resOther := <-handle2
-			assert.Error(t, resOther.err)
-		case res := <-handle2:
-			assert.NoError(t, res.err)
-			assert.False(t, res.ok)
-			assert.Equal(t, cid, res.received.Cid())
-			assert.Equal(t, middleware.FinishCid, res.received.Type())
-			resOther := <-handle1
-			assert.Error(t, resOther.err)
+		shouldBreak := false
+		for !shouldBreak {
+			select {
+			case res := <-handle1:
+				if !res.ok {
+					assert.NoError(t, res.err)
+					assert.False(t, res.ok)
+					assert.Equal(t, cid1, res.received.Cid())
+					assert.Equal(t, middleware.FinishCid, res.received.Type())
+					log.Infof("Receiver cid1 finished")
+					shouldBreak = true
+				} else {
+					assert.NoError(t, res.err)
+					assert.Equal(t, cid2, res.received.Cid())
+					assert.Equal(t, middleware.QueryRow, res.received.Type())
+					assert.NoError(t, res.received.Ack(true))
+				}
+			case res := <-handle2:
+				if !res.ok {
+					assert.NoError(t, res.err)
+					assert.False(t, res.ok)
+					assert.Equal(t, cid1, res.received.Cid())
+					assert.Equal(t, middleware.FinishCid, res.received.Type())
+					log.Infof("Receiver cid1 finished")
+					shouldBreak = true
+				} else {
+					assert.NoError(t, res.err)
+					assert.Equal(t, cid2, res.received.Cid())
+					assert.Equal(t, middleware.QueryRow, res.received.Type())
+					assert.NoError(t, res.received.Ack(true))
+				}
+			}
 		}
+		log.Debugf("Exiting loop")
+		receiver1.Close()
+		receiver2.Close()
 	})
 
 }
