@@ -124,35 +124,9 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	test5container := <-test5
 	defer test5container.container.Teardown()
 
-	// asyncDeployRabbit := func() (chan AsyncDeployRabbitRes, chan func()) {
-	// 	ch := make(chan AsyncDeployRabbitRes)
-	// 	chTeardown := make(chan func())
-	// 	go func() {
-	// 		container, config, err := provider.DeployRabbitmq()
-	// 		ch <- AsyncDeployRabbitRes{container, config, err}
-	// 		chTeardown <- func() {
-	// 			container.Teardown()
-	// 		}
-	// 	}()
-	// 	return ch, chTeardown
-	// }
-	// asyncTeardown := func(teardownCh chan func()) {
-	// 	teardown := <-teardownCh
-	// 	teardown()
-	// }
-	// test1, teardown1 := asyncDeployRabbit()
-	// test2, teardown2 := asyncDeployRabbit()
-	// test3, teardown3 := asyncDeployRabbit()
-	// test4, teardown4 := asyncDeployRabbit()
-	// defer asyncTeardown(teardown1)
-	// defer asyncTeardown(teardown2)
-	// defer asyncTeardown(teardown3)
-	// defer asyncTeardown(teardown4)
-
 	t.Run("OneMessage", func(t *testing.T) {
 		init := test1container
 		assert.NoError(t, init.err)
-		// defer init.container.Teardown()
 
 		senderConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
@@ -209,7 +183,6 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	t.Run("TwoMessages", func(t *testing.T) {
 		init := test2container
 		assert.NoError(t, init.err)
-		// defer init.container.Teardown()
 
 		senderConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
@@ -271,7 +244,6 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	t.Run("ReceiverArrivesLate", func(t *testing.T) {
 		init := test3container
 		assert.NoError(t, init.err)
-		// defer init.container.Teardown()
 
 		senderConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
@@ -313,7 +285,6 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	t.Run("TwoReceiversFinishCidAfterTimeout", func(t *testing.T) {
 		init := test4container
 		assert.NoError(t, init.err)
-		// defer init.container.Teardown()
 
 		senderConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
@@ -445,8 +416,6 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	t.Run("TwoReceiversFinishCidAfterMsgOfDiffCid", func(t *testing.T) {
 		init := test5container
 		assert.NoError(t, init.err)
-		// defer init.container.Teardown()
-
 		senderConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		senderMiddleware := NewMiddleware[*Ball](senderConnector)
