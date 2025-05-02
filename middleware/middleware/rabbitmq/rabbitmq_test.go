@@ -106,6 +106,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	}
 	test1 := asyncDeployRabbit()
 	test2 := asyncDeployRabbit()
+	test3 := asyncDeployRabbit()
 
 	t.Run("OneMessage", func(t *testing.T) {
 		init := <-test1
@@ -139,6 +140,10 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, sentMsg, received.Msg())
 		assert.NoError(t, received.Ack(true))
+
+		received, ok, err = receiver.Next(newTimmer())
+		assert.Error(t, err)
+		assert.False(t, ok)
 
 		err = sender.Close()
 		assert.NoError(t, err)
@@ -193,6 +198,41 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		err = sender.Close()
 		assert.NoError(t, err)
+
+		received, ok, err = receiver.Next(newTimmer())
+		assert.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("ReceiverArrivesLate", func(t *testing.T) {
+		init := <-test3
+		assert.NoError(t, init.err)
+		defer init.container.Teardown()
+
+		senderConnector, err := ConnectorCustom(init.config)
+		assert.NoError(t, err)
+		senderMiddleware := NewMiddleware[*Ball](senderConnector)
+		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
+		assert.NoError(t, err)
+
+		sentMsg := &Ball{1}
+		err = sender.Send(sentMsg)
+		assert.NoError(t, err)
+
+		err = sender.Close()
+		assert.NoError(t, err)
+
+		receiverConnector, err := ConnectorCustom(init.config)
+		assert.NoError(t, err)
+		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
+		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver")
+		assert.NoError(t, err)
+
+		received, ok, err := receiver.Next(newTimmer())
+		assert.NoError(t, err)
+		assert.True(t, ok)
+		assert.Equal(t, sentMsg, received.Msg())
+		assert.NoError(t, received.Ack(true))
 
 		received, ok, err = receiver.Next(newTimmer())
 		assert.NoError(t, err)
