@@ -137,9 +137,10 @@ compose_workers() {
             context: .
             dockerfile: worker/Dockerfile
         entrypoint: /worker
-        environment:
+        environment: 
             - WORKER_ID=$worker_id
-            - N_JOINERS=$number_of_workers
+            - N_JOINERS_CREDITS=$number_of_joiners_credits
+            - N_JOINERS_RATINGS=$number_of_joiners_ratings
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
         networks:

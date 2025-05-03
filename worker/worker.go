@@ -242,7 +242,7 @@ func NewWorker() Worker {
 	credits := NewSourceTask[*model.Row]("credits")
 	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country", "map_sentiment_rate"})
 
-	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS")) // TODO: cambiar en el compose
+	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS_CREDITS"))
 	if err != nil {
 		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
 	}
@@ -264,6 +264,10 @@ func NewWorker() Worker {
 	map_nlp := filter.NewFilterSentimentAndRate(movies_metadata_clean.Name(), []string{"reduce_by_sentiment"}, grpcAddress)
 	filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
 
+	n_worker, err = strconv.Atoi(os.Getenv("N_JOINERS_RATINGS"))
+	if err != nil {
+		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
+	}
 	var joiner_ratings_subscribers []string
 	for i := range n_worker {
 		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
