@@ -17,3 +17,9 @@ type Task[I codec.Serializable[I], O codec.Serializable[O]] interface {
 	Connect(midIn middleware.Connection[I], midOut middleware.Connection[O]) ([]chan middleware.Envelope[I], error)
 	Finish() error
 }
+
+type JoinerTask[I codec.Serializable[I], O codec.Serializable[O]] interface {
+	Task[I, O]
+	ProcessPendingMovies(clientID string) error
+	FinishProcessingClient(clientID string) error
+}

@@ -1,23 +1,10 @@
 #!/bin/bash
 
-if [ "$#" -eq 9 ]; then
+if [ "$#" -eq 10 ]; then
     file_name=./docker-compose.yml
     number_of_workers=$1
     number_of_lean_workers=$2
-    number_of_joiners_ratings=$3
-    number_of_reduce_by_country_sum_budgets=$4
-    number_of_reduce_top_5_by_budgets=$5
-    number_of_reduce_by_sentiment=$6
-    number_of_reduce_by_actor=$7
-    number_of_reduce_top_10_by_actor=$8
-    number_of_reduce_top_bottom_avg_ratings=$9
-
-
-
-elif [ "$#" -eq 10 ]; then
-    file_name=$1
-    number_of_workers=$2
-    number_of_lean_workers=$3
+    number_of_joiners_credits=$3
     number_of_joiners_ratings=$4
     number_of_reduce_by_country_sum_budgets=$5
     number_of_reduce_top_5_by_budgets=$6
@@ -26,11 +13,26 @@ elif [ "$#" -eq 10 ]; then
     number_of_reduce_top_10_by_actor=$9
     number_of_reduce_top_bottom_avg_ratings=$10
 
+
+
+elif [ "$#" -eq 11 ]; then
+    file_name=$1
+    number_of_workers=$2
+    number_of_lean_workers=$3
+    number_of_joiners_credits=$4
+    number_of_joiners_ratings=$5
+    number_of_reduce_by_country_sum_budgets=$6
+    number_of_reduce_top_5_by_budgets=$7
+    number_of_reduce_by_sentiment=$8
+    number_of_reduce_by_actor=$9
+    number_of_reduce_top_10_by_actor=$10
+    number_of_reduce_top_bottom_avg_ratings=$11
+
 else
     echo "Error: Incorrect number of arguments"
-    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_lean_workers>,<number_of_joiners_ratings>,
+    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_lean_workers>,<number_of_joiners_credits>,<number_of_joiners_ratings>,
     <number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment>,
-    <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>, <number_of_reduce_top_bottom_avg_ratings>"
+    <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>, <number_of_reduce_top_bottom_avg_ratings>"
     exit 1
 fi
 
@@ -197,6 +199,27 @@ compose_joiner_rating() {
                 condition: service_healthy
         volumes:
             - ${PWD}/joiner_ratings:/joiner_ratings
+"
+}
+
+compose_joiner_credits() {
+    local worker_id=$1
+    echo "    joiner_credits$worker_id:
+        container_name: joiner_credits$worker_id
+        build:
+            context: .
+            dockerfile: joiner_credits_worker/Dockerfile
+        entrypoint: /joiner_credits_worker
+        environment:
+            - WORKER_ID=$worker_id
+            - SERVER_PORT=1234
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
 "
 }
 
@@ -405,6 +428,9 @@ for i in $(seq 1 $number_of_workers); do
 done
 for i in $(seq 1 $number_of_lean_workers); do
     compose_lean_workers $i >> $file_name
+done
+for i in $(seq 1 $number_of_joiners_credits); do
+    compose_joiner_credits $i >> $file_name
 done
 for i in $(seq 1 $number_of_joiners_ratings); do
     compose_joiner_rating $i >> $file_name

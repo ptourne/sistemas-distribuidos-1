@@ -18,7 +18,6 @@ import (
 
 	"github.com/ptourne/sistemas-distribuidos-1/worker/clean"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/filter"
-	"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
 
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
@@ -180,16 +179,19 @@ func (w *Worker) Run() {
 			if !ok {
 				panic("Failed to cast to envelope")
 			}
+			var result error
+
 			row := envelope.Msg()
-			result := currentTask.ProcessAndSend(row)
+			result = currentTask.ProcessAndSend(row)
+
 			if result != nil {
-				log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
+				log.Errorf("Failed to process message: %v by task: %v", envelope, currentTask.Name())
 				continue
 			}
 			// log.Debugf("TO ACK msg %v worker", envelope.Msg())
 			err = envelope.Ack(false)
 			unwrap(err, "Failed to ack message")
-			log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
+			//log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
 
 		}
 
@@ -255,7 +257,7 @@ func NewWorker() Worker {
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits", "joiner_ratings"})
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"})
 	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
-	joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{"reduce_by_actor"})
+	//joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{"reduce_by_actor"})
 
 	grpcAddress := os.Getenv("NLP_GRPC_ADDR")
 
@@ -276,7 +278,7 @@ func NewWorker() Worker {
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
 			filter_one_production_country,
-			joiner_credits,
+			//joiner_credits,
 			// joiner_ratings,
 			map_nlp,
 			filter_avg_rate,
