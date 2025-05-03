@@ -32,25 +32,24 @@ type Envelope[T codec.Serializable[T]] interface {
 type TypeMsg int
 
 const (
-	QueryName TypeMsg = iota
-	QueryRow
-	FinishQuerys
-	FinishCid
-	FinishDone
+	Normal TypeMsg = iota
+	EOF
+	Prune
 )
 
+// TypeMsg indicates the type received on Next().
+//
+// - Normal: Normal message received.
+// - EOF: Indication that the processing of msgs from this Cid has been completed.
+// - Prune: Indication that a peer received an EOF and that this must flush all messages related to that Cid.
 func (t TypeMsg) String() string {
 	switch t {
-	case QueryName:
-		return "QueryName"
-	case QueryRow:
-		return "QueryRow"
-	case FinishQuerys:
-		return "FinishQuerys"
-	case FinishCid:
-		return "FinishCid"
-	case FinishDone:
-		return "FinishDone"
+	case Normal:
+		return "Normal"
+	case EOF:
+		return "EOF"
+	case Prune:
+		return "Prune"
 	default:
 		return "Unknown TypeMsg"
 	}
@@ -58,23 +57,21 @@ func (t TypeMsg) String() string {
 
 func FromStringTypeMsg(s string) (TypeMsg, error) {
 	switch s {
-	case "QueryName":
-		return QueryName, nil
-	case "QueryRow":
-		return QueryRow, nil
-	case "FinishQuerys":
-		return FinishQuerys, nil
-	case "FinishCid":
-		return FinishCid, nil
-	case "FinishDone":
-		return FinishDone, nil
+	case "Normal":
+		return Normal, nil
+	case "EOF":
+		return EOF, nil
+	case "Prune":
+		return Prune, nil
 	default:
 		return -1, fmt.Errorf("unknown TypeMsg: %s", s)
 	}
 }
 
 type Sender[T codec.Serializable[T]] interface {
-	Send(row T, cid string, t TypeMsg) error
-	SendRK(row T, routingKey string, cid string, t TypeMsg) error
+	Send(row T, cid string) error
+	SendRK(row T, routingKey string, cid string) error
+	SendEOF(cid string) error
+	SendEOFRK(routingKey string, cid string) error
 	Close() error
 }
