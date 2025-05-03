@@ -1,12 +1,14 @@
 package joiner
 
 import (
+	"context"
 	"encoding/csv"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
@@ -152,7 +154,7 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 
 	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Errorf("Failed to open file: %s", fileName)
+		log.Errorf("Failed to open file: %s. Err %s", fileName, err)
 		return err
 	}
 	defer file.Close()
@@ -226,7 +228,7 @@ func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, error) {
 	fileName := fmt.Sprintf("%s/ratings_%s.csv", dirPath, lastDigit)
 	file, err := os.Open(fileName)
 	if err != nil {
-		log.Errorf("Failed to open file: %s", fileName)
+		//log.Errorf("Failed to open file: %s", fileName)
 		return nil, fmt.Errorf("no rating found")
 
 	}
@@ -317,7 +319,9 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 
 	go func() {
 		for {
-			envelope, ok, err := f.taskReceiverRatings.Next(nil)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			envelope, ok, err := f.taskReceiverRatings.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
 					log.Infof("Channel for ratings closed from task: %v", f.Name())
@@ -327,8 +331,11 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 				continue
 			}
 			if !ok {
-				log.Infof("Channel closed (ratings): %v", f.Name())
-				break
+				if envelope == nil || envelope.Type() != middleware.EOF {
+					log.Infof("Channel closed (ratings): %v", f.Name())
+
+					break
+				}
 			}
 			inputChannelRatings <- envelope
 		}
@@ -338,7 +345,9 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 
 	go func() {
 		for {
-			envelope, ok, err := f.taskReceiverMovies.Next(nil)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			envelope, ok, err := f.taskReceiverMovies.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
 					log.Infof("Channel for movies closed from task: %v", f.Name())
@@ -348,8 +357,11 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 				continue
 			}
 			if !ok {
-				log.Infof("Channel closed (movies): %v", f.Name())
-				break
+				if envelope == nil || envelope.Type() != middleware.EOF {
+					log.Infof("Channel closed (movies): %v", f.Name())
+
+					break
+				}
 			}
 			inputChannelMovies <- envelope
 		}

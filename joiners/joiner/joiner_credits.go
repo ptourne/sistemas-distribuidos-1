@@ -336,7 +336,7 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 				continue
 			}
 			if !ok {
-				if envelope.Type() != middleware.EOF {
+				if envelope == nil || envelope.Type() != middleware.EOF {
 					log.Infof("Channel closed (credits): %v", f.Name())
 
 					break
@@ -364,7 +364,7 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 				continue
 			}
 			if !ok {
-				if envelope.Type() != middleware.EOF {
+				if envelope == nil || envelope.Type() != middleware.EOF {
 					log.Infof("Channel closed (movies): %v", f.Name())
 					break
 				}

@@ -17,15 +17,20 @@ import (
 func TestJoinerCreditsOneClient(t *testing.T) {
 
 	runCommand(t, "docker", "run", "-d", "--name", "rabbitmq", "-p", "5672:5672", "-p", "15672:15672", "rabbitmq:management")
-	t.Logf("Waiting for RabbitMQ to start...")
-	time.Sleep(5 * time.Second)
 
 	defer func() {
 		runCommand(t, "docker", "stop", "rabbitmq")
 		runCommand(t, "docker", "rm", "rabbitmq")
 	}()
 	connector, err := rabbitmq.ConnectorCustom(rabbitmq.NewConfiguration("guest", "guest", "localhost", 5672))
-	assert.NoError(t, err)
+	for {
+		if err == nil {
+			break
+		}
+		t.Logf("Error connecting to RabbitMQ. Retrying in 5 seconds...")
+		time.Sleep(5 * time.Second)
+		connector, err = rabbitmq.ConnectorCustom(rabbitmq.NewConfiguration("guest", "guest", "localhost", 5672))
+	}
 	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
 	movies := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
 	credits := NewSourceTask[*model.Row]("clean_credits")
@@ -34,8 +39,8 @@ func TestJoinerCreditsOneClient(t *testing.T) {
 	assert.NoError(t, err)
 	inputCredits, err := middlewareConnection.WriteTo("clean_credits", subscribers)
 	assert.NoError(t, err)
-	currentTask := NewJoinerCredits(movies, credits, []string{"output_test"})
-	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), "output_test", 0, 20)
+	currentTask := NewJoinerCredits(movies, credits, []string{"output_test1_credits"})
+	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), "output_test1_credits", 0, 20)
 	assert.NoError(t, err)
 
 	inputChannels, err := currentTask.Connect(middlewareConnection, middlewareConnection)
@@ -151,8 +156,6 @@ func TestJoinerCreditsOneClient(t *testing.T) {
 func TestJoinerCreditsMultipleClients(t *testing.T) {
 
 	runCommand(t, "docker", "run", "-d", "--name", "rabbitmq", "-p", "5672:5672", "-p", "15672:15672", "rabbitmq:management")
-	t.Logf("Waiting for RabbitMQ to start...")
-	time.Sleep(5 * time.Second)
 
 	defer func() {
 		runCommand(t, "docker", "stop", "rabbitmq")
@@ -160,7 +163,15 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 	}()
 
 	connector, err := rabbitmq.ConnectorCustom(rabbitmq.NewConfiguration("guest", "guest", "localhost", 5672))
-	assert.NoError(t, err)
+	for {
+		if err == nil {
+			break
+		}
+		t.Logf("Error connecting to RabbitMQ. Retrying in 5 seconds...")
+		time.Sleep(5 * time.Second)
+		connector, err = rabbitmq.ConnectorCustom(rabbitmq.NewConfiguration("guest", "guest", "localhost", 5672))
+	}
+
 	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
 	movies := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
 	credits := NewSourceTask[*model.Row]("clean_credits")
@@ -169,8 +180,8 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 	assert.NoError(t, err)
 	inputCredits, err := middlewareConnection.WriteTo("clean_credits", subscribers)
 	assert.NoError(t, err)
-	currentTask := NewJoinerCredits(movies, credits, []string{"output_test2"})
-	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), "output_test2", 0, 20)
+	currentTask := NewJoinerCredits(movies, credits, []string{"output_test2_credits"})
+	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), "output_test2_credits", 0, 20)
 	assert.NoError(t, err)
 
 	inputChannels, err := currentTask.Connect(middlewareConnection, middlewareConnection)
@@ -205,13 +216,14 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 	assert.NoError(t, err)
 
 	closed := 0
-	clientsFinished := make(map[string]int)
+	clientsFinished := map[string]int{"client1": 0, "client2": 0}
 	var envelope middleware.Envelope[*model.Row]
 	var ok bool
 	for {
 		select {
 		case envelope, ok = <-inputChannels[0]:
 			if envelope.Type() == middleware.EOF {
+				t.Logf("EOF received from movies for client %s", envelope.Cid())
 				clientsFinished[envelope.Cid()]++
 			} else if !ok {
 				inputChannels[0] = nil
@@ -219,6 +231,7 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 			}
 		case envelope, ok = <-inputChannels[1]:
 			if envelope.Type() == middleware.EOF {
+				t.Logf("EOF received from credits for client %s", envelope.Cid())
 				clientsFinished[envelope.Cid()]++
 				currentTask.ProcessPendingMovies(envelope.Cid())
 			} else if !ok {
@@ -228,6 +241,7 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 		}
 
 		if closed == 2 {
+			t.Logf("Both channels closed, exiting...")
 			break
 		}
 
@@ -237,11 +251,14 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 
 		if envelope.Type() == middleware.EOF {
 			if clientsFinished[envelope.Cid()] == 2 {
+				t.Logf("Client %s finished", envelope.Cid())
 				err = currentTask.FinishProcessingClient(envelope.Cid())
 				assert.NoError(t, err)
 				delete(clientsFinished, envelope.Cid())
+				t.Logf("Finished processing client %s", envelope.Cid())
 			}
 			if len(clientsFinished) == 0 {
+				t.Logf("All clients finished, exiting...")
 				break
 			}
 			continue
