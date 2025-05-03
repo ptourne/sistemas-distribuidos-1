@@ -58,7 +58,7 @@ func (w *Worker) Run() {
 				closed++
 				inputChannels[0] = nil
 			}
-			if envelope.Type() == middleware.FinishCid {
+			if envelope.Type() == middleware.EOF {
 				count, exists := clientsFinished[envelope.Cid()]
 				if !exists {
 					clientsFinished[envelope.Cid()] = 1
@@ -72,7 +72,7 @@ func (w *Worker) Run() {
 				inputChannels[1] = nil
 				closed++
 			}
-			if envelope.Type() == middleware.FinishCid {
+			if envelope.Type() == middleware.EOF {
 				count, exists := clientsFinished[envelope.Cid()]
 				if !exists {
 					clientsFinished[envelope.Cid()] = 1
@@ -90,7 +90,7 @@ func (w *Worker) Run() {
 			continue
 		}
 
-		if envelope.Type() == middleware.FinishCid {
+		if envelope.Type() == middleware.EOF {
 			count, exists := clientsFinished[envelope.Cid()]
 			if !exists {
 				log.Errorf("Client %s finished but not registered", envelope.Cid())
