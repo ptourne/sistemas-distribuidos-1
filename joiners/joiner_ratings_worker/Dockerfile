@@ -10,22 +10,22 @@ LABEL intermediateStageToBeDeleted=true
 RUN mkdir -p /build/common
 RUN mkdir -p /build/middleware
 RUN mkdir -p /build/worker
-RUN mkdir -p /build/joiner_credits_worker
-WORKDIR /build/joiner_credits_worker
+RUN mkdir -p /build/joiners
+WORKDIR /build/joiners
 
 COPY ./common /build/common
 COPY ./middleware /build/middleware
 COPY ./worker /build/worker
-COPY ./joiner_credits_worker/go.mod ./joiner_credits_worker/go.sum ./
+COPY ./joiners/go.mod ./joiners/go.sum ./
 RUN go mod download
 
-COPY ./joiner_credits_worker .
+COPY ./joiners .
 
 RUN go test -v ./...
 
 # CGO_ENABLED must be disabled to run go binary in Alpine
-RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/joiner_credits_worker github.com/ptourne/sistemas-distribuidos-1/joiner_credits_worker
+RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/joiners github.com/ptourne/sistemas-distribuidos-1/joiners/joiner_ratings_worker
 
 FROM busybox:latest
-COPY --from=builder /build/bin/joiner_credits_worker /joiner_credits_worker
+COPY --from=builder /build/bin/joiners /joiners
 ENTRYPOINT ["/bin/sh"]

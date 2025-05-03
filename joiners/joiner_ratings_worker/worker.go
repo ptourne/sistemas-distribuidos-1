@@ -11,7 +11,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 
-	"github.com/ptourne/sistemas-distribuidos-1/worker/joiner"
+	"github.com/ptourne/sistemas-distribuidos-1/joiners_ratings_workers/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
@@ -53,11 +53,6 @@ func (w *Worker) Run() {
 	for {
 		select {
 		case envelope, ok = <-inputChannels[0]:
-			if !ok {
-				log.Infof("Channel closed 0, exiting...")
-				closed++
-				inputChannels[0] = nil
-			}
 			if envelope.Type() == middleware.EOF {
 				count, exists := clientsFinished[envelope.Cid()]
 				if !exists {
@@ -65,13 +60,12 @@ func (w *Worker) Run() {
 				} else {
 					clientsFinished[envelope.Cid()] = count + 1
 				}
+			} else if !ok {
+				log.Infof("Channel closed 0, exiting...")
+				closed++
+				inputChannels[0] = nil
 			}
 		case envelope, ok = <-inputChannels[1]:
-			if !ok {
-				log.Infof("Channel closed 1, exiting...")
-				inputChannels[1] = nil
-				closed++
-			}
 			if envelope.Type() == middleware.EOF {
 				count, exists := clientsFinished[envelope.Cid()]
 				if !exists {
@@ -80,13 +74,17 @@ func (w *Worker) Run() {
 					clientsFinished[envelope.Cid()] = count + 1
 				}
 				currentTask.ProcessPendingMovies(envelope.Cid())
+			} else if !ok {
+				log.Infof("Channel closed 1, exiting...")
+				inputChannels[1] = nil
+				closed++
 			}
 		}
 
 		if closed == 2 {
 			break
 		}
-		if !ok {
+		if !ok && envelope.Type() != middleware.EOF {
 			continue
 		}
 

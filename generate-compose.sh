@@ -185,8 +185,8 @@ compose_joiner_rating() {
         container_name: joiner_rating$worker_id
         build:
             context: .
-            dockerfile: joiners_ratings_workers/Dockerfile
-        entrypoint: /joiners_ratings_workers
+            dockerfile: joiners/joiner_ratings_worker/Dockerfile
+        entrypoint: /joiners
         environment:
             - WORKER_ID=$worker_id
             - SERVER_PORT=1234
@@ -208,8 +208,8 @@ compose_joiner_credits() {
         container_name: joiner_credits$worker_id
         build:
             context: .
-            dockerfile: joiner_credits_worker/Dockerfile
-        entrypoint: /joiner_credits_worker
+            dockerfile: joiners/joiner_credits_worker/Dockerfile
+        entrypoint: /joiners
         environment:
             - WORKER_ID=$worker_id
             - SERVER_PORT=1234

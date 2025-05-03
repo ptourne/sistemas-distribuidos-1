@@ -166,7 +166,7 @@ func Url(c configuration) string {
 	return fmt.Sprintf("amqp://%s:%s@%s:%d/", c.User, c.Password, c.Host, c.Port)
 }
 
-var log = logger.NewConsoleLogger("middleware", logger.Debug)
+var log = logger.NewConsoleLogger("middleware", logger.Info)
 
 func Connector() (*RabbitMQConnector, error) {
 	return ConnectorCustom(DefaultConfiguration())
