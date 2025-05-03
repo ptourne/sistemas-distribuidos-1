@@ -69,7 +69,7 @@ func TestJoinerCreditsOneClient(t *testing.T) {
 		select {
 		case envelope, ok = <-inputChannels[0]:
 			t.Logf("Movies: ok = %v: type = %v", ok, envelope.Type())
-			if envelope.Type() == middleware.EOF {
+			if envelope != nil && envelope.Type() == middleware.EOF {
 				t.Log("EOF received from movies")
 				clientsFinished[envelope.Cid()]++
 			} else if !ok {
@@ -80,7 +80,7 @@ func TestJoinerCreditsOneClient(t *testing.T) {
 			}
 		case envelope, ok = <-inputChannels[1]:
 			t.Logf("Credits: ok = %v: type = %v", ok, envelope.Type())
-			if envelope.Type() == middleware.EOF {
+			if envelope != nil && envelope.Type() == middleware.EOF {
 				t.Log("EOF received from credits")
 				clientsFinished[envelope.Cid()]++
 				t.Logf("Client finished sending credits")
@@ -96,11 +96,11 @@ func TestJoinerCreditsOneClient(t *testing.T) {
 		if closed == 2 {
 			break
 		}
-		if !ok && envelope.Type() != middleware.EOF {
+		if !ok && (envelope == nil || envelope.Type() != middleware.EOF) {
 			continue
 		}
 
-		if envelope.Type() == middleware.EOF {
+		if envelope != nil && envelope.Type() == middleware.EOF {
 			count, exists := clientsFinished[envelope.Cid()]
 			if !exists {
 				t.Errorf("Client %s finished but not registered", envelope.Cid())
@@ -222,7 +222,7 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 	for {
 		select {
 		case envelope, ok = <-inputChannels[0]:
-			if envelope.Type() == middleware.EOF {
+			if envelope != nil && envelope.Type() == middleware.EOF {
 				t.Logf("EOF received from movies for client %s", envelope.Cid())
 				clientsFinished[envelope.Cid()]++
 			} else if !ok {
@@ -230,7 +230,7 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 				closed++
 			}
 		case envelope, ok = <-inputChannels[1]:
-			if envelope.Type() == middleware.EOF {
+			if envelope != nil && envelope.Type() == middleware.EOF {
 				t.Logf("EOF received from credits for client %s", envelope.Cid())
 				clientsFinished[envelope.Cid()]++
 				currentTask.ProcessPendingMovies(envelope.Cid())
@@ -245,11 +245,11 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 			break
 		}
 
-		if !ok && envelope.Type() != middleware.EOF {
+		if !ok && (envelope == nil || envelope.Type() != middleware.EOF) {
 			continue
 		}
 
-		if envelope.Type() == middleware.EOF {
+		if envelope != nil && envelope.Type() == middleware.EOF {
 			if clientsFinished[envelope.Cid()] == 2 {
 				t.Logf("Client %s finished", envelope.Cid())
 				err = currentTask.FinishProcessingClient(envelope.Cid())
@@ -282,6 +282,7 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 	t.Logf("received envelope: %+v by %s", env.Msg(), env.Cid())
 	assert.Equal(t, "X", env.Msg().Strings["movieID"])
 	assert.Equal(t, "Actor X", env.Msg().Strings["actor"])
+	assert.Equal(t, "client1", env.Cid())
 
 	// Cliente 2: no debería producir salida (no tiene créditos)
 	_, _, err = outputJoiner.Next(ctx)

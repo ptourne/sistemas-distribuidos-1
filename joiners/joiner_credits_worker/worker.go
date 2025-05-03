@@ -52,7 +52,7 @@ func (w *Worker) Run() {
 	for {
 		select {
 		case envelope, ok = <-inputChannels[0]:
-			if envelope.Type() == middleware.EOF {
+			if envelope != nil && envelope.Type() == middleware.EOF {
 				clientsFinished[envelope.Cid()]++
 			} else if !ok {
 				log.Infof("Channel closed 0, exiting...")
@@ -60,7 +60,7 @@ func (w *Worker) Run() {
 				inputChannels[0] = nil
 			}
 		case envelope, ok = <-inputChannels[1]:
-			if envelope.Type() == middleware.EOF {
+			if envelope != nil && envelope.Type() == middleware.EOF {
 				clientsFinished[envelope.Cid()]++
 				currentTask.ProcessPendingMovies(envelope.Cid())
 			} else if !ok {
@@ -73,11 +73,11 @@ func (w *Worker) Run() {
 		if closed == 2 {
 			break
 		}
-		if !ok && envelope.Type() != middleware.EOF {
+		if !ok && (envelope == nil || envelope.Type() != middleware.EOF) {
 			continue
 		}
 
-		if envelope.Type() == middleware.EOF {
+		if envelope != nil && envelope.Type() == middleware.EOF {
 			count, exists := clientsFinished[envelope.Cid()]
 			if !exists {
 				log.Errorf("Client %s finished but not registered", envelope.Cid())
