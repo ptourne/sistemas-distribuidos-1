@@ -2,6 +2,7 @@ package joiner
 
 import (
 	"context"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -14,6 +15,15 @@ import (
 )
 
 func TestJoinerCreditsOneClient(t *testing.T) {
+
+	runCommand(t, "docker", "run", "-d", "--name", "rabbitmq", "-p", "5672:5672", "-p", "15672:15672", "rabbitmq:management")
+	t.Logf("Waiting for RabbitMQ to start...")
+	time.Sleep(5 * time.Second)
+
+	defer func() {
+		runCommand(t, "docker", "stop", "rabbitmq")
+		runCommand(t, "docker", "rm", "rabbitmq")
+	}()
 	connector, err := rabbitmq.ConnectorCustom(rabbitmq.NewConfiguration("guest", "guest", "localhost", 5672))
 	assert.NoError(t, err)
 	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
@@ -56,14 +66,8 @@ func TestJoinerCreditsOneClient(t *testing.T) {
 			t.Logf("Movies: ok = %v: type = %v", ok, envelope.Type())
 			if envelope.Type() == middleware.EOF {
 				t.Log("EOF received from movies")
-				count, exists := clientsFinished[envelope.Cid()]
-				if !exists {
-					clientsFinished[envelope.Cid()] = 1
-				} else {
-					clientsFinished[envelope.Cid()] = count + 1
-				}
+				clientsFinished[envelope.Cid()]++
 			} else if !ok {
-
 				t.Logf("Channel closed 0, exiting...")
 				closed++
 				inputChannels[0] = nil
@@ -73,15 +77,8 @@ func TestJoinerCreditsOneClient(t *testing.T) {
 			t.Logf("Credits: ok = %v: type = %v", ok, envelope.Type())
 			if envelope.Type() == middleware.EOF {
 				t.Log("EOF received from credits")
-
-				count, exists := clientsFinished[envelope.Cid()]
-				if !exists {
-					clientsFinished[envelope.Cid()] = 1
-				} else {
-					clientsFinished[envelope.Cid()] = count + 1
-				}
+				clientsFinished[envelope.Cid()]++
 				t.Logf("Client finished sending credits")
-
 				currentTask.ProcessPendingMovies(envelope.Cid())
 			} else if !ok {
 				t.Logf("Channel closed 1, exiting...")
@@ -151,6 +148,135 @@ func TestJoinerCreditsOneClient(t *testing.T) {
 	middlewareConnection.Close()
 }
 
+func TestJoinerCreditsMultipleClients(t *testing.T) {
+
+	runCommand(t, "docker", "run", "-d", "--name", "rabbitmq", "-p", "5672:5672", "-p", "15672:15672", "rabbitmq:management")
+	t.Logf("Waiting for RabbitMQ to start...")
+	time.Sleep(5 * time.Second)
+
+	defer func() {
+		runCommand(t, "docker", "stop", "rabbitmq")
+		runCommand(t, "docker", "rm", "rabbitmq")
+	}()
+
+	connector, err := rabbitmq.ConnectorCustom(rabbitmq.NewConfiguration("guest", "guest", "localhost", 5672))
+	assert.NoError(t, err)
+	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
+	movies := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
+	credits := NewSourceTask[*model.Row]("clean_credits")
+	subscribers := []string{"joiner_1_credits"}
+	inputMovies, err := middlewareConnection.WriteTo("filter_release_date_ge_2000_and_include_ar", subscribers)
+	assert.NoError(t, err)
+	inputCredits, err := middlewareConnection.WriteTo("clean_credits", subscribers)
+	assert.NoError(t, err)
+	currentTask := NewJoinerCredits(movies, credits, []string{"output_test2"})
+	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), "output_test2", 0, 20)
+	assert.NoError(t, err)
+
+	inputChannels, err := currentTask.Connect(middlewareConnection, middlewareConnection)
+	assert.NoError(t, err)
+
+	// Cliente 1
+	err = inputMovies.Send(&model.Row{Strings: map[string]string{"movieID": "X"}}, "client1")
+	assert.NoError(t, err)
+	err = inputCredits.Send(&model.Row{
+		Strings: map[string]string{"ID": "X"},
+		Arrays:  map[string][]string{"cast": {"Actor X"}},
+	}, "client1")
+	assert.NoError(t, err)
+	err = inputMovies.SendEOF("client1")
+	assert.NoError(t, err)
+	err = inputCredits.SendEOF("client1")
+	assert.NoError(t, err)
+
+	// Cliente 2: película sin créditos
+	err = inputMovies.Send(&model.Row{Strings: map[string]string{"movieID": "Y"}}, "client2")
+	assert.NoError(t, err)
+	err = inputMovies.Send(&model.Row{Strings: map[string]string{"movieID": "Z"}}, "client2")
+	assert.NoError(t, err)
+	err = inputMovies.SendEOF("client2")
+	assert.NoError(t, err)
+	err = inputCredits.Send(&model.Row{
+		Strings: map[string]string{"ID": "A"},
+		Arrays:  map[string][]string{"cast": {"Actor A"}},
+	}, "client2")
+	assert.NoError(t, err)
+	err = inputCredits.SendEOF("client2")
+	assert.NoError(t, err)
+
+	closed := 0
+	clientsFinished := make(map[string]int)
+	var envelope middleware.Envelope[*model.Row]
+	var ok bool
+	for {
+		select {
+		case envelope, ok = <-inputChannels[0]:
+			if envelope.Type() == middleware.EOF {
+				clientsFinished[envelope.Cid()]++
+			} else if !ok {
+				inputChannels[0] = nil
+				closed++
+			}
+		case envelope, ok = <-inputChannels[1]:
+			if envelope.Type() == middleware.EOF {
+				clientsFinished[envelope.Cid()]++
+				currentTask.ProcessPendingMovies(envelope.Cid())
+			} else if !ok {
+				inputChannels[1] = nil
+				closed++
+			}
+		}
+
+		if closed == 2 {
+			break
+		}
+
+		if !ok && envelope.Type() != middleware.EOF {
+			continue
+		}
+
+		if envelope.Type() == middleware.EOF {
+			if clientsFinished[envelope.Cid()] == 2 {
+				err = currentTask.FinishProcessingClient(envelope.Cid())
+				assert.NoError(t, err)
+				delete(clientsFinished, envelope.Cid())
+			}
+			if len(clientsFinished) == 0 {
+				break
+			}
+			continue
+		}
+
+		row := envelope.Msg()
+		row.Strings["cid"] = envelope.Cid()
+		err := currentTask.ProcessAndSend(row)
+		assert.NoError(t, err)
+		err = envelope.Ack(false)
+		assert.NoError(t, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Cliente 1
+	env, ok, err := outputJoiner.Next(ctx)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+	t.Logf("received envelope: %+v by %s", env.Msg(), env.Cid())
+	assert.Equal(t, "X", env.Msg().Strings["movieID"])
+	assert.Equal(t, "Actor X", env.Msg().Strings["actor"])
+
+	// Cliente 2: no debería producir salida (no tiene créditos)
+	_, _, err = outputJoiner.Next(ctx)
+	assert.Equal(t, err.Error(), "timeout reached while waiting for message")
+
+	currentTask.Finish()
+	inputMovies.Close()
+	inputCredits.Close()
+	outputJoiner.Close()
+	middlewareConnection.Close()
+}
+
 type SourceTask[O codec.Serializable[O]] struct {
 	name string
 }
@@ -177,4 +303,12 @@ func (t *SourceTask[O]) Finish() error {
 
 func (t *SourceTask[O]) Connect(_ middleware.Connection[*model.Row], _ middleware.Connection[O]) ([]chan middleware.Envelope[*model.Row], error) {
 	return nil, nil
+}
+
+func runCommand(t *testing.T, name string, args ...string) {
+	cmd := exec.Command(name, args...)
+	err := cmd.Run()
+	if err != nil {
+		t.Fatalf("error running command '%s %v': %v", name, args, err)
+	}
 }

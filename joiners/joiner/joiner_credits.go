@@ -107,6 +107,7 @@ func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string) e
 		return nil
 	}
 	for _, r := range output {
+		//log.Infof("Sending actor %s from movie %s and client %s", r.Strings["actor"], r.Strings["movieID"], cid)
 		err = f.taskSender.Send(r, cid)
 		if err != nil {
 			log.Errorf("Failed to send actor data: %v", err)
@@ -127,10 +128,10 @@ func (f *JoinerCredits) processCredit(row *model.Row) error {
 	if len(cast) == 0 {
 		return nil
 	}
-	log.Infof("Processing credit: %s", movieID)
+	clientId := row.Strings["cid"]
+	log.Infof("Processing credit: %s for client %s", movieID, clientId)
 	lastDigit := string(movieID[len(movieID)-1])
 
-	clientId := row.Strings["cid"]
 	if err := os.MkdirAll(clientId, os.ModePerm); err != nil {
 		log.Errorf("Failed to create directory: %s", clientId)
 		return err
@@ -220,9 +221,9 @@ func (f *JoinerCredits) processCredit(row *model.Row) error {
 func (f *JoinerCredits) processMovie(row *model.Row) ([]*model.Row, error) {
 	var flattenCast []*model.Row
 	movieID := row.Strings["movieID"]
-	//log.Infof("Processing movie: %s", movieID)
 	lastDigit := string(movieID[len(movieID)-1])
 	clientId := row.Strings["cid"]
+	log.Infof("Processing movie: %s for client %s", movieID, clientId)
 	dirPath := fmt.Sprintf("%s/joiner_credits/joiner%s", clientId, WORKER_ID)
 
 	fileName := fmt.Sprintf("%s/credits_%s.csv", dirPath, lastDigit)
@@ -423,6 +424,7 @@ func (f *JoinerCredits) ProcessPendingMovies(clientID string) error {
 }
 
 func (f *JoinerCredits) FinishProcessingClient(clientID string) error {
+	log.Infof("Finish processing credits and movies for client %s", clientID)
 	f.ProcessPendingMovies(clientID)
 	dirPath := fmt.Sprintf("%s/joiner_credits/joiner%s", clientID, WORKER_ID)
 	err := os.RemoveAll(dirPath)

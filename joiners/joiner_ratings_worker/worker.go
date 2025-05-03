@@ -54,12 +54,7 @@ func (w *Worker) Run() {
 		select {
 		case envelope, ok = <-inputChannels[0]:
 			if envelope.Type() == middleware.EOF {
-				count, exists := clientsFinished[envelope.Cid()]
-				if !exists {
-					clientsFinished[envelope.Cid()] = 1
-				} else {
-					clientsFinished[envelope.Cid()] = count + 1
-				}
+				clientsFinished[envelope.Cid()]++
 			} else if !ok {
 				log.Infof("Channel closed 0, exiting...")
 				closed++
@@ -67,12 +62,7 @@ func (w *Worker) Run() {
 			}
 		case envelope, ok = <-inputChannels[1]:
 			if envelope.Type() == middleware.EOF {
-				count, exists := clientsFinished[envelope.Cid()]
-				if !exists {
-					clientsFinished[envelope.Cid()] = 1
-				} else {
-					clientsFinished[envelope.Cid()] = count + 1
-				}
+				clientsFinished[envelope.Cid()]++
 				currentTask.ProcessPendingMovies(envelope.Cid())
 			} else if !ok {
 				log.Infof("Channel closed 1, exiting...")
