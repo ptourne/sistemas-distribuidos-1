@@ -9,10 +9,10 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 )
 
-type TypeMsg int
+type TypePackage int
 
 const (
-	FileName TypeMsg = iota
+	FileName TypePackage = iota
 	FinishFile
 	FileData
 	AllFilesSent
@@ -30,7 +30,7 @@ func WriteFull(writer io.Writer, buf []byte, n int) error {
 	return nil
 }
 
-func WriteProtocolTypeMsg(conn net.Conn, buf []byte, n int, typeMsg TypeMsg) error {
+func WriteProtocolTypePackage(conn net.Conn, buf []byte, n int, typeMsg TypePackage) error {
 	return writeProtocol(conn, buf, n, int(typeMsg))
 }
 

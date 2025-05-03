@@ -20,10 +20,11 @@ import (
 const MIDDLEWARE = "rabbitmq"
 
 type Endpoint struct {
-	Running     bool
-	listener    net.Listener
-	clientsConn map[string]net.Conn
-	wg          sync.WaitGroup
+	Running         bool
+	listener        net.Listener
+	lockClientsConn sync.Mutex
+	clientsConn     map[string]net.Conn
+	wg              sync.WaitGroup
 }
 
 func NewEndpoint() (*Endpoint, error) {
@@ -49,7 +50,7 @@ func (e *Endpoint) Run() error {
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	middlewareChanByte := rabbitmq.NewMiddleware[*model.FileChunk](connector)
+	middlewareChanByte := rabbitmq.NewMiddleware[*common.PackageFile](connector)
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChanByte.Close()
 
@@ -68,6 +69,7 @@ func (e *Endpoint) Run() error {
 			continue
 		}
 		cid := GenerateRandomID()
+		log.Infof("Accepted connection with id: %s", cid)
 		e.wg.Add(1)
 		go e.handleClient(conn, ip, middlewareChanByte, middlewareChanRow, cid)
 	}
@@ -75,15 +77,23 @@ func (e *Endpoint) Run() error {
 	return nil
 }
 
-func (e *Endpoint) handleClient(conn net.Conn, ip string, middlewareChanByte middleware.Connection[*model.FileChunk], middlewareChanRow middleware.Connection[*model.Row], cid string) {
+func (e *Endpoint) handleClient(conn net.Conn, ip string, middlewareChanByte middleware.Connection[*common.PackageFile], middlewareChanRow middleware.Connection[*model.Row], cid string) {
+	e.lockClientsConn.Lock()
+	e.clientsConn[cid] = conn
+	e.lockClientsConn.Unlock()
 	err := e.ReceiveFilesFromClient(conn, ip, middlewareChanByte, cid)
 	if err != nil {
 		log.Errorf("error recibiendo archivos: %v", err)
 	}
-	err = e.ReceiveAndSendQuerysResults(conn, ip, middlewareChanRow, cid)
-	if err != nil {
-		log.Errorf("error recibiendo o enviando querys: %v", err)
-	}
+	// err = e.ReceiveAndSendQuerysResults(conn, ip, middlewareChanRow, cid)
+	// if err != nil {
+	// 	log.Errorf("error recibiendo o enviando querys: %v", err)
+	// }
+	e.lockClientsConn.Lock()
+	log.Infof("Closing connection with id: %s", cid)
+	conn.Close()
+	delete(e.clientsConn, cid)
+	e.lockClientsConn.Unlock()
 }
 
 func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
@@ -106,7 +116,7 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 	defer receiverAllQuerysToEndpoint.Close()
 
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Minute)
 		envelope, ok, err := receiverAllQuerysToEndpoint.Next(ctx)
 		cancel()
 		if err != nil {
@@ -152,7 +162,7 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 	return nil
 }
 
-func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.Connection[*model.FileChunk], cid string) error {
+func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.Connection[*common.PackageFile], cid string) error {
 	fileBytes := "file_bytes"
 	fileBytesSender, err := middlewareChan.WriteTo(fileBytes, []string{"file_bytes"})
 	if err != nil {
@@ -172,8 +182,7 @@ OuterLoop:
 		}
 
 		packetSize := binary.BigEndian.Uint32(sizeBuf[0:4])
-		packetType := common.TypeMsg(binary.BigEndian.Uint32(sizeBuf[4:8]))
-		var t middleware.TypeMsg
+		packetType := common.TypePackage(binary.BigEndian.Uint32(sizeBuf[4:8]))
 		dataBuf := make([]byte, packetSize)
 		_, err = io.ReadFull(conn, dataBuf)
 		if err != nil {
@@ -184,19 +193,16 @@ OuterLoop:
 
 		switch packetType {
 		case common.FileName:
-			t = middleware.FileName
 			log.Infof("Recibido FILE %s", data)
 
 		case common.FinishFile:
-			t = middleware.FinishFile
 			log.Infof("Recibido FINISH %s", data)
 
 		case common.FileData:
-			t = middleware.FileData
 
 		case common.AllFilesSent:
 			log.Infof("Recibido ALL FILES SENT")
-			err = fileBytesSender.Send(&model.FileChunk{Bytes: dataBuf}, cid, middleware.AllFilesSent)
+			err = fileBytesSender.SendEOF(cid)
 			if err != nil {
 				log.Errorf("Error escribiendo al archivo: %v", err)
 				break OuterLoop
@@ -207,7 +213,13 @@ OuterLoop:
 			}
 			break OuterLoop
 		}
-		err = fileBytesSender.Send(&model.FileChunk{Bytes: dataBuf}, cid, t)
+		msg := &common.PackageFile{
+			PackageType: packetType,
+			Buf: model.FileChunk{
+				Bytes: []byte(data),
+			},
+		}
+		err = fileBytesSender.Send(msg, cid)
 		if err != nil {
 			log.Errorf("Error escribiendo al archivo: %v", err)
 			break OuterLoop
@@ -224,13 +236,20 @@ OuterLoop:
 func (e *Endpoint) StopEndpoint() {
 	log.Infof("Stopping endpoint")
 	e.Running = false
+	if e.listener != nil {
+		err := e.listener.Close()
+		if err != nil {
+			log.Errorf("Error closing listener: %s", err)
+		}
+	}
+	e.lockClientsConn.Lock()
 	for _, conn := range e.clientsConn {
 		err := conn.Close()
 		if err != nil {
 			log.Errorf("Error closing connection: %s", err)
 		}
 	}
+	e.clientsConn = make(map[string]net.Conn)
+	e.lockClientsConn.Unlock()
 	log.Infof("Endpoint stopped")
 }
-
-//todo senders dif

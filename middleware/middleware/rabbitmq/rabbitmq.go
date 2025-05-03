@@ -166,7 +166,7 @@ func Url(c configuration) string {
 	return fmt.Sprintf("amqp://%s:%s@%s:%d/", c.User, c.Password, c.Host, c.Port)
 }
 
-var log = logger.NewConsoleLogger("middleware", logger.Debug)
+var log = logger.NewConsoleLogger("middleware", logger.Info)
 
 func Connector() (*RabbitMQConnector, error) {
 	return ConnectorCustom(DefaultConfiguration())
@@ -374,7 +374,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
 	}
-	log.Debugf("PUBLISHED message in chan %s msg:%v with type %v and cid %v", s.exchangeName, msg, normal.String(), cid)
+	// log.Debugf("PUBLISHED message in chan %s msg:%v with type %v and cid %v", s.exchangeName, msg, normal.String(), cid)
 	return nil
 }
 
@@ -406,7 +406,7 @@ func (s *SenderChannel[T]) SendEOFRK(ctx context.Context, routingKey string, cid
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
 	}
-	log.Debugf("PUBLISHED message in chan %s with type %v and cid %v", s.exchangeName, eofCid.String(), cid)
+	// log.Debugf("PUBLISHED message in chan %s with type %v and cid %v", s.exchangeName, eofCid.String(), cid)
 	return nil
 }
 
@@ -598,6 +598,7 @@ func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, c
 
 	if typeMessageInternal == normal {
 		var nul T
+		// log.Debugf("Decoding item: %v", msg.Body)
 		received, err = nul.Decode(msg.Body)
 		if err != nil {
 			return t, cid, received, tag, fmt.Errorf("failed to decode item: %v", err)

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [ "$#" -eq 9 ]; then
+if [ "$#" -eq 10 ]; then
     file_name=./docker-compose.yml
     number_of_workers=$1
     number_of_lean_workers=$2
@@ -11,10 +11,11 @@ if [ "$#" -eq 9 ]; then
     number_of_reduce_by_actor=$7
     number_of_reduce_top_10_by_actor=$8
     number_of_reduce_top_bottom_avg_ratings=$9
+    number_of_clients=${10}
 
 
 
-elif [ "$#" -eq 10 ]; then
+elif [ "$#" -eq 11 ]; then
     file_name=$1
     number_of_workers=$2
     number_of_lean_workers=$3
@@ -24,13 +25,14 @@ elif [ "$#" -eq 10 ]; then
     number_of_reduce_by_sentiment=$7
     number_of_reduce_by_actor=$8
     number_of_reduce_top_10_by_actor=$9
-    number_of_reduce_top_bottom_avg_ratings=$10
-
+    number_of_reduce_top_bottom_avg_ratings=${10}
+    number_of_clients=${11}
 else
     echo "Error: Incorrect number of arguments"
     echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_lean_workers>,<number_of_joiners_ratings>,
     <number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment>,
-    <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>, <number_of_reduce_top_bottom_avg_ratings>"
+    <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>, 
+    <number_of_reduce_top_bottom_avg_ratings>, <number_of_clients>"
     exit 1
 fi
 
@@ -78,6 +80,14 @@ if ! [[ "$number_of_reduce_top_10_by_actor" =~ ^[0-9]+$ ]] || [ "$number_of_redu
     echo "Error: Number of reduce top 10 by actor must be a positive integer"
     exit 1
 fi
+
+# Verify number_of_clients is a positive integer
+if ! [[ "$number_of_clients" =~ ^[0-9]+$ ]] || [ "$number_of_clients" -le -1 ]; then
+    echo "Error: Number of clients must be a positive integer"
+    exit 1
+fi
+
+
 
 compose_header() {
     echo "name: analisis-peliculas
@@ -201,8 +211,9 @@ compose_joiner_rating() {
 }
 
 compose_client() {
-    echo "    client:
-        container_name: client
+    local client_id=$1
+    echo "    client$client_id:
+        container_name: client$client_id
         build:
             context: .
             dockerfile: client/Dockerfile
@@ -352,39 +363,43 @@ compose_reduce_by_movieId() {
 
 compose_header > $file_name
 compose_rabbitmq >> $file_name
-compose_sentiment_server >> $file_name
+# compose_sentiment_server >> $file_name
 compose_coordinator >> $file_name
-for i in $(seq 1 $number_of_workers); do
-    compose_workers $i >> $file_name
+# for i in $(seq 1 $number_of_workers); do
+#     compose_workers $i >> $file_name
+# done
+# for i in $(seq 1 $number_of_lean_workers); do
+#     compose_lean_workers $i >> $file_name
+# done
+# for i in $(seq 1 $number_of_joiners_ratings); do
+#     compose_joiner_rating $i >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
+#     compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
+#     compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
+#     compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_by_sentiment); do
+#     compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_by_actor); do
+#     compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
+#     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
+# done
+# NUMBER_OF_REDUCE_BY_MOVIEID=10
+# for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
+#     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
+# done
+
+# compose_client >> $file_name
+for i in $(seq 1 $number_of_clients); do
+    compose_client $i $number_of_clients >> $file_name
 done
-for i in $(seq 1 $number_of_lean_workers); do
-    compose_lean_workers $i >> $file_name
-done
-for i in $(seq 1 $number_of_joiners_ratings); do
-    compose_joiner_rating $i >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
-    compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
-    compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
-    compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_by_sentiment); do
-    compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_by_actor); do
-    compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
-    compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
-done
-NUMBER_OF_REDUCE_BY_MOVIEID=10
-for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
-    compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
-done
-compose_client >> $file_name
 compose_endpoint >> $file_name
 compose_network >> $file_name
