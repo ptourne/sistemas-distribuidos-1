@@ -7,7 +7,6 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"sync/atomic"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
@@ -21,15 +20,14 @@ type JoinerRatings struct {
 	taskReceiverMovies  middleware.Receiver[*model.Row]
 	taskSender          middleware.Sender[*model.Row]
 	ratingsProcessed    int
-	doneRatings         atomic.Bool
-	pendingMovies       map[string]*model.Row
+	pendingMovies       map[string]map[string]*model.Row
 	pendingMoviesMu     sync.Mutex
 	subscribers         []string
+	finishedRatings     map[string]bool
 }
 
-func NewJoinerRatings(inputToProcess task.Task[*model.Row, *model.Row], inputToSave task.Task[*model.Row, *model.Row], subscribers []string) task.Task[*model.Row, *model.Row] {
-	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, 0, atomic.Bool{}, make(map[string]*model.Row), sync.Mutex{}, subscribers}
-	joiner.doneRatings.Store(false)
+func NewJoinerRatings(inputToProcess task.Task[*model.Row, *model.Row], inputToSave task.Task[*model.Row, *model.Row], subscribers []string) task.JoinerTask[*model.Row, *model.Row] {
+	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, 0, make(map[string]map[string]*model.Row), sync.Mutex{}, subscribers, make(map[string]bool)}
 	return &joiner
 }
 
@@ -43,16 +41,16 @@ func (f *JoinerRatings) Name() string {
 
 func (f *JoinerRatings) ProcessAndSend(row *model.Row) error {
 	var err error
-	movieID := row.Strings["movieID"]
+	//movieID := row.Strings["movieID"]
 	if title, ok := row.Strings["title"]; ok && title != "" {
 		//log.Infof("Processing movie: %s", movieID)
-		if !f.doneRatings.Load() {
-			log.Infof("Adding movie to pending: %s", movieID)
-			f.pendingMoviesMu.Lock()
-			f.pendingMovies[movieID] = row
-			f.pendingMoviesMu.Unlock()
-			return nil
-		}
+		// if !f.doneRatings.Load() {
+		// 	log.Infof("Adding movie to pending: %s", movieID)
+		// 	f.pendingMoviesMu.Lock()
+		// 	f.pendingMovies[movieID] = row
+		// 	f.pendingMoviesMu.Unlock()
+		// 	return nil
+		// }
 		err = f.processMovieAndSendRatings(row)
 	} else if _, ok := row.Floats["avg_rating"]; ok {
 		err = f.processRating(row)
@@ -66,19 +64,45 @@ func (f *JoinerRatings) ProcessAndSend(row *model.Row) error {
 func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row) error {
 
 	output, err := f.processMovie(row)
-	return f.sendRating(output, err)
-}
-
-func (f *JoinerRatings) sendRating(output *model.Row, err error) error {
 	if err != nil {
 		//log.Errorf("Failed to process movie: %v", err)
+		if err.Error() == "no rating found" {
+			clientID := row.Strings["cid"]
+			_, hasFinished := f.finishedRatings[clientID]
+			if hasFinished {
+				log.Infof("No rating found for movie %s", row.Strings["movieID"])
+				delete(f.pendingMovies[clientID], row.Strings["movieID"])
+				return nil
+			}
+			f.pendingMoviesMu.Lock()
+			_, ok := f.pendingMovies[clientID]
+			if !ok {
+				f.pendingMovies[clientID] = make(map[string]*model.Row)
+			}
+			_, ok = f.pendingMovies[clientID][row.Strings["movieID"]]
+			if !ok {
+				f.pendingMovies[clientID][row.Strings["movieID"]] = row
+				log.Infof("Adding movie %s to pending movies", row.Strings["movieID"])
+			} else {
+				delete(f.pendingMovies[clientID], row.Strings["movieID"])
+				log.Infof("No rating found for movie %s", row.Strings["movieID"])
+			}
+			f.pendingMoviesMu.Unlock()
+			return nil
+		}
+
 		return err
 	}
 	if output == nil {
 		return nil
 	}
+	return f.sendRating(output)
+}
+
+func (f *JoinerRatings) sendRating(output *model.Row) error {
+
 	log.Infof("Sending rating data: %v", output)
-	err = f.taskSender.Send(output)
+	err := f.taskSender.Send(output)
 	if err != nil {
 		log.Errorf("Failed to send rating data: %v", err)
 		return err
@@ -95,11 +119,17 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 
 	lastDigit := string(movieID[len(movieID)-1])
 
-	if err := os.MkdirAll("joiner_ratings", os.ModePerm); err != nil {
+	clientId := row.Strings["cid"]
+	if err := os.MkdirAll(clientId, os.ModePerm); err != nil {
+		log.Errorf("Failed to create directory: %s", clientId)
+		return err
+	}
+	dirPath := fmt.Sprintf("%s/joiner_ratings", clientId)
+	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
 		log.Errorf("Failed to create directory: %s", "joiner_ratings")
 		return err
 	}
-	dirPath := fmt.Sprintf("joiner_ratings/joiner%s", WORKER_ID)
+	dirPath = fmt.Sprintf("%s/joiner%s", dirPath, WORKER_ID)
 
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
 		log.Errorf("Failed to create directory: %s", dirPath)
@@ -145,16 +175,23 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 	}
 
 	// ToDo: descomentar cuando este el reducer testeado
+	clientId = row.Strings["cid"]
+	found := false
+	var movie *model.Row
 	f.pendingMoviesMu.Lock()
-	movie, found := f.pendingMovies[movieID]
-	if found {
-		delete(f.pendingMovies, movieID)
+	_, ok := f.pendingMovies[clientId]
+	if ok {
+		movie, found = f.pendingMovies[clientId][movieID]
+		if found {
+			//log.Infof("Found pending movie: %s in pending movies %v", movieID, f.pendingMovies)
+			delete(f.pendingMovies[clientId], movieID)
+		}
 	}
 	f.pendingMoviesMu.Unlock()
 
 	if found {
 		log.Infof("Processing pending movie: %s", movieID)
-		roeRes := &model.Row{
+		rowRes := &model.Row{
 			Strings: map[string]string{
 				"movieID": movieID,
 				"title":   movie.Strings["title"],
@@ -164,7 +201,7 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 				"avg_rating": avg_rating,
 			},
 		}
-		err = f.sendRating(roeRes, nil)
+		err = f.sendRating(rowRes)
 		if err != nil {
 			log.Errorf("Failed to process pending movie: %v", err)
 		}
@@ -180,15 +217,17 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, error) {
 	movieID := row.Strings["movieID"]
 	title := row.Strings["title"]
-	//log.Infof("Processing movie: %s", movieID)
+	log.Infof("Processing movie: %s", movieID)
 	lastDigit := string(movieID[len(movieID)-1])
-	dirPath := fmt.Sprintf("joiner_ratings/joiner%s", WORKER_ID)
+	clientId := row.Strings["cid"]
+
+	dirPath := fmt.Sprintf("%s/joiner_ratings/joiner%s", clientId, WORKER_ID)
 
 	fileName := fmt.Sprintf("%s/ratings_%s.csv", dirPath, lastDigit)
 	file, err := os.Open(fileName)
 	if err != nil {
 		log.Errorf("Failed to open file: %s", fileName)
-		return nil, err
+		return nil, fmt.Errorf("no rating found")
 
 	}
 	defer file.Close()
@@ -228,8 +267,8 @@ func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, error) {
 	}
 
 	if !found {
-		log.Infof("No ratings found for movie %s", movieID)
-		return nil, nil
+		//log.Infof("No ratings found for movie %s", movieID)
+		return nil, fmt.Errorf("no rating found")
 	}
 	//log.Infof("Average rating for movie %s: %f", movieID, avg)
 
@@ -287,7 +326,7 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 			}
 			inputChannelRatings <- envelope
 		}
-		f.notifyRatingsDone()
+		//f.notifyRatingsDone()
 		close(inputChannelRatings)
 	}()
 
@@ -318,10 +357,10 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 }
 
 func (f *JoinerRatings) Finish() error {
-	if !f.doneRatings.Load() {
-		log.Infof("Cannot finish: still processing ratings")
-		return fmt.Errorf("cannot finish: still receiving ratings")
-	}
+	// if !f.doneRatings.Load() {
+	// 	log.Infof("Cannot finish: still processing ratings")
+	// 	return fmt.Errorf("cannot finish: still receiving ratings")
+	// }
 	if err := f.taskReceiverMovies.Close(); err != nil {
 		return fmt.Errorf("failed to close task receiver (movies): %w", err)
 	}
@@ -335,16 +374,39 @@ func (f *JoinerRatings) Finish() error {
 	return nil
 }
 
-func (f *JoinerRatings) notifyRatingsDone() {
-	log.Infof("Finished writing ratings to file by worker %v, have processed %d ratings", WORKER_ID, f.ratingsProcessed)
-	f.doneRatings.Store(true)
+func (f *JoinerRatings) ProcessPendingMovies(clientID string) error {
+	log.Infof("Processing pending movies for client %s", clientID)
 	f.pendingMoviesMu.Lock()
-	pendings := f.pendingMovies
-	f.pendingMovies = nil
+	pendings, ok := f.pendingMovies[clientID]
+	if !ok {
+		log.Infof("No pending movies for client %s", clientID)
+		f.pendingMoviesMu.Unlock()
+		return nil
+	}
 	f.pendingMoviesMu.Unlock()
 
+	var err error
 	for _, row := range pendings {
-		//log.Infof("Process pending movie: %s", row.Strings["movieID"])
-		f.processMovieAndSendRatings(row)
+		err = f.processMovieAndSendRatings(row)
+		if err != nil {
+			return err
+		}
 	}
+	f.pendingMoviesMu.Lock()
+	delete(f.pendingMovies, clientID)
+	f.pendingMoviesMu.Unlock()
+	f.finishedRatings[clientID] = true
+	return nil
+}
+
+func (f *JoinerRatings) FinishProcessingClient(clientID string) error {
+	f.ProcessPendingMovies(clientID)
+	dirPath := fmt.Sprintf("%s/joiner_ratings/joiner%s", clientID, WORKER_ID)
+	err := os.RemoveAll(dirPath)
+	if err != nil {
+		return err
+	} else {
+		log.Infof("Removed directory: %s", dirPath)
+	}
+	return nil
 }

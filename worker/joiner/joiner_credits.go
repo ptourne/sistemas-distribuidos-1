@@ -130,7 +130,7 @@ func (f *JoinerCredits) processCredit(row *model.Row) error {
 
 	clientId := row.Strings["cid"]
 	if err := os.MkdirAll(clientId, os.ModePerm); err != nil {
-		log.Errorf("Failed to create directory: %s", "joiner_credits")
+		log.Errorf("Failed to create directory: %s", clientId)
 		return err
 	}
 	dirPath := fmt.Sprintf("%s/joiner_credits", clientId)

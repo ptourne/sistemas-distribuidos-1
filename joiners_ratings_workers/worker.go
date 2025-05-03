@@ -18,7 +18,7 @@ import (
 const MIDDLEWARE = "rabbitmq"
 
 type Worker struct {
-	Tasks task.Task[*model.Row, *model.Row]
+	Tasks task.JoinerTask[*model.Row, *model.Row]
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
@@ -46,6 +46,7 @@ func (w *Worker) Run() {
 	}
 	log.Infof("Connected to task %s", w.Tasks.Name())
 	closed := 0
+	clientsFinished := make(map[string]int)
 	var envelope middleware.Envelope[*model.Row]
 	var ok bool
 	currentTask := w.Tasks
@@ -57,13 +58,29 @@ func (w *Worker) Run() {
 				closed++
 				inputChannels[0] = nil
 			}
+			if envelope.Type() == middleware.FinishCid {
+				count, exists := clientsFinished[envelope.Cid()]
+				if !exists {
+					clientsFinished[envelope.Cid()] = 1
+				} else {
+					clientsFinished[envelope.Cid()] = count + 1
+				}
+			}
 		case envelope, ok = <-inputChannels[1]:
 			if !ok {
 				log.Infof("Channel closed 1, exiting...")
 				inputChannels[1] = nil
 				closed++
 			}
-			log.Infof("Channel 1 MSG")
+			if envelope.Type() == middleware.FinishCid {
+				count, exists := clientsFinished[envelope.Cid()]
+				if !exists {
+					clientsFinished[envelope.Cid()] = 1
+				} else {
+					clientsFinished[envelope.Cid()] = count + 1
+				}
+				currentTask.ProcessPendingMovies(envelope.Cid())
+			}
 		}
 
 		if closed == 2 {
@@ -73,7 +90,28 @@ func (w *Worker) Run() {
 			continue
 		}
 
+		if envelope.Type() == middleware.FinishCid {
+			count, exists := clientsFinished[envelope.Cid()]
+			if !exists {
+				log.Errorf("Client %s finished but not registered", envelope.Cid())
+				continue
+			}
+			if count == 2 {
+				log.Infof("Client %s finished", envelope.Cid())
+				delete(clientsFinished, envelope.Cid())
+				err = currentTask.FinishProcessingClient(envelope.Cid())
+				if err != nil {
+					log.Errorf("Failed to finish processing client %s: %v", envelope.Cid(), err)
+					continue
+				}
+				log.Infof("Finished processing client %s", envelope.Cid())
+			} else {
+				continue
+			}
+		}
+
 		row := envelope.Msg()
+		row.Strings["cid"] = envelope.Cid()
 		result := currentTask.ProcessAndSend(row)
 		if result != nil {
 			log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
