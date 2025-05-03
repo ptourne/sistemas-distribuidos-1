@@ -10,68 +10,42 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestJoinerCreditsSingleClient(t *testing.T) {
-	// Levantar RabbitMQ
-	// cmd := exec.Command("rabbitmq-server")
-	// err := cmd.Start()
-	// if err != nil {
-	// 	t.Fatalf("Failed to start RabbitMQ: %v", err)
-	// }
-
-	// // Esperar un poco para asegurarnos de que RabbitMQ esté en ejecución
-	// time.Sleep(10 * time.Second)
+func TestJoinerCreditsOneClient(t *testing.T) {
 	connector, err := rabbitmq.ConnectorCustom(rabbitmq.NewConfiguration("guest", "guest", "localhost", 5672))
-	if err != nil {
-		t.Fatalf("Failed to connect to middleware: %s", err)
-	}
+	assert.NoError(t, err)
 	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
 	movies := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
 	credits := NewSourceTask[*model.Row]("clean_credits")
 	subscribers := []string{"joiner_1_credits"}
-	inputMovies, _ := middlewareConnection.WriteTo("filter_release_date_ge_2000_and_include_ar", subscribers)
-
-	inputCredits, _ := middlewareConnection.WriteTo("clean_credits", subscribers)
+	inputMovies, err := middlewareConnection.WriteTo("filter_release_date_ge_2000_and_include_ar", subscribers)
+	assert.NoError(t, err)
+	inputCredits, err := middlewareConnection.WriteTo("clean_credits", subscribers)
+	assert.NoError(t, err)
 	currentTask := NewJoinerCredits(movies, credits, []string{"output_test"})
-	outputJoiner, _ := middlewareConnection.ConsumeFrom(currentTask.Name(), "output_test", 0, 20)
+	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), "output_test", 0, 20)
+	assert.NoError(t, err)
 
 	inputChannels, err := currentTask.Connect(middlewareConnection, middlewareConnection)
-	if err != nil {
-		t.Errorf("Failed to create channel for task %s: %s", currentTask.Name(), err)
-	}
+	assert.NoError(t, err)
 	cid := "client1"
 
-	inputMovies.Send(&model.Row{
-		Strings: map[string]string{
-			"movieID": "A",
-		},
-		Arrays:   map[string][]string{},
-		Numerics: map[string]uint64{},
-		Floats:   map[string]float64{},
+	err = inputMovies.Send(&model.Row{Strings: map[string]string{"movieID": "A"}}, cid)
+	assert.NoError(t, err)
+	err = inputMovies.Send(&model.Row{Strings: map[string]string{"movieID": "B"}}, cid)
+	assert.NoError(t, err)
+	err = inputMovies.SendEOF(cid)
+	assert.NoError(t, err)
+	err = inputCredits.Send(&model.Row{
+		Strings: map[string]string{"ID": "A"},
+		Arrays:  map[string][]string{"cast": {"Actor 1", "Actor 2"}},
 	}, cid)
+	assert.NoError(t, err)
+	err = inputCredits.SendEOF(cid)
+	assert.NoError(t, err)
 
-	inputMovies.Send(&model.Row{
-		Strings: map[string]string{
-			"movieID": "B",
-		},
-		Arrays:   map[string][]string{},
-		Numerics: map[string]uint64{},
-		Floats:   map[string]float64{},
-	}, cid)
-
-	inputMovies.SendEOF(cid)
-	inputCredits.Send(&model.Row{
-		Strings: map[string]string{
-			"ID": "A",
-		},
-		Arrays:   map[string][]string{"cast": {"Actor 1", "Actor 2"}},
-		Numerics: map[string]uint64{},
-		Floats:   map[string]float64{},
-	}, cid)
-	inputCredits.SendEOF(cid)
-
-	// ID, cast
 	closed := 0
 	clientsFinished := make(map[string]int)
 	var envelope middleware.Envelope[*model.Row]
@@ -134,10 +108,7 @@ func TestJoinerCreditsSingleClient(t *testing.T) {
 				t.Logf("Client %s finished", envelope.Cid())
 				delete(clientsFinished, envelope.Cid())
 				err = currentTask.FinishProcessingClient(envelope.Cid())
-				if err != nil {
-					t.Errorf("Failed to finish processing client %s: %v", envelope.Cid(), err)
-					continue
-				}
+				assert.NoError(t, err)
 				t.Logf("Finished processing client %s", envelope.Cid())
 				break
 			} else {
@@ -153,37 +124,26 @@ func TestJoinerCreditsSingleClient(t *testing.T) {
 			continue
 		}
 		err = envelope.Ack(false)
-		if err != nil {
-			t.Errorf("Failed to ack message: %v", err)
-		}
+		assert.NoError(t, err)
 	}
 
 	// Verificar salida
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	env, ok, err := outputJoiner.Next(ctx)
-	if err != nil {
-		t.Errorf("Failed to read from output channel: %s", err)
-	}
-	if !ok {
-		t.Errorf("Output channel closed unexpectedly")
-	}
+	assert.NoError(t, err)
+	assert.True(t, ok, "Output channel closed unexpectedly")
 	row := env.Msg()
-	if row.Strings["movieID"] != "A" || row.Strings["actor"] != "Actor 1" {
-		t.Errorf("Expected movieID A and actor Actor 1, got movieID %s and actor %s", row.Strings["movieID"], row.Strings["actor"])
-	}
+	assert.Equal(t, "A", row.Strings["movieID"])
+	assert.Equal(t, "Actor 1", row.Strings["actor"])
 
 	env, ok, err = outputJoiner.Next(ctx)
-	if err != nil {
-		t.Errorf("Failed to read from output channel: %s", err)
-	}
-	if !ok {
-		t.Errorf("Output channel closed unexpectedly")
-	}
+	assert.NoError(t, err)
+	assert.True(t, ok, "Output channel closed unexpectedly")
 	row = env.Msg()
-	if row.Strings["movieID"] != "A" || row.Strings["actor"] != "Actor 2" {
-		t.Errorf("Expected movieID A and actor Actor 2, got movieID %s and actor %s", row.Strings["movieID"], row.Strings["actor"])
-	}
+	assert.Equal(t, "A", row.Strings["movieID"])
+	assert.Equal(t, "Actor 2", row.Strings["actor"])
+
 	currentTask.Finish()
 	inputMovies.Close()
 	inputCredits.Close()

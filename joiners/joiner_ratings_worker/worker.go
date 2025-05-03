@@ -104,6 +104,7 @@ func (w *Worker) Run() {
 				}
 				log.Infof("Finished processing client %s", envelope.Cid())
 			} else {
+				// ToDo: resend finish to next worker
 				continue
 			}
 		}

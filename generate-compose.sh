@@ -181,6 +181,7 @@ compose_lean_workers() {
 
 compose_joiner_rating() {
     local worker_id=$1
+    local worker_count=$2
     echo "    joiner_rating$worker_id:
         container_name: joiner_rating$worker_id
         build:
@@ -190,6 +191,7 @@ compose_joiner_rating() {
         environment:
             - WORKER_ID=$worker_id
             - SERVER_PORT=1234
+            - WORKER_COUNT=$worker_count
         networks:
             - local_net
         depends_on:
@@ -204,6 +206,7 @@ compose_joiner_rating() {
 
 compose_joiner_credits() {
     local worker_id=$1
+    local worker_count=$2
     echo "    joiner_credits$worker_id:
         container_name: joiner_credits$worker_id
         build:
@@ -213,6 +216,7 @@ compose_joiner_credits() {
         environment:
             - WORKER_ID=$worker_id
             - SERVER_PORT=1234
+            - WORKER_COUNT=$worker_count
         networks:
             - local_net
         depends_on:
@@ -384,10 +388,10 @@ for i in $(seq 1 $number_of_lean_workers); do
     compose_lean_workers $i >> $file_name
 done
 for i in $(seq 1 $number_of_joiners_credits); do
-    compose_joiner_credits $i >> $file_name
+    compose_joiner_credits $i $number_of_joiners_credits >> $file_name
 done
 for i in $(seq 1 $number_of_joiners_ratings); do
-    compose_joiner_rating $i >> $file_name
+    compose_joiner_rating $i $number_of_joiners_ratings >> $file_name
 done
 for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
     compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
