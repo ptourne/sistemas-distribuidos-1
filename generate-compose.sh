@@ -236,87 +236,41 @@ compose_endpoint() {
 }
 
 compose_reduce_top_5_by_budgets() {
-    local worker_id=$1
-    echo "    reduce_top_5_by_budget$worker_id:
-        container_name: reduce_top_5_by_budget$worker_id
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=$worker_id
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-"
+    compose_reduce $1 $2 reduce_top_5_by_budget map_reducer/main/reduce_top_5_by_budget map_reducer
 }
 
 compose_reduce_top_bottom_avg_ratings() {
-    local worker_id=$1
-    echo "    reduce_top_bottom_avg_rating$worker_id:
-        container_name: reduce_top_bottom_avg_rating$worker_id
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_bottom_avg_rating/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=$worker_id
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-"
+    compose_reduce $1 $2 reduce_top_bottom_avg_rating map_reducer/main/reduce_top_bottom_avg_rating map_reducer
 }
 
 compose_reduce_by_country_sum_budgets() {
-    local worker_id=$1
-    echo "    reduce_by_country_sum_budget$worker_id:
-        container_name: reduce_by_country_sum_budget$worker_id
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=$worker_id
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-"
+    compose_reduce $1 $2 reduce_by_country_sum_budget map_reducer/main/reduce_by_country_sum_budget map_reducer
 }
 
 compose_reduce_by_sentiment() {
-    local worker_id=$1
-    echo "    reduce_by_sentiment$worker_id:
-        container_name: reduce_by_sentiment$worker_id
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=$worker_id
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-"
+    compose_reduce $1 $2 reduce_by_sentiment map_reducer/main/reduce_by_sentiment map_reducer
 }
 
 compose_reduce_by_actor() {
+    compose_reduce $1 $2 reduce_by_actor map_reducer/main/reduce_by_actor map_reducer
+}
+
+
+compose_reduce() {
     local worker_id=$1
+    local worker_count=$2
+    local name=$3
+    local dockerfile_path=$4
+    local entrypoint=$5
     echo "    reduce_by_actor$worker_id:
-        container_name: reduce_by_actor$worker_id
+        container_name: $name$worker_id
         build:
             context: .
-            dockerfile: map_reducer/main/reduce_by_actor/Dockerfile
+            dockerfile: $dockerfile_path/Dockerfile
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=$worker_id
+            - WORKER_COUNT=$worker_count
         networks:
             - local_net
         depends_on:
@@ -410,26 +364,26 @@ for i in $(seq 1 $number_of_joiners_ratings); do
     compose_joiner_rating $i >> $file_name
 done
 for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
-    compose_reduce_by_country_sum_budgets $i >> $file_name
+    compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
 done
 for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
-    compose_reduce_top_5_by_budgets $i >> $file_name
+    compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
 done
 for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
-    compose_reduce_top_bottom_avg_ratings $i >> $file_name
+    compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
 done
 for i in $(seq 1 $number_of_reduce_by_sentiment); do
-    compose_reduce_by_sentiment $i >> $file_name
+    compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
 done
 for i in $(seq 1 $number_of_reduce_by_actor); do
-    compose_reduce_by_actor $i >> $file_name
+    compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
 done
 for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
-    compose_reduce_top_10_by_actor $i >> $file_name
+    compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
 done
 NUMBER_OF_REDUCE_BY_MOVIEID=10
 for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
-    compose_reduce_by_movieId $i >> $file_name
+    compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
 done
 compose_client >> $file_name
 compose_endpoint >> $file_name
