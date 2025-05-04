@@ -128,6 +128,7 @@ compose_coordinator() {
             - NUMBER_OF_WORKERS=$number_of_workers
             - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=$number_of_reduce_by_country_sum_budgets
             - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=$number_of_reduce_top_5_by_budgets
+            - PREFETCH=1
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -148,8 +149,10 @@ compose_workers() {
         environment:
             - WORKER_ID=$worker_id
             - N_JOINERS=$number_of_workers
+            - N_WORKERS=$number_of_workers
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - PREFETCH=1
         networks:
             - local_net
         depends_on:
@@ -365,9 +368,9 @@ compose_header > $file_name
 compose_rabbitmq >> $file_name
 # compose_sentiment_server >> $file_name
 compose_coordinator >> $file_name
-# for i in $(seq 1 $number_of_workers); do
-#     compose_workers $i >> $file_name
-# done
+for i in $(seq 1 $number_of_workers); do
+    compose_workers $i >> $file_name
+done
 # for i in $(seq 1 $number_of_lean_workers); do
 #     compose_lean_workers $i >> $file_name
 # done

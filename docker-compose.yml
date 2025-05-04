@@ -28,9 +28,54 @@ services:
             - NUMBER_OF_WORKERS=2
             - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=1
             - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=1
+            - PREFETCH=1
         depends_on:
             rabbitmq:
                 condition: service_healthy
+
+    worker1:
+        container_name: worker1
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=1
+            - N_JOINERS=2
+            - N_WORKERS=2
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+
+    worker2:
+        container_name: worker2
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment:
+            - WORKER_ID=2
+            - N_JOINERS=2
+            - N_WORKERS=2
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
     client1:
         container_name: client1

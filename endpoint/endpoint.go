@@ -202,7 +202,14 @@ OuterLoop:
 
 		case common.AllFilesSent:
 			log.Infof("Recibido ALL FILES SENT")
-			err = fileBytesSender.SendEOF(cid)
+			// err = fileBytesSender.SendEOF(cid)
+			msg := &common.PackageFile{
+				PackageType: packetType,
+				Buf: model.FileChunk{
+					Bytes: []byte(data),
+				},
+			}
+			err = fileBytesSender.Send(msg, cid)
 			if err != nil {
 				log.Errorf("Error escribiendo al archivo: %v", err)
 				break OuterLoop

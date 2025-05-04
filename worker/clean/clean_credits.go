@@ -1,7 +1,10 @@
 package clean
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
@@ -28,13 +31,13 @@ func (f CleanCredits) Name() string {
 	return "clean_credits"
 }
 
-func (f CleanCredits) ProcessAndSend(row *model.Row) error {
+func (f CleanCredits) ProcessAndSend(row *model.Row, cid string) error {
 	output := f.process(row)
 	if output == nil {
 		log.Infof("Row dropped: %+v by cleaner", row)
 		return nil
 	}
-	return f.taskSender.Send(output)
+	return f.taskSender.Send(output, cid)
 }
 
 func (f CleanCredits) process(row *model.Row) *model.Row {
@@ -75,7 +78,15 @@ func (f CleanCredits) process(row *model.Row) *model.Row {
 
 func (f *CleanCredits) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
-	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
+	prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
+	}
+	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse N_WORKERS: %w", err)
+	}
+	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), prefetch, n_workers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
@@ -88,7 +99,8 @@ func (f *CleanCredits) Connect(middlewareConnection middleware.Connection[*model
 	inputChannel := make(chan middleware.Envelope[*model.Row], 0)
 	go func() {
 		for {
-			envelope, ok, err := f.taskReceiver.Next(nil)
+			ctx := context.Background()
+			envelope, ok, err := f.taskReceiver.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" {
 					log.Infof("Channel closed: %v", f.Name())

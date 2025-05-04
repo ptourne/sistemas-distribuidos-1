@@ -138,7 +138,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		receiverConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
-		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 0, 1)
+		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 1, 1)
 		assert.NoError(t, err)
 
 		timer, cancel := newTimmer()
@@ -194,7 +194,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		receiverConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
-		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 0, 1)
+		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 1, 1)
 		assert.NoError(t, err)
 
 		timer, cancel := newTimmer()
@@ -262,7 +262,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		receiverConnector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
-		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 0, 1)
+		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 1, 1)
 		assert.NoError(t, err)
 
 		timer, cancel := newTimmer()
@@ -296,13 +296,13 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		receiver1Connector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		receiver1Middleware := NewMiddleware[*Ball](receiver1Connector)
-		receiver1, err := receiver1Middleware.ConsumeFrom("output", "receiver", 1, 1)
+		receiver1, err := receiver1Middleware.ConsumeFrom("output", "receiver", 2, 1)
 		assert.NoError(t, err)
 
 		receiver2Connector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		receiver2Middleware := NewMiddleware[*Ball](receiver2Connector)
-		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 1, 1)
+		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 2, 1)
 		assert.NoError(t, err)
 
 		sentMsg1 := &Ball{1}
@@ -427,13 +427,13 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		receiver1Connector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		receiver1Middleware := NewMiddleware[*Ball](receiver1Connector)
-		receiver1, err := receiver1Middleware.ConsumeFrom("output", "receiver", 1, 1)
+		receiver1, err := receiver1Middleware.ConsumeFrom("output", "receiver", 2, 1)
 		assert.NoError(t, err)
 
 		receiver2Connector, err := ConnectorCustom(init.config)
 		assert.NoError(t, err)
 		receiver2Middleware := NewMiddleware[*Ball](receiver2Connector)
-		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 1, 1)
+		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 2, 1)
 		assert.NoError(t, err)
 
 		sentMsg1 := &Ball{1}

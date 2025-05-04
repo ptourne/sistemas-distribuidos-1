@@ -1,8 +1,11 @@
 package clean
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
@@ -48,14 +51,14 @@ func (f CleanRatings) Name() string {
 	return "clean_ratings"
 }
 
-func (f CleanRatings) ProcessAndSend(row *model.FileChunk) error {
+func (f CleanRatings) ProcessAndSend(row *model.FileChunk, cid string) error {
 	output := f.process(row.Bytes) // TODO: this should be a different model
 	if output == nil {
 		return nil
 	}
 	movieId := output.Strings["movieID"]
 	routingKey := string(movieId[len(movieId)-1])
-	return f.taskSender.SendRK(output, routingKey)
+	return f.taskSender.SendRK(output, routingKey, cid)
 }
 
 func (f CleanRatings) process(row []byte) *model.Row {
@@ -102,7 +105,15 @@ func (f CleanRatings) process(row []byte) *model.Row {
 
 func (f *CleanRatings) Connect(middIn middleware.Connection[*model.FileChunk], middOut middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.FileChunk], error) {
 	var err error
-	f.taskReceiver, err = middIn.ConsumeFrom(f.Input(), f.Name())
+	prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
+	}
+	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse N_WORKERS: %w", err)
+	}
+	f.taskReceiver, err = middIn.ConsumeFrom(f.Input(), f.Name(), prefetch, n_workers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
@@ -117,7 +128,8 @@ func (f *CleanRatings) Connect(middIn middleware.Connection[*model.FileChunk], m
 	inputChannel := make(chan middleware.Envelope[*model.FileChunk], 0)
 	go func() {
 		for {
-			envelope, ok, err := f.taskReceiver.Next(nil)
+			ctx := context.Background()
+			envelope, ok, err := f.taskReceiver.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
 					log.Infof("Channel closed: %v", f.Name())

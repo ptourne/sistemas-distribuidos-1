@@ -459,7 +459,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				for cid := range r.prefetchCids {
 					r.prefetchCids[cid]--
 					if r.prefetchCids[cid] == 0 {
-						log.Debugf("Cid prefetch emptied %s", cid)
+						log.Infof("Cid prefetch emptied %s", cid)
 						finishesDone = append(finishesDone, struct {
 							sender *SenderChannel[*CloseNotification]
 							cid    string
@@ -471,12 +471,12 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					}
 				}
 				if t == eofCid {
-					log.Debugf("Finish received for Cid %s", cid)
+					log.Infof("Finish received for Cid %s", cid)
 					r.finishCids[cid] = struct {
 						finishDonePending int
 						msg               middleware.Envelope[T]
 					}{
-						finishDonePending: r.peers + 1,
+						finishDonePending: r.peers,
 						msg: &EnvelopeRabbitmq[T]{
 							msg: msgbody,
 							tag: tag,
@@ -489,10 +489,11 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 						},
 					}
 					r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCid}, cid)
-					log.Debugf("Finish sent for Cid %s", cid)
+					log.Infof("Finish sent in closeSender for Cid %s", cid)
 					r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, cid)
+					log.Infof("Finish done lider sent for Cid %s", cid)
 					for _, finishDone := range finishesDone {
-						log.Debugf("Finish done sent for Cid %s", finishDone.cid)
+						log.Infof("Finish done sent for Cid %s", finishDone.cid)
 						err = finishDone.sender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, finishDone.cid)
 						if err != nil {
 							return nil, false, fmt.Errorf("failed to ack message in close notification: %v", err)
@@ -510,9 +511,9 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 
 			case <-timeoutPrefetchCid:
 				//todo eliminar los finishCids han llegado y mandarles el msg
-				log.Debugf("Timeout prefetch cid")
+				log.Infof("Timeout prefetch cid")
 				for CidMsg := range r.prefetchCids {
-					log.Debugf("Finish done sent for Cid %s", CidMsg)
+					log.Infof("Finish done sent for Cid %s", CidMsg)
 					err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, CidMsg)
 					if err != nil {
 						return nil, false, fmt.Errorf("failed to ack message in close notification: %v", err)
@@ -548,16 +549,16 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 
 	switch notification.notificationType {
 	case closeNotificationFinishCidDone:
-		log.Debugf("Finish done received for Cid %s", cid)
+		log.Infof("Finish done received for Cid %s", cid)
 		finishCid, exists := r.finishCids[cid]
 		if !exists {
 			return true, false, nil, nil
 		} else {
 			finishCid.finishDonePending--
 			r.finishCids[cid] = finishCid
-			log.Debugf("Finish done pending for Cid %s: %d", cid, finishCid.finishDonePending)
+			log.Infof("Finish done pending for Cid %s: %d", cid, finishCid.finishDonePending)
 			if finishCid.finishDonePending == 0 {
-				log.Debugf("Finishes done received for Cid %s", cid)
+				log.Infof("Finishes done received for Cid %s", cid)
 				delete(r.finishCids, cid)
 				return false, true, finishCid.msg, nil
 			}
@@ -569,7 +570,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 			return true, false, nil, nil
 		}
 		r.prefetchCids[cid] = r.prefetch + PREFETCH_MAX
-		log.Debugf("Finish received for Cid %s", cid)
+		log.Infof("Finish received for Cid %s", cid)
 	}
 	return false, false, nil, nil
 }
