@@ -302,18 +302,17 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 		log.Errorf("WORKER_COUNT environment variable not set. It will be set to 1")
 		WORKER_COUNT_STR = "1"
 	}
-	WORKER_COUNT, err := strconv.Atoi(WORKER_COUNT_STR)
+	peers, err := strconv.Atoi(WORKER_COUNT_STR)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse WORKER_COUNT: %w", err)
 	}
-	peers := WORKER_COUNT - 1
 	groupQueueName := fmt.Sprintf("joiner_%s_credits", WORKER_ID)
-	f.taskReceiverCredits, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, peers, 2) // ToDo: usar los valores reales de 'peers' y 'prefetch'
+	f.taskReceiverCredits, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, peers-1, 2) // ToDo: usar los valores reales de 'peers' (sacar -1) y 'prefetch'
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue clean_credits for task %s", f.Name())
 	}
 
-	f.taskReceiverMovies, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), peers, 2) // ToDo: usar los valores reales de 'peers' y 'prefetch'
+	f.taskReceiverMovies, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), peers-1, 2) // ToDo: usar los valores reales de 'peers' (sacar -1) y 'prefetch'
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue %s for task %s", f.Input(), f.Name())
 	}
