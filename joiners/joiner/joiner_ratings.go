@@ -430,5 +430,6 @@ func (f *JoinerRatings) FinishProcessingClient(clientID string) error {
 	} else {
 		log.Infof("Removed directory: %s", dirPath)
 	}
+	f.taskSender.SendEOF(clientID)
 	return nil
 }

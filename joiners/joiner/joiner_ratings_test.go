@@ -36,6 +36,7 @@ func TestJoinerRatingsOneClient(t *testing.T) {
 
 	// Verificar salida
 	assertReceiveRatingsRows(t, outputJoiner, cid, "A", "Movie A", 3.5)
+	assertReceivedEOF(t, outputJoiner, cid)
 	expectNoMoreRows(t, outputJoiner)
 
 	currentTask.Finish()
@@ -88,6 +89,8 @@ func TestJoinerRatingsMultiClient(t *testing.T) {
 	// Verificar salida
 	assertReceiveRatingsRows(t, outputJoiner, "client1", "A", "Movie A", 3.5)
 	assertReceiveRatingsRows(t, outputJoiner, "client2", "D", "Movie D", 1.0)
+	assertReceivedEOF(t, outputJoiner, "client1") // xq primero lee el prefetch, q incluye los mensajes de client2|
+	assertReceivedEOF(t, outputJoiner, "client2")
 	expectNoMoreRows(t, outputJoiner)
 
 	currentTask.Finish()

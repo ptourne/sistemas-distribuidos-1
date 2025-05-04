@@ -41,6 +41,7 @@ func TestJoinerCreditsOneClient(t *testing.T) {
 	// Verificar salida
 	assertReceiveCastRows(t, outputJoiner, cid, "A", "Actor 1")
 	assertReceiveCastRows(t, outputJoiner, cid, "A", "Actor 2")
+	assertReceivedEOF(t, outputJoiner, cid)
 	expectNoMoreRows(t, outputJoiner)
 
 	currentTask.Finish()
@@ -87,7 +88,9 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 
 	// Cliente 1
 	assertReceiveCastRows(t, outputJoiner, "client1", "X", "Actor X")
+	assertReceivedEOF(t, outputJoiner, "client1")
 	// Cliente 2: no debería producir salida (no tiene créditos)
+	assertReceivedEOF(t, outputJoiner, "client2")
 	expectNoMoreRows(t, outputJoiner)
 
 	currentTask.Finish()
@@ -225,6 +228,7 @@ func processJoinerMessages(t *testing.T, inputChannels []chan middleware.Envelop
 
 		row := envelope.Msg()
 		row.Strings["cid"] = envelope.Cid()
+		t.Logf("Processing row: %+v from client %s", row, envelope.Cid())
 		result := currentTask.ProcessAndSend(row)
 		if result != nil {
 			t.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
@@ -289,5 +293,15 @@ func assertReceiveRow(
 	for key, expected := range expectedFloats {
 		assert.Equal(t, expected, msg.Floats[key], "Float field mismatch for key '%s'", key)
 	}
+	assert.Equal(t, cid, env.Cid())
+}
+
+func assertReceivedEOF(t *testing.T, output middleware.Receiver[*model.Row], cid string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	env, _, err := output.Next(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, middleware.EOF, env.Type())
 	assert.Equal(t, cid, env.Cid())
 }
