@@ -156,7 +156,7 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 		}
 		err = envelope.Ack(false)
 		if err != nil {
-			return fmt.Errorf("failed to ack message %s", err)
+			return fmt.Errorf("failed to ack message in endpoint %s", err)
 		}
 	}
 	return nil

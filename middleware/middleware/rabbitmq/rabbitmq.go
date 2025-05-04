@@ -524,7 +524,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				continue
 			case <-ctx.Done():
 				log.Debugf("Timeout reached while waiting for message")
-				return nil, false, fmt.Errorf("timeout reached while waiting for message")
+				return nil, false, fmt.Errorf("timeout reached while waiting for message or ctx canceled")
 			}
 		}
 	}
@@ -636,7 +636,7 @@ func (r *EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	}
 	err := r.tag.Ack(multiple)
 	if err != nil {
-		return fmt.Errorf("failed to ack message: %v", err)
+		return fmt.Errorf("failed to ack message in ack: %v", err)
 	}
 	for _, finishDone := range r.finishesDone {
 		err = finishDone.sender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, finishDone.cid)
@@ -654,7 +654,7 @@ func (r *EnvelopeRabbitmq[T]) Nack(multiple bool) error {
 	}
 	err := r.tag.Nack(multiple, true)
 	if err != nil {
-		return fmt.Errorf("failed to ack message: %v", err)
+		return fmt.Errorf("failed to ack message in nack: %v", err)
 	}
 	r.tag = nil
 	return nil
