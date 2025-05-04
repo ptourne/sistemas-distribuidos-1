@@ -33,8 +33,8 @@ type TypeMsg int
 
 const (
 	Normal TypeMsg = iota
-	EOF
 	Prune
+	EOF
 )
 
 // TypeMsg indicates the type received on Next().

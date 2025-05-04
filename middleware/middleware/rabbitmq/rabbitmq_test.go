@@ -2,7 +2,6 @@ package rabbitmq
 
 import (
 	"bytes"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,64 +11,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/stretchr/testify/assert"
-	"github.com/testcontainers/testcontainers-go"
 )
-
-const RABBITMQ_EXPOSED_PORT_BASE = uint16(3000)
-
-type ContainerProvider struct {
-	config  configuration
-	lock    sync.Mutex
-	counter uint16
-}
-
-func NewContainerProvider(config configuration) *ContainerProvider {
-	return &ContainerProvider{config: config, lock: sync.Mutex{}, counter: 0}
-}
-
-var baseConfig = NewConfiguration("guest", "guest", "localhost", RABBITMQ_EXPOSED_PORT_BASE)
-
-// Container wraps the testcontainers-go container
-type Container struct {
-	container testcontainers.Container
-}
-
-// Teardown stops and removes the container
-func (c *Container) Teardown() {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	_ = c.container.Terminate(ctx) // Cleanup container
-	cancel()
-}
-
-// StartContainer runs a container and returns a Container struct
-func (cp *ContainerProvider) DeployRabbitmq() (*Container, configuration, error) {
-	cp.lock.Lock()
-	counter := cp.counter
-	cp.counter++
-	cp.lock.Unlock()
-	fmt.Println("Starting RabbitMQ container", counter)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	config := cp.config
-	config.Port = RABBITMQ_EXPOSED_PORT_BASE + counter
-	req := testcontainers.ContainerRequest{
-		Name:         fmt.Sprintf("rabbitmq-testing-%d", counter),
-		Image:        "rabbitmq:4.1.0",
-		ExposedPorts: []string{fmt.Sprintf("%d:5672", config.Port)},
-	}
-
-	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: req,
-		Started:          true,
-	})
-	if err != nil {
-		return nil, config, fmt.Errorf("failed to start container: %w", err)
-	}
-
-	return &Container{
-		container: container,
-	}, config, nil
-}
 
 type Ball struct {
 	ID uint64
@@ -88,60 +30,51 @@ func (b *Ball) Decode(data []byte) (*Ball, error) {
 	return &Ball{ID: id}, nil
 }
 
-func newTimmer() (context.Context, context.CancelFunc) {
+func newTimer() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), 5*time.Second)
 }
 
-type AsyncDeployRabbitRes struct {
-	container *Container
-	config    configuration
-	err       error
-}
+const RABBITMQ_EXPOSED_PORT_BASE = uint16(3000)
+
+var baseConfig = NewConfiguration("guest", "guest", "localhost", RABBITMQ_EXPOSED_PORT_BASE)
 
 func TestRabbitMQMiddleware(t *testing.T) {
 	provider := NewContainerProvider(baseConfig)
-	asyncDeployRabbit := func() chan AsyncDeployRabbitRes {
-		ch := make(chan AsyncDeployRabbitRes)
-		go func() {
-			container, config, err := provider.DeployRabbitmq()
-			ch <- AsyncDeployRabbitRes{container, config, err}
-		}()
-		return ch
-	}
-	test1 := asyncDeployRabbit()
-	test2 := asyncDeployRabbit()
-	test3 := asyncDeployRabbit()
-	test4 := asyncDeployRabbit()
-	test5 := asyncDeployRabbit()
+
+	test1 := provider.AsyncDeployRabbit()
+	test2 := provider.AsyncDeployRabbit()
+	test3 := provider.AsyncDeployRabbit()
+	test4 := provider.AsyncDeployRabbit()
+	test5 := provider.AsyncDeployRabbit()
 	test1container := <-test1
-	defer test1container.container.Teardown()
+	defer test1container.Container.Teardown()
 	test2container := <-test2
-	defer test2container.container.Teardown()
+	defer test2container.Container.Teardown()
 	test3container := <-test3
-	defer test3container.container.Teardown()
+	defer test3container.Container.Teardown()
 	test4container := <-test4
-	defer test4container.container.Teardown()
+	defer test4container.Container.Teardown()
 	test5container := <-test5
-	defer test5container.container.Teardown()
+	defer test5container.Container.Teardown()
 
 	t.Run("OneMessage", func(t *testing.T) {
 		init := test1container
-		assert.NoError(t, init.err)
+		assert.NoError(t, init.Err)
 
-		senderConnector, err := ConnectorCustom(init.config)
+		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		senderMiddleware := NewMiddleware[*Ball](senderConnector)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
 		assert.NoError(t, err)
 		cid := "1"
 
-		receiverConnector, err := ConnectorCustom(init.config)
+		receiverConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
 		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 0, 1)
 		assert.NoError(t, err)
 
-		timer, cancel := newTimmer()
+		timer, cancel := newTimer()
 		received, _, err := receiver.Next(timer)
 		cancel()
 		if !assert.Error(t, err) {
@@ -153,7 +86,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		err = sender.Send(sentMsg, cid)
 		assert.NoError(t, err)
 
-		timer, cancel = newTimmer()
+		timer, cancel = newTimer()
 		received, ok, err := receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
@@ -161,7 +94,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.Equal(t, sentMsg, received.Msg())
 		assert.NoError(t, received.Ack(true))
 
-		timer, cancel = newTimmer()
+		timer, cancel = newTimer()
 		_, ok, err = receiver.Next(timer)
 		cancel()
 		assert.Error(t, err)
@@ -170,34 +103,44 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		err = sender.SendEOF(cid)
 		assert.NoError(t, err)
 
-		timer, cancel = newTimmer()
+		timer, cancel = newTimer()
 		received, ok, err = receiver.Next(timer)
 		cancel()
-		log.Debugf("Received message, going to check")
+		log.Debugf("received message in close notification: %+v", received)
+		assert.NoError(t, err)
+		assert.False(t, ok)
+		assert.Equal(t, cid, received.Cid())
+		assert.Equal(t, middleware.Prune, received.Type())
+		assert.NoError(t, received.Ack(true))
+
+		timer, cancel = newTimer()
+		received, ok, err = receiver.Next(timer)
+		cancel()
 		assert.NoError(t, err)
 		assert.False(t, ok)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.EOF, received.Type())
+		assert.NoError(t, received.Ack(true))
 	})
 
 	t.Run("TwoMessages", func(t *testing.T) {
 		init := test2container
-		assert.NoError(t, init.err)
+		assert.NoError(t, init.Err)
 
-		senderConnector, err := ConnectorCustom(init.config)
+		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		senderMiddleware := NewMiddleware[*Ball](senderConnector)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
 		assert.NoError(t, err)
 		cid := "1"
 
-		receiverConnector, err := ConnectorCustom(init.config)
+		receiverConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
 		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 0, 1)
 		assert.NoError(t, err)
 
-		timer, cancel := newTimmer()
+		timer, cancel := newTimer()
 		received, _, err := receiver.Next(timer)
 		if !assert.Error(t, err) {
 			fmt.Println("Received message:", received.Msg())
@@ -209,7 +152,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		err = sender.Send(sentMsg1, cid)
 		assert.NoError(t, err)
 
-		timer, cancel = newTimmer()
+		timer, cancel = newTimer()
 		received, ok, err := receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
@@ -221,7 +164,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		err = sender.Send(sentMsg2, cid)
 		assert.NoError(t, err)
 
-		timer, cancel = newTimmer()
+		timer, cancel = newTimer()
 		received, ok, err = receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
@@ -232,20 +175,30 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		err = sender.SendEOF(cid)
 		assert.NoError(t, err)
 
-		timer, cancel = newTimmer()
+		timer, cancel = newTimer()
+		received, ok, err = receiver.Next(timer)
+		cancel()
+		assert.NoError(t, err)
+		assert.False(t, ok)
+		assert.Equal(t, cid, received.Cid())
+		assert.Equal(t, middleware.Prune, received.Type())
+		assert.NoError(t, received.Ack(true))
+
+		timer, cancel = newTimer()
 		received, ok, err = receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
 		assert.False(t, ok)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.EOF, received.Type())
+		assert.NoError(t, received.Ack(true))
 	})
 
 	t.Run("ReceiverArrivesLate", func(t *testing.T) {
 		init := test3container
-		assert.NoError(t, init.err)
+		assert.NoError(t, init.Err)
 
-		senderConnector, err := ConnectorCustom(init.config)
+		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		senderMiddleware := NewMiddleware[*Ball](senderConnector)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
@@ -259,13 +212,13 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		err = sender.SendEOF(cid)
 		assert.NoError(t, err)
 
-		receiverConnector, err := ConnectorCustom(init.config)
+		receiverConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
 		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 0, 1)
 		assert.NoError(t, err)
 
-		timer, cancel := newTimmer()
+		timer, cancel := newTimer()
 		received, ok, err := receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
@@ -273,33 +226,43 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.Equal(t, sentMsg, received.Msg())
 		assert.NoError(t, received.Ack(true))
 
-		timer, cancel = newTimmer()
+		timer, cancel = newTimer()
+		received, ok, err = receiver.Next(timer)
+		cancel()
+		assert.NoError(t, err)
+		assert.False(t, ok)
+		assert.Equal(t, cid, received.Cid())
+		assert.Equal(t, middleware.Prune, received.Type())
+		assert.NoError(t, received.Ack(true))
+
+		timer, cancel = newTimer()
 		received, ok, err = receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
 		assert.False(t, ok)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.EOF, received.Type())
+		assert.NoError(t, received.Ack(true))
 	})
 
 	t.Run("TwoReceiversFinishCidAfterTimeout", func(t *testing.T) {
 		init := test4container
-		assert.NoError(t, init.err)
+		assert.NoError(t, init.Err)
 
-		senderConnector, err := ConnectorCustom(init.config)
+		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		senderMiddleware := NewMiddleware[*Ball](senderConnector)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
 		assert.NoError(t, err)
 		cid := "1"
 
-		receiver1Connector, err := ConnectorCustom(init.config)
+		receiver1Connector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiver1Middleware := NewMiddleware[*Ball](receiver1Connector)
 		receiver1, err := receiver1Middleware.ConsumeFrom("output", "receiver", 1, 1)
 		assert.NoError(t, err)
 
-		receiver2Connector, err := ConnectorCustom(init.config)
+		receiver2Connector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiver2Middleware := NewMiddleware[*Ball](receiver2Connector)
 		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 1, 1)
@@ -311,14 +274,14 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		handle1 := make(chan NextAsyncRes)
 		go func() {
-			ctx, cancel := newTimmer()
+			ctx, cancel := newTimer()
 			received, ok, err := receiver1.Next(ctx)
 			cancel()
 			handle1 <- NextAsyncRes{received, ok, err}
 		}()
 		handle2 := make(chan NextAsyncRes)
 		go func() {
-			ctx, cancel := newTimmer()
+			ctx, cancel := newTimer()
 			received, ok, err := receiver2.Next(ctx)
 			cancel()
 			handle2 <- NextAsyncRes{received, ok, err}
@@ -347,14 +310,14 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		handle1 = make(chan NextAsyncRes)
 		go func() {
-			ctx, cancel := newTimmer()
+			ctx, cancel := newTimer()
 			received, ok, err := receiver1.Next(ctx)
 			cancel()
 			handle1 <- NextAsyncRes{received, ok, err}
 		}()
 		handle2 = make(chan NextAsyncRes)
 		go func() {
-			ctx, cancel := newTimmer()
+			ctx, cancel := newTimer()
 			received, ok, err := receiver2.Next(ctx)
 			cancel()
 			handle2 <- NextAsyncRes{received, ok, err}
@@ -382,41 +345,69 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		handle1 = make(chan NextAsyncRes)
 		go func() {
-			ctx, cancel := newTimmer()
+			ctx, cancel := newTimer()
 			received, ok, err := receiver1.Next(ctx)
 			cancel()
 			handle1 <- NextAsyncRes{received, ok, err}
 		}()
 		handle2 = make(chan NextAsyncRes)
 		go func() {
-			ctx, cancel := newTimmer()
+			ctx, cancel := newTimer()
 			received, ok, err := receiver2.Next(ctx)
 			cancel()
 			handle2 <- NextAsyncRes{received, ok, err}
 		}()
 
-		select {
-		case res := <-handle1:
-			assert.NoError(t, res.err)
-			assert.False(t, res.ok)
-			assert.Equal(t, cid, res.received.Cid())
-			assert.Equal(t, middleware.EOF, res.received.Type())
-			resOther := <-handle2
-			assert.Error(t, resOther.err)
-		case res := <-handle2:
-			assert.NoError(t, res.err)
-			assert.False(t, res.ok)
-			assert.Equal(t, cid, res.received.Cid())
-			assert.Equal(t, middleware.EOF, res.received.Type())
-			resOther := <-handle1
-			assert.Error(t, resOther.err)
+		res1 := <-handle1
+		res2 := <-handle2
+
+		assert.False(t, res1.ok)
+		assert.Equal(t, cid, res1.received.Cid())
+		assert.Equal(t, middleware.Prune, res1.received.Type())
+		assert.NoError(t, res1.received.Ack(true))
+
+		assert.False(t, res2.ok)
+		assert.Equal(t, cid, res2.received.Cid())
+		assert.Equal(t, middleware.Prune, res2.received.Type())
+		assert.NoError(t, res2.received.Ack(true))
+
+		handle1 = make(chan NextAsyncRes)
+		go func() {
+			ctx, cancel := newTimer()
+			received, ok, err := receiver1.Next(ctx)
+			cancel()
+			handle1 <- NextAsyncRes{received, ok, err}
+		}()
+		handle2 = make(chan NextAsyncRes)
+		go func() {
+			ctx, cancel := newTimer()
+			received, ok, err := receiver2.Next(ctx)
+			cancel()
+			handle2 <- NextAsyncRes{received, ok, err}
+		}()
+
+		res1 = <-handle1
+		res2 = <-handle2
+
+		if res1.err == nil {
+			assert.False(t, res1.ok)
+			assert.Equal(t, cid, res1.received.Cid())
+			assert.Equal(t, middleware.EOF, res1.received.Type())
+			assert.NoError(t, res1.received.Ack(true))
+			assert.Error(t, res2.err)
+		} else if assert.NoError(t, res2.err) {
+			assert.False(t, res2.ok)
+			assert.Equal(t, cid, res2.received.Cid())
+			assert.Equal(t, middleware.EOF, res2.received.Type())
+			assert.NoError(t, res2.received.Ack(true))
+			assert.Error(t, res1.err)
 		}
 	})
 
 	t.Run("TwoReceiversFinishCidAfterMsgOfDiffCid", func(t *testing.T) {
 		init := test5container
-		assert.NoError(t, init.err)
-		senderConnector, err := ConnectorCustom(init.config)
+		assert.NoError(t, init.Err)
+		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		senderMiddleware := NewMiddleware[*Ball](senderConnector)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
@@ -424,13 +415,13 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		cid1 := "1"
 		cid2 := "2"
 
-		receiver1Connector, err := ConnectorCustom(init.config)
+		receiver1Connector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiver1Middleware := NewMiddleware[*Ball](receiver1Connector)
 		receiver1, err := receiver1Middleware.ConsumeFrom("output", "receiver", 1, 1)
 		assert.NoError(t, err)
 
-		receiver2Connector, err := ConnectorCustom(init.config)
+		receiver2Connector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiver2Middleware := NewMiddleware[*Ball](receiver2Connector)
 		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 1, 1)
@@ -442,14 +433,14 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		handle1 := make(chan NextAsyncRes)
 		go func() {
-			ctx, cancel := newTimmer()
+			ctx, cancel := newTimer()
 			received, ok, err := receiver1.Next(ctx)
 			cancel()
 			handle1 <- NextAsyncRes{received, ok, err}
 		}()
 		handle2 := make(chan NextAsyncRes)
 		go func() {
-			ctx, cancel := newTimmer()
+			ctx, cancel := newTimer()
 			received, ok, err := receiver2.Next(ctx)
 			cancel()
 			handle2 <- NextAsyncRes{received, ok, err}
@@ -478,7 +469,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		handle1 = make(chan NextAsyncRes)
 		go func() {
-			ctx, cancel := newTimmer()
+			ctx, cancel := newTimer()
 			received, ok, err := receiver1.Next(ctx)
 			cancel()
 			handle1 <- NextAsyncRes{received, ok, err}
@@ -486,7 +477,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		handle2 = make(chan NextAsyncRes)
 		go func() {
-			ctx, cancel := newTimmer()
+			ctx, cancel := newTimer()
 			received, ok, err := receiver2.Next(ctx)
 			cancel()
 			handle2 <- NextAsyncRes{received, ok, err}
@@ -531,10 +522,6 @@ func TestRabbitMQMiddleware(t *testing.T) {
 				if ok {
 					time.Sleep(100 * time.Millisecond)
 				}
-				if err != nil {
-					log.Errorf("Error in receiver1: %v", err)
-					break
-				}
 			}
 			log.Infof("go routine1 finished")
 		}()
@@ -550,45 +537,59 @@ func TestRabbitMQMiddleware(t *testing.T) {
 				if ok {
 					time.Sleep(100 * time.Millisecond)
 				}
-				if err != nil {
-					log.Errorf("Error in receiver1: %v", err)
-					break
-				}
 			}
 			log.Infof("go routine2 finished")
 		}()
 
-		shouldBreak := false
-		for !shouldBreak {
+		shouldContinue := false
+		numberOfPrunes := 0
+		expectsError := false
+		gotError := false
+		receivedPrunes := make(map[uint]bool)
+		var pedack middleware.Envelope[*Ball] = nil
+		a := func(id uint, res NextAsyncRes) bool {
+			log.Infof("Receiver %d received message", id)
+			if expectsError {
+				if err != nil {
+					log.Infof("Got an expected error")
+					assert.NoError(t, pedack.Ack(false))
+					gotError = true
+					return true
+				}
+			} else {
+				assert.NoError(t, err, "Unexpected error")
+			}
+			switch res.received.Type() {
+			case middleware.Prune:
+				log.Infof("Received prune")
+				assert.Falsef(t, receivedPrunes[id], "More than one prune received by %d", id)
+				receivedPrunes[id] = true
+				numberOfPrunes++
+				switch numberOfPrunes {
+				case 1:
+					log.Infof("Received first prune")
+					pedack = res.received
+					expectsError = true
+				case 2:
+					log.Infof("Received second prune")
+					assert.True(t, gotError)
+				default:
+					t.Fatalf("Should not get more than two prunes")
+				}
+			case middleware.EOF:
+				log.Infof("Received EOF")
+				assert.True(t, gotError)
+				assert.Equal(t, 2, numberOfPrunes)
+				return false
+			}
+			return true
+		}
+		for shouldContinue {
 			select {
 			case res := <-handle1:
-				if !res.ok {
-					assert.NoError(t, res.err)
-					assert.False(t, res.ok)
-					assert.Equal(t, cid1, res.received.Cid())
-					assert.Equal(t, middleware.EOF, res.received.Type())
-					log.Infof("Receiver cid1 finished")
-					shouldBreak = true
-				} else {
-					assert.NoError(t, res.err)
-					assert.Equal(t, cid2, res.received.Cid())
-					assert.Equal(t, middleware.Normal, res.received.Type())
-					assert.NoError(t, res.received.Ack(true))
-				}
+				shouldContinue = a(1, res)
 			case res := <-handle2:
-				if !res.ok {
-					assert.NoError(t, res.err)
-					assert.False(t, res.ok)
-					assert.Equal(t, cid1, res.received.Cid())
-					assert.Equal(t, middleware.EOF, res.received.Type())
-					log.Infof("Receiver cid1 finished")
-					shouldBreak = true
-				} else {
-					assert.NoError(t, res.err)
-					assert.Equal(t, cid2, res.received.Cid())
-					assert.Equal(t, middleware.Normal, res.received.Type())
-					assert.NoError(t, res.received.Ack(true))
-				}
+				shouldContinue = a(2, res)
 			}
 		}
 		log.Debugf("Exiting loop")

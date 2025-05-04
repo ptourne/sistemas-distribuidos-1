@@ -59,7 +59,15 @@ func (c *ClientBatch[A]) append(msg A) {
 }
 
 // batchSize is the number of top groups you reduce at once
-func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]](name string, input string, batchSize uint, mapReducer MapReduce[I, A, R], subscribers []string, routingKeys []string) (*MapReducer[I, A, R], error) {
+func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]](
+	connector *rabbitmq.RabbitMQConnector,
+	name string,
+	input string,
+	batchSize uint,
+	mapReducer MapReduce[I, A, R],
+	subscribers []string,
+	routingKeys []string,
+) (*MapReducer[I, A, R], error) {
 	WORKER_COUNT, err := strconv.Atoi(WORKER_COUNT_STR)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse WORKER_COUNT: %w", err)
@@ -78,10 +86,6 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 
 	if batchSize < 2 {
 		return nil, fmt.Errorf("batchSize must be at least two")
-	}
-	connector, err := rabbitmq.Connector()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create connector: %w", err)
 	}
 	connIn := rabbitmq.NewMiddleware[I](connector)
 
@@ -248,7 +252,6 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 					mr.backoffIncrease()
 					break
 				}
-				err = err
 				return
 			}
 			if !ok {
@@ -403,7 +406,7 @@ func (mr *MapReducer[I, A, R]) finalReduce() chan error {
 				err = mr.PartialResultSender.SendEOF(e.Cid())
 				if err != nil {
 					e.Nack(true)
-					log.Fatalf("error sending EOF after sending partial result: %w", err)
+					log.Fatalf("error sending EOF after sending partial result: %s", err)
 					panic("Resending EOF not implemented")
 					return
 				}

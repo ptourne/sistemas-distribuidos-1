@@ -25,8 +25,23 @@ type Res = *model.Row
 
 type MapReducerSum = map_reducer.MapReducer[In, *Acc, Res]
 
-func NewMapReducerByMovieId(name string, input string, routingKeys []string, batchSize uint, subscribers []string) (*MapReducerSum, error) {
-	return NewMapReducer[In, *Acc, Res](name, input, batchSize, &SumMapReduce{}, subscribers, routingKeys)
+func NewMapReducerByMovieId(
+	connector *rabbitmq.RabbitMQConnector,
+	name string,
+	input string,
+	routingKeys []string,
+	batchSize uint,
+	subscribers []string,
+) (*MapReducerSum, error) {
+	return NewMapReducer[In, *Acc, Res](
+		connector,
+		name,
+		input,
+		batchSize,
+		&SumMapReduce{},
+		subscribers,
+		routingKeys,
+	)
 }
 
 type SumMapReduce struct {
@@ -75,67 +90,84 @@ func (a *Acc) Merge(b *Acc) {
 	}
 }
 
-func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]](name string, input string, batchSize uint, mapReducer map_reducer.MapReduce[I, A, R], subscribers []string, routingKeys []string) (*map_reducer.MapReducer[I, A, R], error) {
-	var t string = "direct"
-	nameId := fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID)
-	// subscribersMap := make(map[string][]string)
-	// for _, subscriber := range subscribers {
-	// 	subscribersMap[subscriber] = []string{""}
+func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]](
+	connector *rabbitmq.RabbitMQConnector,
+	name string,
+	input string,
+	batchSize uint,
+	mapReducer map_reducer.MapReduce[I, A, R],
+	subscribers []string,
+	routingKeys []string,
+) (*map_reducer.MapReducer[I, A, R], error) {
+	return map_reducer.NewMapReducer(
+		connector,
+		name,
+		input,
+		batchSize,
+		mapReducer,
+		subscribers,
+		routingKeys,
+	)
+	// var t string = "direct"
+	// nameId := fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID)
+	// // subscribersMap := make(map[string][]string)
+	// // for _, subscriber := range subscribers {
+	// // 	subscribersMap[subscriber] = []string{""}
+	// // }
+
+	// if len(routingKeys) == 0 {
+	// 	routingKeys = []string{""}
+	// 	t = "fanout"
 	// }
 
-	if len(routingKeys) == 0 {
-		routingKeys = []string{""}
-		t = "fanout"
-	}
+	// if batchSize < 2 {
+	// 	return nil, fmt.Errorf("batchSize must be at least two")
+	// }
 
-	if batchSize < 2 {
-		return nil, fmt.Errorf("batchSize must be at least two")
-	}
+	// connector, err := rabbitmq.Connector()
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	connector, err := rabbitmq.Connector()
-	if err != nil {
-		return nil, err
-	}
+	// connIn := rabbitmq.NewMiddleware[I](connector)
+	// inputCh, err := connIn.ConsumeFromRK(input, nameId, t, routingKeys[0])
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// connOut := rabbitmq.NewMiddleware[R](connector)
+	// output, err := connOut.WriteTo(name, subscribers)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	connIn := rabbitmq.NewMiddleware[I](connector)
-	inputCh, err := connIn.ConsumeFromRK(input, nameId, t, routingKeys[0])
-	if err != nil {
-		return nil, err
-	}
-	connOut := rabbitmq.NewMiddleware[R](connector)
-	output, err := connOut.WriteTo(name, subscribers)
-	if err != nil {
-		return nil, err
-	}
+	// accName := accName(nameId, routingKeys[0])
+	// connAcc := rabbitmq.NewMiddleware[A](connector)
+	// accIn, err := connAcc.ConsumeFrom(accName, nameId)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// err = accIn.Qos(1, 0)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// accOut, err := connAcc.WriteTo(accName, []string{})
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	accName := accName(nameId, routingKeys[0])
-	connAcc := rabbitmq.NewMiddleware[A](connector)
-	accIn, err := connAcc.ConsumeFrom(accName, nameId)
-	if err != nil {
-		return nil, err
-	}
-	err = accIn.Qos(1, 0)
-	if err != nil {
-		return nil, err
-	}
-	accOut, err := connAcc.WriteTo(accName, []string{})
-	if err != nil {
-		return nil, err
-	}
-
-	return &map_reducer.MapReducer[I, A, R]{
-		BatchSize:             batchSize,
-		Input:                 inputCh,
-		PartialResultSender:   accOut,
-		PartialResultReceiver: accIn,
-		MapReduce:             mapReducer,
-		Output:                output,
-	}, nil
+	// return &map_reducer.MapReducer[I, A, R]{
+	// 	BatchSize:             batchSize,
+	// 	Input:                 inputCh,
+	// 	PartialResultSender:   accOut,
+	// 	PartialResultReceiver: accIn,
+	// 	MapReduce:             mapReducer,
+	// 	Output:                output,
+	// }, nil
 }
 
-func accName(name string, routingKey string) string {
-	return name + "_acc"
-}
+// func accName(name string, routingKey string) string {
+// 	return name + "_acc"
+// }
 
 func (a Acc) Encode() ([]byte, error) {
 	codec.MapEncode(a.Sums, codec.Uint64Encode)

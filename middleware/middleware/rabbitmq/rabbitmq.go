@@ -40,7 +40,8 @@ type receiverRabbitmq[T codec.Serializable[T]] struct {
 	finishCids    map[string]struct {
 		finishDonePending int
 		msg               middleware.Envelope[T]
-	}
+	} // this is used by the receiver that encounters the eof in the input channel. finishDonePending is decremented every time a peer receiver confirms it has pruned the cid from its prefetch. Then, msg is the original msg with the eof tag.
+	pendingPrune []middleware.Envelope[T] // client ids with a pending prune msg
 	peers        int
 	prefetch     int
 	prefetchCids map[string]int
@@ -80,17 +81,6 @@ func (r *ReceiverChannel[T]) Close() {
 		r.amqpCh.Close()
 		r.amqpCh = nil
 	}
-}
-
-type EnvelopeRabbitmq[T codec.Serializable[T]] struct {
-	msg          T
-	tag          *amqp.Delivery
-	finishesDone []struct {
-		sender *SenderChannel[*CloseNotification]
-		cid    string
-	}
-	cid string
-	t   middleware.TypeMsg
 }
 
 type TypeMsgInternal int
@@ -142,15 +132,15 @@ func (s *SenderChannel[T]) Close() {
 	}
 }
 
-type configuration struct {
+type Configuration struct {
 	User     string
 	Password string
 	Host     string
 	Port     uint16
 }
 
-func NewConfiguration(user, password, host string, port uint16) configuration {
-	return configuration{
+func NewConfiguration(user, password, host string, port uint16) Configuration {
+	return Configuration{
 		User:     user,
 		Password: password,
 		Host:     host,
@@ -158,11 +148,11 @@ func NewConfiguration(user, password, host string, port uint16) configuration {
 	}
 }
 
-func DefaultConfiguration() configuration {
+func DefaultConfiguration() Configuration {
 	return NewConfiguration("guest", "guest", "rabbitmq", 5672)
 }
 
-func Url(c configuration) string {
+func Url(c Configuration) string {
 	return fmt.Sprintf("amqp://%s:%s@%s:%d/", c.User, c.Password, c.Host, c.Port)
 }
 
@@ -171,7 +161,7 @@ var log = logger.NewConsoleLogger("middleware", logger.Debug)
 func Connector() (*RabbitMQConnector, error) {
 	return ConnectorCustom(DefaultConfiguration())
 }
-func ConnectorCustom(config configuration) (*RabbitMQConnector, error) {
+func ConnectorCustom(config Configuration) (*RabbitMQConnector, error) {
 	url := Url(config)
 	conn, err := amqp.Dial(url)
 	for range 5 {
@@ -262,6 +252,7 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 			finishDonePending int
 			msg               middleware.Envelope[T]
 		}),
+		pendingPrune: make([]middleware.Envelope[T], 0),
 		prefetchCids: make(map[string]int),
 	}
 
@@ -423,6 +414,13 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 
 	var timeoutPrefetchCid <-chan time.Time = time.After(1 * time.Second)
 	for {
+		if len(r.pendingPrune) > 0 {
+			pendingPrune := r.pendingPrune[0]
+			log.Debugf("returning from pendingPrune: %+v", pendingPrune)
+			r.pendingPrune = r.pendingPrune[1:]
+			return pendingPrune, false, nil
+		}
+
 		select {
 		case msg, ok := <-*r.closeReceiver.C:
 			shouldContinue, shouldReturn, e, err := r.handleFinishNotification(ok, msg)
@@ -430,6 +428,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				continue
 			}
 			if shouldReturn {
+				log.Debugf("return %v envelope", e.Type())
 				return e, false, err
 			}
 		default:
@@ -440,6 +439,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					continue
 				}
 				if shouldReturn {
+					log.Debugf("return %v envelope", e.Type())
 					return e, false, err
 				}
 			case msg, ok := <-*r.input.C:
@@ -452,71 +452,58 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					return nil, false, fmt.Errorf("failed to process close notification: %v", err)
 				}
 
-				finishesDone := make([]struct {
-					sender *SenderChannel[*CloseNotification]
-					cid    string
-				}, 0)
-				for cid := range r.prefetchCids {
-					r.prefetchCids[cid]--
-					if r.prefetchCids[cid] == 0 {
-						log.Debugf("Cid prefetch emptied %s", cid)
-						finishesDone = append(finishesDone, struct {
-							sender *SenderChannel[*CloseNotification]
-							cid    string
-						}{
-							&r.closeSender,
-							cid,
-						})
-						delete(r.prefetchCids, cid)
+				for prefetchCid := range r.prefetchCids {
+					r.prefetchCids[prefetchCid]--
+					if r.prefetchCids[prefetchCid] == 0 {
+						log.Debugf("Cid prefetch emptied %s", prefetchCid)
+						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](prefetchCid, r.closeSender))
+						delete(r.prefetchCids, prefetchCid)
 					}
 				}
 				if t == eofCid {
-					log.Debugf("Finish received for Cid %s", cid)
+					// We set de listener for finishDones send on ack of prune msgs
 					r.finishCids[cid] = struct {
 						finishDonePending int
 						msg               middleware.Envelope[T]
 					}{
 						finishDonePending: r.peers + 1,
-						msg: &EnvelopeRabbitmq[T]{
-							msg: msgbody,
-							tag: tag,
-							finishesDone: make([]struct {
-								sender *SenderChannel[*CloseNotification]
-								cid    string
-							}, 0),
-							cid: cid,
-							t:   middleware.EOF,
-						},
+						msg:               newEOFEnvelope[T](cid),
 					}
-					r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCid}, cid)
-					log.Debugf("Finish sent for Cid %s", cid)
-					r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, cid)
-					for _, finishDone := range finishesDone {
-						log.Debugf("Finish done sent for Cid %s", finishDone.cid)
-						err = finishDone.sender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, finishDone.cid)
-						if err != nil {
-							return nil, false, fmt.Errorf("failed to ack message in close notification: %v", err)
-						}
-					}
-					continue
-				}
-				return &EnvelopeRabbitmq[T]{
-					msg:          msgbody,
-					tag:          tag,
-					finishesDone: finishesDone,
-					cid:          cid,
-					t:            middleware.Normal,
-				}, true, nil
-
-			case <-timeoutPrefetchCid:
-				//todo eliminar los finishCids han llegado y mandarles el msg
-				log.Debugf("Timeout prefetch cid")
-				for CidMsg := range r.prefetchCids {
-					log.Debugf("Finish done sent for Cid %s", CidMsg)
-					err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, CidMsg)
+					log.Debugf("eofCid received on channel for Cid %s", cid)
+					// r.pendingPrune = append(r.pendingPrune, newPruneEnvelope[T](cid, func() error {
+					// 	return r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, cid)
+					// }))
+					err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCid}, cid)
 					if err != nil {
 						return nil, false, fmt.Errorf("failed to ack message in close notification: %v", err)
 					}
+					r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
+
+					// == commented because user must prune references to that cid before sending finish done notifications ==
+					err = tag.Ack(false)
+					if err != nil {
+						log.Errorf("failed to ack message in close notification: %v", err)
+					}
+					log.Debugf("return prune callback envelope")
+					continue
+				}
+				log.Debugf("return normal envelope")
+				return newNormalEnvelope(cid, msgbody, tag), true, nil
+
+			case <-timeoutPrefetchCid:
+				log.Debugf("Timeout prefetch cid")
+				for CidMsg := range r.prefetchCids {
+					log.Debugf("return prune callback envelope for %s", CidMsg)
+					r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](CidMsg, r.closeSender))
+					// r.pendingPrune = append(r.pendingPrune, newPruneEnvelope[T](CidMsg, func() error {
+					// 	log.Debugf("Finish done sent for Cid %s", CidMsg)
+					// 	err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, CidMsg)
+					// 	if err != nil {
+					// 		return fmt.Errorf("failed to ack message in close notification: %v", err)
+					// 	}
+					// 	return nil
+					// }))
+					//
 					delete(r.prefetchCids, CidMsg)
 				}
 				timeoutPrefetchCid = nil
@@ -615,48 +602,6 @@ func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, c
 	// 	t:   typeMessageInternal,
 	// }
 	return typeMessageInternal, cid, received, tag, nil
-}
-
-func (r *EnvelopeRabbitmq[T]) Msg() T {
-	return r.msg
-}
-
-func (r *EnvelopeRabbitmq[T]) Cid() string {
-	return r.cid
-}
-
-func (r *EnvelopeRabbitmq[T]) Type() middleware.TypeMsg {
-	return r.t
-}
-
-func (r *EnvelopeRabbitmq[T]) Ack(multiple bool) error {
-	if r.tag == nil {
-		return fmt.Errorf("tag is not initialized or already acked")
-	}
-	err := r.tag.Ack(multiple)
-	if err != nil {
-		return fmt.Errorf("failed to ack message: %v", err)
-	}
-	for _, finishDone := range r.finishesDone {
-		err = finishDone.sender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, finishDone.cid)
-		if err != nil {
-			return fmt.Errorf("failed to ack message in close notification: %v", err)
-		}
-	}
-	r.tag = nil
-	return nil
-}
-
-func (r *EnvelopeRabbitmq[T]) Nack(multiple bool) error {
-	if r.tag == nil {
-		return fmt.Errorf("tag is not initialized or already acked")
-	}
-	err := r.tag.Nack(multiple, true)
-	if err != nil {
-		return fmt.Errorf("failed to ack message: %v", err)
-	}
-	r.tag = nil
-	return nil
 }
 
 func (s *SenderRabbitmq[T]) Send(row T, cid string) error {

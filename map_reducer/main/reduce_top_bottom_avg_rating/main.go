@@ -10,6 +10,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	map_reducer "github.com/ptourne/sistemas-distribuidos-1/map_reducer"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
 var WORKER_ID = os.Getenv("WORKER_ID")
@@ -30,7 +31,20 @@ type Acc struct {
 type Res = *model.Row
 
 func main() {
-	mapReducer, err := map_reducer.NewMapReducer[In, *Acc, Res]("reduce_top_bottom_avg_rating", "joiner_ratings", 2, &TopBottomReduce{}, []string{"q3"}, []string{})
+	connector, err := rabbitmq.Connector()
+	if err != nil {
+		log.Errorf("failed to create connector: %w", err)
+		return
+	}
+	mapReducer, err := map_reducer.NewMapReducer[In, *Acc, Res](
+		connector,
+		"reduce_top_bottom_avg_rating",
+		"joiner_ratings",
+		2,
+		&TopBottomReduce{},
+		[]string{"q3"},
+		[]string{},
+	)
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)
 		return
