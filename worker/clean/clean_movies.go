@@ -162,8 +162,6 @@ func (f *CleanMovies) Connect(middlewareConnection middleware.Connection[*model.
 				continue
 			}
 			if !ok {
-				// log.Infof("Channel closed: what 2!! %v", f.Name())
-				// break
 				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
 			}
 			inputChannel <- envelope

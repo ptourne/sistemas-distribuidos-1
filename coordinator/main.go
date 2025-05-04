@@ -70,6 +70,59 @@ func (c *ConfigCoordinator) Close() {
 
 }
 
+type ChannelsCid struct {
+	input chan middleware.Envelope[*common.PackageFile]
+	q1    chan middleware.Envelope[*model.Row]
+	q2    chan middleware.Envelope[*model.Row]
+	q3    chan middleware.Envelope[*model.Row]
+	q4    chan middleware.Envelope[*model.Row]
+	q5    chan middleware.Envelope[*model.Row]
+}
+
+func NewChannelsCid() *ChannelsCid {
+	return &ChannelsCid{
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		input: make(chan middleware.Envelope[*common.PackageFile], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q1: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q2: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q3: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q4: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q5: make(chan middleware.Envelope[*model.Row], 0),
+	}
+}
+
+func (c *ChannelsCid) Close() {
+	if c.input != nil {
+		close(c.input)
+		c.input = nil
+	}
+	if c.q1 != nil {
+		close(c.q1)
+		c.q1 = nil
+	}
+	if c.q2 != nil {
+		close(c.q2)
+		c.q2 = nil
+	}
+	if c.q3 != nil {
+		close(c.q3)
+		c.q3 = nil
+	}
+	if c.q4 != nil {
+		close(c.q4)
+		c.q4 = nil
+	}
+	if c.q5 != nil {
+		close(c.q5)
+		c.q5 = nil
+	}
+}
+
 func main() {
 	var log = logger.NewConsoleLogger("coordinator", logger.Info)
 	connector, err := rabbitmq.Connector()
@@ -107,75 +160,110 @@ func main() {
 		unwrap(err, "Failed to create read queue", log)
 	}
 	defer receiverFileByte.Close()
-	wg := sync.WaitGroup{}
-	inputsChannelMap := map[string]chan middleware.Envelope[*common.PackageFile]{}
-	for {
-		ctx := context.Background()
-		envelope, ok, err := receiverFileByte.Next(ctx)
-		if err != nil {
-			if err.Error() == "read channel was closed" {
-				log.Infof("Channel closed: %v", config.ReadFileByteQueue)
-				break
-			}
-			log.Errorf("Error reading from middleware: %v", err)
-			continue
-		}
-		if !ok {
-			log.Infof("Channel closed: %v", config.ReadFileByteQueue)
-			break
-		}
-		cid := envelope.Cid()
-		inputCidChannel, exists := inputsChannelMap[cid]
-		if !exists {
-			//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-			inputCidChannel = make(chan middleware.Envelope[*common.PackageFile], 0)
-			inputsChannelMap[cid] = inputCidChannel
-			wg.Add(1)
-			go handleClient(cid, inputCidChannel, config)
-		}
-		// log.Infof("Received message from channel: %s", cid)
-		inputCidChannel <- envelope
-	}
 
-	for _, channelCid := range inputsChannelMap {
-		close(channelCid) //TODO HACERLO EN EL CLIENT
-	}
-
-	wg.Wait()
-}
-
-func handleClient(cid string, inputChannel chan middleware.Envelope[*common.PackageFile], c ConfigCoordinator) {
-	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%s", cid), logger.Info)
-	q1Receiver, err := (*c.MiddlewareChan).ConsumeFrom(c.Q1Output, fmt.Sprintf("q1-%s", cid), c.CoordinatorsCant, c.CoordinatorPrefetch)
+	q1Receiver, err := middlewareChan.ConsumeFrom(config.Q1Output, "q1", config.CoordinatorsCant, config.CoordinatorPrefetch)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
 	defer q1Receiver.Close()
 
-	q2Receiver, err := (*c.MiddlewareChan).ConsumeFrom(c.Q2Output, fmt.Sprintf("q2-%s", cid), c.CoordinatorsCant, c.CoordinatorPrefetch)
+	q2Receiver, err := middlewareChan.ConsumeFrom(config.Q2Output, "q2", config.CoordinatorsCant, config.CoordinatorPrefetch)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
 	defer q2Receiver.Close()
 
-	q3Receiver, err := (*c.MiddlewareChan).ConsumeFrom(c.Q3Output, fmt.Sprintf("q3-%s", cid), c.CoordinatorsCant, c.CoordinatorPrefetch)
+	q3Receiver, err := middlewareChan.ConsumeFrom(config.Q3Output, "q3", config.CoordinatorsCant, config.CoordinatorPrefetch)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
 	defer q3Receiver.Close()
 
-	q4Receiver, err := (*c.MiddlewareChan).ConsumeFrom(c.Q4Output, fmt.Sprintf("q4-%s", cid), c.CoordinatorsCant, c.CoordinatorPrefetch)
+	q4Receiver, err := middlewareChan.ConsumeFrom(config.Q4Output, "q4", config.CoordinatorsCant, config.CoordinatorPrefetch)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
 	defer q4Receiver.Close()
 
-	q5Receiver, err := (*c.MiddlewareChan).ConsumeFrom(c.Q5Output, fmt.Sprintf("q5-%s", cid), c.CoordinatorsCant, c.CoordinatorPrefetch)
+	q5Receiver, err := middlewareChan.ConsumeFrom(config.Q5Output, "q5", config.CoordinatorsCant, config.CoordinatorPrefetch)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
 	defer q5Receiver.Close()
 
+	wg := sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	inputsChannelMap := map[string]*ChannelsCid{}
+	wg.Add(1)
+	go func() {
+		for {
+			envelope, _, err := receiverFileByte.Next(ctx)
+			if err != nil {
+				if err.Error() == "read channel was closed" {
+					log.Infof("Channel closed: %v", config.ReadFileByteQueue)
+					break
+				}
+				if err.Error() == "timeout reached while waiting for message or ctx canceled" {
+					log.Infof("Timeout reached while waiting for message or ctx canceled")
+					break
+				}
+				log.Errorf("Error reading from middleware: %v", err)
+				continue
+			}
+			cid := envelope.Cid()
+			channelsCid, exists := inputsChannelMap[cid]
+			if !exists {
+				channelsCid = NewChannelsCid()
+				inputsChannelMap[cid] = channelsCid
+				wg.Add(1)
+				go handleClient(cid, channelsCid, config)
+			}
+			channelsCid.input <- envelope
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		for {
+			envelope, ok, err := q1Receiver.Next(ctx) // TODO SACAR EL OK ACA DESPUES
+			log.Infof(" msg arrive from q1")
+
+			if err != nil {
+				if err.Error() == "read channel was closed" {
+					log.Infof("Channel closed: %v", config.Q1Output)
+					break
+				}
+				if err.Error() == "timeout reached while waiting for message or ctx canceled" {
+					log.Infof("Timeout reached while waiting for message or ctx canceled")
+					break
+				}
+				log.Errorf("Error reading from middleware: %v", err)
+				continue
+			}
+			cid := envelope.Cid()
+			channelsCid, exists := inputsChannelMap[cid]
+			if !exists {
+				log.Errorf("Channel not found: %v", cid)
+				break
+			}
+			if !ok {
+				log.Infof("cid %s finished receiving", cid)
+				delete(inputsChannelMap, envelope.Cid())
+			}
+			channelsCid.q1 <- envelope
+		}
+	}()
+
+	wg.Wait()
+	log.Infof("EXITING COORDINATOR")
+	for _, channelCid := range inputsChannelMap {
+		channelCid.Close()
+	}
+}
+
+func handleClient(cid string, channelsCid *ChannelsCid, c ConfigCoordinator) {
+	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%s", cid), logger.Info)
 	moviesMetadataSender, err := (*c.MiddlewareChan).WriteTo(c.MoviesMetadataName, []string{"clean_movies"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
@@ -197,7 +285,7 @@ func handleClient(cid string, inputChannel chan middleware.Envelope[*common.Pack
 
 OuterLoop:
 	for {
-		msgEnvelope := <-inputChannel
+		msgEnvelope := <-channelsCid.input
 		cid := msgEnvelope.Cid()
 		msg := msgEnvelope.Msg()
 		bytes := msg.Buf.Bytes
@@ -235,7 +323,7 @@ OuterLoop:
 				panic(fmt.Sprintf("Unknown file name: %s", fileName))
 			}
 
-			connReader := &ConnReader{ch: inputChannel, lastReadNotIncluded: make([]byte, 0)}
+			connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: make([]byte, 0)}
 			reader := csv.NewReader(connReader)
 
 			d, err := reader.Read()
@@ -302,7 +390,7 @@ OuterLoop:
 	}
 	log.Infof("CSV processing completed")
 
-	verifyingQ1(log, allQuerysToEndpointSender, cid, q1Receiver)
+	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
 	// verifyingQ2(log, allQuerysToEndpointSender, cid, q2Receiver)
 	// verifyingQ3(log, allQuerysToEndpointSender, cid, q3Receiver)
 	// verifyingQ4(log, q4Receiver)
@@ -313,16 +401,7 @@ OuterLoop:
 	// timer.Stop()
 }
 
-func contains(slice []string, value string) bool {
-	for _, v := range slice {
-		if v == value {
-			return true
-		}
-	}
-	return false
-}
-
-func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver middleware.Receiver[*model.Row]) {
+func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
 	log.Infof("Verifying Q1")
 	expectedOutputQ1 := []*model.Row{
 		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
@@ -356,22 +435,13 @@ func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		log.Errorf("Failed to send message: %v", err)
 	}
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-		envelope, ok, err := q1Receiver.Next(ctx)
-		cancel()
-		if err != nil {
-			if err.Error() == "timeout reached while waiting for message" {
-				log.Infof("Timeout reached while waiting for message")
-				break
-			} else {
-				log.Errorf("Failed to read message: %v", err)
-				continue
-			}
-		}
+		envelope := <-q1Receiver
+		t := envelope.Type()
 		if envelope.Cid() != cid {
+			log.Errorf("Received message from wrong cid: %s", envelope.Cid())
 			continue
 		}
-		if !ok {
+		if t == middleware.EOF {
 			log.Infof("No more countries, finish arrived")
 			break
 		}
@@ -384,7 +454,7 @@ func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		log.Debugf("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
 		log.Debugf("Received country debug: %+v", receivedCountry)
 		expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedCountry, log)
-		err = envelope.Ack(true)
+		err = envelope.Ack(false)
 		unwrap(err, "Failed to ack message", log)
 	}
 	if len(expectedOutputQ1) > 0 {

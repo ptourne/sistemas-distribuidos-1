@@ -443,10 +443,10 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					return e, false, err
 				}
 			case msg, ok := <-*r.input.C:
-				log.Debugf("Received message: %v, from input '%s'", msg.Body, r.input.exchangeName)
 				if !ok {
 					return nil, false, fmt.Errorf("read channel was closed")
 				}
+				log.Debugf("Received message: %v, from input '%s'", msg.Body, r.input.exchangeName)
 				t, cid, msgbody, tag, err := unpackMsg[T](msg)
 				if err != nil {
 					return nil, false, fmt.Errorf("failed to process close notification: %v", err)
