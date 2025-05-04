@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -296,19 +297,23 @@ func flattenCastList(castList []string, movieID string) []*model.Row {
 
 func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
-	// var WORKER_COUNT_STR = os.Getenv("WORKER_COUNT")
-	// WORKER_COUNT, err := strconv.Atoi(WORKER_COUNT_STR)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to parse WORKER_COUNT: %w", err)
-	// }
-	// peers := WORKER_COUNT - 1
+	var WORKER_COUNT_STR = os.Getenv("WORKER_COUNT")
+	if WORKER_COUNT_STR == "" {
+		log.Errorf("WORKER_COUNT environment variable not set. It will be set to 1")
+		WORKER_COUNT_STR = "1"
+	}
+	WORKER_COUNT, err := strconv.Atoi(WORKER_COUNT_STR)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse WORKER_COUNT: %w", err)
+	}
+	peers := WORKER_COUNT - 1
 	groupQueueName := fmt.Sprintf("joiner_%s_credits", WORKER_ID)
-	f.taskReceiverCredits, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, 0, 2) // ToDo: usar los valores reales de 'peers' y 'prefetch'
+	f.taskReceiverCredits, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, peers, 2) // ToDo: usar los valores reales de 'peers' y 'prefetch'
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue clean_credits for task %s", f.Name())
 	}
 
-	f.taskReceiverMovies, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), 0, 2) // ToDo: usar los valores reales de 'peers' y 'prefetch'
+	f.taskReceiverMovies, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), peers, 2) // ToDo: usar los valores reales de 'peers' y 'prefetch'
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue %s for task %s", f.Input(), f.Name())
 	}

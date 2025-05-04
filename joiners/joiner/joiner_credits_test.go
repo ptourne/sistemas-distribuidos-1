@@ -25,39 +25,23 @@ func TestJoinerCreditsOneClient(t *testing.T) {
 	inputMovies, inputCredits, currentTask, outputJoiner, inputChannels := configTestJoinerCredits(t, "output_test1_credits", middlewareConnection)
 
 	cid := "client1"
-	err := inputMovies.Send(&model.Row{Strings: map[string]string{"movieID": "A"}}, cid)
-	assert.NoError(t, err)
-	err = inputMovies.Send(&model.Row{Strings: map[string]string{"movieID": "B"}}, cid)
-	assert.NoError(t, err)
-	err = inputMovies.SendEOF(cid)
-	assert.NoError(t, err)
-	err = inputCredits.Send(&model.Row{
-		Strings: map[string]string{"ID": "A"},
-		Arrays:  map[string][]string{"cast": {"Actor 1", "Actor 2"}},
-	}, cid)
-	assert.NoError(t, err)
-	err = inputCredits.SendEOF(cid)
-	assert.NoError(t, err)
+	sendRows(t, inputMovies, cid,
+		&model.Row{Strings: map[string]string{"movieID": "A"}},
+		&model.Row{Strings: map[string]string{"movieID": "B"}},
+	)
+	sendRows(t, inputCredits, cid,
+		&model.Row{
+			Strings: map[string]string{"ID": "A"},
+			Arrays:  map[string][]string{"cast": {"Actor 1", "Actor 2"}},
+		})
 
 	clientsFinished := map[string]int{cid: 0}
-	processMessages(t, inputChannels, currentTask, clientsFinished)
+	processJoinerMessages(t, inputChannels, currentTask, clientsFinished)
 
 	// Verificar salida
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	env, ok, err := outputJoiner.Next(ctx)
-	assert.NoError(t, err)
-	assert.True(t, ok, "Output channel closed unexpectedly")
-	row := env.Msg()
-	assert.Equal(t, "A", row.Strings["movieID"])
-	assert.Equal(t, "Actor 1", row.Strings["actor"])
-
-	env, ok, err = outputJoiner.Next(ctx)
-	assert.NoError(t, err)
-	assert.True(t, ok, "Output channel closed unexpectedly")
-	row = env.Msg()
-	assert.Equal(t, "A", row.Strings["movieID"])
-	assert.Equal(t, "Actor 2", row.Strings["actor"])
+	assertReceiveCastRows(t, outputJoiner, cid, "A", "Actor 1")
+	assertReceiveCastRows(t, outputJoiner, cid, "A", "Actor 2")
+	expectNoMoreRows(t, outputJoiner)
 
 	currentTask.Finish()
 	inputMovies.Close()
@@ -77,51 +61,34 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 	inputMovies, inputCredits, currentTask, outputJoiner, inputChannels := configTestJoinerCredits(t, "output_test2_credits", middlewareConnection)
 
 	// Cliente 1
-	err := inputMovies.Send(&model.Row{Strings: map[string]string{"movieID": "X"}}, "client1")
-	assert.NoError(t, err)
-	err = inputCredits.Send(&model.Row{
-		Strings: map[string]string{"ID": "X"},
-		Arrays:  map[string][]string{"cast": {"Actor X"}},
-	}, "client1")
-	assert.NoError(t, err)
-	err = inputMovies.SendEOF("client1")
-	assert.NoError(t, err)
-	err = inputCredits.SendEOF("client1")
-	assert.NoError(t, err)
+	cid := "client1"
+	sendRows(t, inputMovies, cid,
+		&model.Row{Strings: map[string]string{"movieID": "X"}},
+	)
+	sendRows(t, inputCredits, cid,
+		&model.Row{
+			Strings: map[string]string{"ID": "X"},
+			Arrays:  map[string][]string{"cast": {"Actor X"}},
+		})
 
 	// Cliente 2: película sin créditos
-	err = inputMovies.Send(&model.Row{Strings: map[string]string{"movieID": "Y"}}, "client2")
-	assert.NoError(t, err)
-	err = inputMovies.Send(&model.Row{Strings: map[string]string{"movieID": "Z"}}, "client2")
-	assert.NoError(t, err)
-	err = inputMovies.SendEOF("client2")
-	assert.NoError(t, err)
-	err = inputCredits.Send(&model.Row{
+	cid = "client2"
+	sendRows(t, inputMovies, cid,
+		&model.Row{Strings: map[string]string{"movieID": "Y"}},
+		&model.Row{Strings: map[string]string{"movieID": "Z"}},
+	)
+	sendRows(t, inputCredits, cid, &model.Row{
 		Strings: map[string]string{"ID": "A"},
 		Arrays:  map[string][]string{"cast": {"Actor A"}},
-	}, "client2")
-	assert.NoError(t, err)
-	err = inputCredits.SendEOF("client2")
-	assert.NoError(t, err)
+	})
 
 	clientsFinished := map[string]int{"client1": 0, "client2": 0}
-	processMessages(t, inputChannels, currentTask, clientsFinished)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	processJoinerMessages(t, inputChannels, currentTask, clientsFinished)
 
 	// Cliente 1
-	env, ok, err := outputJoiner.Next(ctx)
-	assert.NoError(t, err)
-	assert.True(t, ok)
-	t.Logf("received envelope: %+v by %s", env.Msg(), env.Cid())
-	assert.Equal(t, "X", env.Msg().Strings["movieID"])
-	assert.Equal(t, "Actor X", env.Msg().Strings["actor"])
-	assert.Equal(t, "client1", env.Cid())
-
+	assertReceiveCastRows(t, outputJoiner, "client1", "X", "Actor X")
 	// Cliente 2: no debería producir salida (no tiene créditos)
-	_, _, err = outputJoiner.Next(ctx)
-	assert.Equal(t, err.Error(), "timeout reached while waiting for message")
+	expectNoMoreRows(t, outputJoiner)
 
 	currentTask.Finish()
 	inputMovies.Close()
@@ -197,7 +164,7 @@ func connectToRabbitMQ(t *testing.T) middleware.Connection[*model.Row] {
 	return rabbitmq.NewMiddleware[*model.Row](connector)
 }
 
-func processMessages(t *testing.T, inputChannels []chan middleware.Envelope[*model.Row], currentTask task.JoinerTask[*model.Row, *model.Row], clientsFinished map[string]int) {
+func processJoinerMessages(t *testing.T, inputChannels []chan middleware.Envelope[*model.Row], currentTask task.JoinerTask[*model.Row, *model.Row], clientsFinished map[string]int) {
 	closed := 0
 	var envelope middleware.Envelope[*model.Row]
 	var ok bool
@@ -266,4 +233,61 @@ func processMessages(t *testing.T, inputChannels []chan middleware.Envelope[*mod
 		err := envelope.Ack(false)
 		assert.NoError(t, err)
 	}
+}
+
+func sendRows(t *testing.T, sender middleware.Sender[*model.Row], cid string, rows ...*model.Row) {
+	for _, row := range rows {
+		err := sender.Send(row, cid)
+		assert.NoError(t, err)
+	}
+	err := sender.SendEOF(cid)
+	assert.NoError(t, err)
+}
+
+func expectNoMoreRows(t *testing.T, output middleware.Receiver[*model.Row]) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	_, _, err := output.Next(ctx)
+	assert.Error(t, err)
+	assert.Equal(t, err.Error(), "timeout reached while waiting for message")
+}
+
+func assertReceiveCastRows(t *testing.T, outputJoiner middleware.Receiver[*model.Row], cid string, expectedMovieID string, expectedActor string) {
+	assertReceiveRow(t, outputJoiner, cid,
+		map[string]string{"movieID": expectedMovieID, "actor": expectedActor},
+		map[string]float64{},
+	)
+}
+
+func assertReceiveRatingsRows(t *testing.T, outputJoiner middleware.Receiver[*model.Row], cid string, expectedMovieID string, expectedTitle string, expectedRating float64) {
+	assertReceiveRow(t, outputJoiner, cid,
+		map[string]string{"movieID": expectedMovieID, "title": expectedTitle},
+		map[string]float64{"avg_rating": expectedRating},
+	)
+}
+
+func assertReceiveRow(
+	t *testing.T,
+	output middleware.Receiver[*model.Row],
+	cid string,
+	expectedStrings map[string]string,
+	expectedFloats map[string]float64,
+) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	env, ok, err := output.Next(ctx)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	msg := env.Msg()
+	t.Logf("received envelope: %+v by %s", msg, env.Cid())
+
+	for key, expected := range expectedStrings {
+		assert.Equal(t, expected, msg.Strings[key], "String field mismatch for key '%s'", key)
+	}
+	for key, expected := range expectedFloats {
+		assert.Equal(t, expected, msg.Floats[key], "Float field mismatch for key '%s'", key)
+	}
+	assert.Equal(t, cid, env.Cid())
 }
