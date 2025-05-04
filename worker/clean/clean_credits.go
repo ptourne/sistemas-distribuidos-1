@@ -31,13 +31,20 @@ func (f CleanCredits) Name() string {
 	return "clean_credits"
 }
 
-func (f CleanCredits) ProcessAndSend(row *model.Row, cid string) error {
-	output := f.process(row)
-	if output == nil {
-		log.Infof("Row dropped: %+v by cleaner", row)
-		return nil
+func (f CleanCredits) ProcessAndSend(envelope middleware.Envelope[*model.Row]) error {
+	row := envelope.Msg()
+	cid := envelope.Cid()
+	t := envelope.Type()
+	if t == middleware.EOF {
+		return f.taskSender.SendEOF(cid)
+	} else {
+		output := f.process(row)
+		if output == nil {
+			log.Infof("Row dropped: %+v by cleaner", row)
+			return nil
+		}
+		return f.taskSender.Send(output, cid)
 	}
-	return f.taskSender.Send(output, cid)
 }
 
 func (f CleanCredits) process(row *model.Row) *model.Row {
@@ -110,8 +117,9 @@ func (f *CleanCredits) Connect(middlewareConnection middleware.Connection[*model
 				continue
 			}
 			if !ok {
-				log.Infof("Channel closed: %v", f.Name())
-				break
+				// log.Infof("Channel closed: %v", f.Name())
+				// break
+				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
 			}
 			inputChannel <- envelope
 		}

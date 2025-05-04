@@ -103,7 +103,6 @@ func (w *Worker) Run() {
 		if i < cantBin {
 			currentTask := taskBinRefs[i]
 			if !ok {
-
 				log.Infof("Channel closed from task: %s", currentTask.Name())
 				cases = slices.Delete(cases, i, i+1)
 				taskClosedChannels[currentTask.Name()]++
@@ -127,11 +126,10 @@ func (w *Worker) Run() {
 			if !ok {
 				panic("Failed to cast to envelope")
 			}
-			fileChunk := envelope.Msg()
-			cid := envelope.Cid()
-			result := currentTask.ProcessAndSend(fileChunk, cid)
+
+			result := currentTask.ProcessAndSend(envelope)
 			if result != nil {
-				log.Errorf("Failed to process fileChunk: %v by task: %v", fileChunk, currentTask.Name())
+				log.Errorf("Failed to process fileChunk: %v by task: %v", envelope, currentTask.Name())
 				continue
 			}
 			// log.Debugf("TO ACK msg %v worker", envelope.Msg())
@@ -166,18 +164,15 @@ func (w *Worker) Run() {
 			if !ok {
 				panic("Failed to cast to envelope")
 			}
-			row := envelope.Msg()
-			cid := envelope.Cid()
-			result := currentTask.ProcessAndSend(row, cid)
+			result := currentTask.ProcessAndSend(envelope)
 			if result != nil {
-				log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
+				log.Errorf("Failed to process row: %v by task: %v", envelope, currentTask.Name())
 				continue
 			}
 			// log.Debugf("TO ACK msg %v worker", envelope.Msg())
 			err = envelope.Ack(false)
 			unwrap(err, "Failed to ack message")
-			log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
-
+			// log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
 		}
 
 	}
@@ -202,7 +197,7 @@ func NewSourceTask[O codec.Serializable[O]](name string) task.Task[*model.Row, O
 	return &SourceTask[O]{name}
 }
 
-func (t *SourceTask[O]) ProcessAndSend(r *model.Row, cid string) error {
+func (t *SourceTask[O]) ProcessAndSend(envelope middleware.Envelope[*model.Row]) error {
 	return nil
 }
 

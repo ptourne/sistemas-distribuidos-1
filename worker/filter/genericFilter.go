@@ -77,12 +77,19 @@ func (f *GenericFilter) Input() string {
 	return f.input
 }
 
-func (f GenericFilter) ProcessAndSend(row *model.Row, cid string) error {
-	output := f.process(row)
-	if output == nil {
-		return nil
+func (f GenericFilter) ProcessAndSend(envelope middleware.Envelope[*model.Row]) error {
+	row := envelope.Msg()
+	cid := envelope.Cid()
+	t := envelope.Type()
+	if t == middleware.EOF {
+		return f.taskSender.SendEOF(cid)
+	} else {
+		output := f.process(row)
+		if output == nil {
+			return nil
+		}
+		return f.taskSender.Send(output, cid)
 	}
-	return f.taskSender.Send(output, cid)
 }
 
 func (f GenericFilter) process(row *model.Row) *model.Row {
@@ -175,8 +182,9 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.Connection[*mode
 				continue
 			}
 			if !ok {
-				log.Infof("Channel closed desde generic2: %v", f.Name())
-				break
+				// log.Infof("Channel closed desde generic2: %v", f.Name())
+				// break
+				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
 			}
 			inputChannel <- envelope
 		}

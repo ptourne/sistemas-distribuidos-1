@@ -564,13 +564,12 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 			}
 		}
 	case closeNotificationFinishCid:
-		log.Infof("Finish received for Cid %s", cid)
 		_, exists := r.finishCids[cid]
 		if exists {
 			return true, false, nil, nil
 		}
 		r.prefetchCids[cid] = r.prefetch + PREFETCH_MAX
-		log.Infof("Finish received for Cid %s", cid)
+		log.Infof("Finish intern close receiver received for Cid %s", cid)
 	}
 	return false, false, nil, nil
 }

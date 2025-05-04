@@ -138,7 +138,7 @@ func main() {
 	}
 
 	for _, channelCid := range inputsChannelMap {
-		close(channelCid)
+		close(channelCid) //TODO HACERLO EN EL CLIENT
 	}
 
 	wg.Wait()
@@ -368,12 +368,12 @@ func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 				continue
 			}
 		}
-		if !ok {
-			log.Infof("No more countries")
-			break
-		}
 		if envelope.Cid() != cid {
 			continue
+		}
+		if !ok {
+			log.Infof("No more countries, finish arrived")
+			break
 		}
 		receivedCountry := envelope.Msg()
 		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedCountry), cid)
@@ -381,18 +381,17 @@ func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 			log.Errorf("Failed to send message: %v", err)
 			continue
 		}
-		log.Infof("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
-		log.Infof("Received country debug: %+v", receivedCountry)
+		log.Debugf("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
+		log.Debugf("Received country debug: %+v", receivedCountry)
 		expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedCountry, log)
-		if len(expectedOutputQ1) == 0 {
-			log.Infof("All expected films received")
-			break
-		}
 		err = envelope.Ack(true)
 		unwrap(err, "Failed to ack message", log)
 	}
 	if len(expectedOutputQ1) > 0 {
 		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
+	}
+	if len(expectedOutputQ1) == 0 {
+		log.Infof("All expected films received")
 	}
 }
 

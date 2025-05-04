@@ -51,46 +51,26 @@ func (f CleanRatings) Name() string {
 	return "clean_ratings"
 }
 
-func (f CleanRatings) ProcessAndSend(row *model.FileChunk, cid string) error {
-	output := f.process(row.Bytes) // TODO: this should be a different model
-	if output == nil {
-		return nil
+func (f CleanRatings) ProcessAndSend(envelope middleware.Envelope[*model.FileChunk]) error {
+	fileChunk := envelope.Msg()
+	cid := envelope.Cid()
+	t := envelope.Type()
+	if t == middleware.EOF {
+		return f.taskSender.SendEOF(cid)
+	} else {
+		output := f.process(fileChunk.Bytes) // TODO: this should be a different model
+		if output == nil {
+			return nil
+		}
+		movieId := output.Strings["movieID"]
+		routingKey := string(movieId[len(movieId)-1])
+		return f.taskSender.SendRK(output, routingKey, cid)
 	}
-	movieId := output.Strings["movieID"]
-	routingKey := string(movieId[len(movieId)-1])
-	return f.taskSender.SendRK(output, routingKey, cid)
 }
 
 func (f CleanRatings) process(row []byte) *model.Row {
 	rating := &Rating{}
 	rating.Decode(row)
-	// requiredFields := []string{
-	// 	row.Strings["movieID"],
-	// 	row.Strings["rating"],
-	// }
-
-	// log.Debugf("Clean: movieID: %s, rating: %s",
-	// 	row.Strings["movieID"],
-	// 	row.Strings["rating"],
-	// )
-
-	// for _, field := range requiredFields {
-	// 	if utils.MustDropRow(field) {
-	// 		log.Debugf("warning: dropping row due to empty field: %s", field)
-	// 		return nil
-	// 	}
-	// }
-	// rating, ok := utils.ParseFloat(row.Strings["rating"])
-	// rating := strings.ReplaceAll(row.Strings["rating"], ".", "")
-	// ratingUint, err := strconv.ParseUint(rating, 10, 8)
-
-	// if err != nil {
-	// 	log.Warnf("could not parse rating: %s", row.Strings["rating"])
-	// 	return nil
-	// }
-
-	// log.Debugf("Clean ALL: movieID: %s, rating: %v", row.Strings["movieID"], rating)
-
 	res := &model.Row{
 		Strings: map[string]string{
 			"movieID": fmt.Sprintf("%d", rating.Id),
@@ -99,7 +79,6 @@ func (f CleanRatings) process(row []byte) *model.Row {
 			"rating": uint64(rating.Rating),
 		}, //Todo use codec.Decimals
 	}
-	// log.Debugf("rating: %v", res)
 	return res
 }
 
@@ -139,8 +118,9 @@ func (f *CleanRatings) Connect(middIn middleware.Connection[*model.FileChunk], m
 				continue
 			}
 			if !ok {
-				log.Infof("Channel closed: %v", f.Name())
-				break
+				// log.Infof("Channel closed: %v", f.Name())
+				// break
+				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
 			}
 			inputChannel <- envelope
 		}

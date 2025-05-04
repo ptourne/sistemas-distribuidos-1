@@ -31,12 +31,20 @@ func (f CleanMovies) Name() string {
 	return "clean_movies"
 }
 
-func (f CleanMovies) ProcessAndSend(row *model.Row, cid string) error {
-	output := f.process(row)
-	if output == nil {
-		return nil
+func (f CleanMovies) ProcessAndSend(envelope middleware.Envelope[*model.Row]) error {
+	row := envelope.Msg()
+	cid := envelope.Cid()
+	t := envelope.Type()
+
+	if t == middleware.EOF {
+		return f.taskSender.SendEOF(cid)
+	} else {
+		output := f.process(row)
+		if output == nil {
+			return nil
+		}
+		return f.taskSender.Send(output, cid)
 	}
-	return f.taskSender.Send(output, cid)
 }
 
 func (f CleanMovies) process(row *model.Row) *model.Row {
@@ -147,15 +155,16 @@ func (f *CleanMovies) Connect(middlewareConnection middleware.Connection[*model.
 			envelope, ok, err := f.taskReceiver.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
-					log.Infof("Channel closed: %v", f.Name())
+					log.Infof("Channel closed: what!! %v", f.Name())
 					break
 				}
 				log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
 			if !ok {
-				log.Infof("Channel closed: %v", f.Name())
-				break
+				// log.Infof("Channel closed: what 2!! %v", f.Name())
+				// break
+				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
 			}
 			inputChannel <- envelope
 		}
