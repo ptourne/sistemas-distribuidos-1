@@ -85,7 +85,6 @@ func (r *eofEnvelopeRabbitmq[T]) Type() middleware.TypeMsg {
 }
 
 func (r *eofEnvelopeRabbitmq[T]) Ack(multiple bool) error {
-	log.Debugf("ack EOF called for cid %s", r.cid)
 	return nil
 }
 
@@ -169,7 +168,6 @@ func (r *prune2EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	if err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, r.cid); err != nil {
 		return fmt.Errorf("failed to ack message in close notification: %v", err)
 	}
-	log.Debugf("closeNotificationFinishCid Cid %s", r.cid)
 	return nil
 }
 

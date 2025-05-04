@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/stretchr/testify/assert"
@@ -38,6 +39,9 @@ const RABBITMQ_EXPOSED_PORT_BASE = uint16(3000)
 
 var baseConfig = NewConfiguration("guest", "guest", "localhost", RABBITMQ_EXPOSED_PORT_BASE)
 
+var log *logger.ConsoleLogger = logger.NewConsoleLogger("test", logger.Debug)
+var middlewareLogger *logger.ConsoleLogger = logger.NewConsoleLogger("middleware", logger.Debug)
+
 func TestRabbitMQMiddleware(t *testing.T) {
 	provider := NewContainerProvider(baseConfig)
 
@@ -63,14 +67,14 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		senderMiddleware := NewMiddleware[*Ball](senderConnector)
+		senderMiddleware := NewMiddleware[*Ball](senderConnector, middlewareLogger)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
 		assert.NoError(t, err)
 		cid := "1"
 
 		receiverConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
+		receiverMiddleware := NewMiddleware[*Ball](receiverConnector, middlewareLogger)
 		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 0, 1)
 		assert.NoError(t, err)
 
@@ -125,14 +129,14 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		senderMiddleware := NewMiddleware[*Ball](senderConnector)
+		senderMiddleware := NewMiddleware[*Ball](senderConnector, middlewareLogger)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
 		assert.NoError(t, err)
 		cid := "1"
 
 		receiverConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
+		receiverMiddleware := NewMiddleware[*Ball](receiverConnector, middlewareLogger)
 		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 0, 1)
 		assert.NoError(t, err)
 
@@ -192,7 +196,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		senderMiddleware := NewMiddleware[*Ball](senderConnector)
+		senderMiddleware := NewMiddleware[*Ball](senderConnector, middlewareLogger)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
 		assert.NoError(t, err)
 		cid := "1"
@@ -206,7 +210,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		receiverConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		receiverMiddleware := NewMiddleware[*Ball](receiverConnector)
+		receiverMiddleware := NewMiddleware[*Ball](receiverConnector, middlewareLogger)
 		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 0, 1)
 		assert.NoError(t, err)
 
@@ -240,20 +244,20 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		senderMiddleware := NewMiddleware[*Ball](senderConnector)
+		senderMiddleware := NewMiddleware[*Ball](senderConnector, middlewareLogger)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
 		assert.NoError(t, err)
 		cid := "1"
 
 		receiver1Connector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		receiver1Middleware := NewMiddleware[*Ball](receiver1Connector)
+		receiver1Middleware := NewMiddleware[*Ball](receiver1Connector, middlewareLogger)
 		receiver1, err := receiver1Middleware.ConsumeFrom("output", "receiver", 1, 1)
 		assert.NoError(t, err)
 
 		receiver2Connector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		receiver2Middleware := NewMiddleware[*Ball](receiver2Connector)
+		receiver2Middleware := NewMiddleware[*Ball](receiver2Connector, middlewareLogger)
 		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 1, 1)
 		assert.NoError(t, err)
 
@@ -390,7 +394,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, init.Err)
 		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		senderMiddleware := NewMiddleware[*Ball](senderConnector)
+		senderMiddleware := NewMiddleware[*Ball](senderConnector, middlewareLogger)
 		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
 		assert.NoError(t, err)
 		cid1 := "1"
@@ -398,13 +402,13 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		receiver1Connector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		receiver1Middleware := NewMiddleware[*Ball](receiver1Connector)
+		receiver1Middleware := NewMiddleware[*Ball](receiver1Connector, middlewareLogger)
 		receiver1, err := receiver1Middleware.ConsumeFrom("output", "receiver", 1, 1)
 		assert.NoError(t, err)
 
 		receiver2Connector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		receiver2Middleware := NewMiddleware[*Ball](receiver2Connector)
+		receiver2Middleware := NewMiddleware[*Ball](receiver2Connector, middlewareLogger)
 		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 1, 1)
 		assert.NoError(t, err)
 

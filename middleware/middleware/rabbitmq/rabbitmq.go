@@ -20,6 +20,7 @@ const (
 
 type middlewareRabbitmq[T codec.Serializable[T]] struct {
 	Conn *amqp.Connection
+	Log  *logger.ConsoleLogger
 }
 
 type RabbitMQConnector struct {
@@ -31,6 +32,7 @@ type ReceiverChannel[T codec.Serializable[T]] struct {
 	queueName    string
 	amqpCh       *amqp.Channel
 	C            *<-chan amqp.Delivery
+	Log          *logger.ConsoleLogger
 }
 
 type receiverRabbitmq[T codec.Serializable[T]] struct {
@@ -45,6 +47,7 @@ type receiverRabbitmq[T codec.Serializable[T]] struct {
 	peers        int
 	prefetch     int
 	prefetchCids map[string]int
+	Log          *logger.ConsoleLogger
 }
 
 type CloseNotificationType uint8
@@ -71,13 +74,13 @@ func (c *CloseNotification) Decode(data []byte) (*CloseNotification, error) {
 	return &CloseNotification{notificationType: CloseNotificationType(val)}, nil
 }
 
-func NewMiddleware[T codec.Serializable[T]](c *RabbitMQConnector) middleware.Connection[T] {
-	return &middlewareRabbitmq[T]{Conn: c.Conn}
+func NewMiddleware[T codec.Serializable[T]](c *RabbitMQConnector, log *logger.ConsoleLogger) middleware.Connection[T] {
+	return &middlewareRabbitmq[T]{Conn: c.Conn, Log: log}
 }
 
 func (r *ReceiverChannel[T]) Close() {
 	if r.amqpCh != nil {
-		log.Debugf("Closing channel '%s', '%s'", r.exchangeName, r.queueName)
+		r.Log.Debugf("Closing channel '%s', '%s'", r.exchangeName, r.queueName)
 		r.amqpCh.Close()
 		r.amqpCh = nil
 	}
@@ -117,16 +120,18 @@ type SenderRabbitmq[T codec.Serializable[T]] struct {
 	output       SenderChannel[T]
 	isBlocked    atomic.Bool
 	isClosed     atomic.Bool
+	Log          *logger.ConsoleLogger
 }
 
 type SenderChannel[T codec.Serializable[T]] struct {
 	exchangeName string
 	ch           *amqp.Channel
+	Log          *logger.ConsoleLogger
 }
 
 func (s *SenderChannel[T]) Close() {
 	if s.ch != nil {
-		log.Debugf("Clossing channel '%s'", s.exchangeName)
+		s.Log.Debugf("Closing channel '%s'", s.exchangeName)
 		s.ch.Close()
 		s.ch = nil
 	}
@@ -156,8 +161,6 @@ func Url(c Configuration) string {
 	return fmt.Sprintf("amqp://%s:%s@%s:%d/", c.User, c.Password, c.Host, c.Port)
 }
 
-var log = logger.NewConsoleLogger("middleware", logger.Debug)
-
 func Connector() (*RabbitMQConnector, error) {
 	return ConnectorCustom(DefaultConfiguration())
 }
@@ -168,9 +171,7 @@ func ConnectorCustom(config Configuration) (*RabbitMQConnector, error) {
 		if err == nil {
 			break
 		}
-		log.Errorf("Failed to connect to RabbitMQ: %v", err)
 		time.Sleep(5 * time.Second)
-		log.Infof("Retrying connection...")
 		conn, err = amqp.Dial(url)
 	}
 	if err != nil {
@@ -180,7 +181,7 @@ func ConnectorCustom(config Configuration) (*RabbitMQConnector, error) {
 }
 
 func (m *middlewareRabbitmq[T]) Close() error {
-	log.Infof("CLOSING MIDDLEWARE")
+	m.Log.Infof("CLOSING MIDDLEWARE")
 	if m.Conn != nil {
 		m.Conn.Close()
 		m.Conn = nil
@@ -189,7 +190,7 @@ func (m *middlewareRabbitmq[T]) Close() error {
 }
 
 func (r *receiverRabbitmq[T]) Close() error {
-	log.Debugf("CLOSING RECEIVER: '%s', '%s", r.input.exchangeName, r.input.queueName)
+	r.Log.Debugf("CLOSING RECEIVER: '%s', '%s", r.input.exchangeName, r.input.queueName)
 	r.input.Close()
 	r.closeReceiver.Close()
 	r.closeSender.Close()
@@ -197,13 +198,13 @@ func (r *receiverRabbitmq[T]) Close() error {
 }
 
 func (s *SenderRabbitmq[T]) Close() error {
-	log.Debugf("CLOSING SENDER")
+	s.Log.Debugf("CLOSING SENDER")
 	s.output.Close()
 	return nil
 }
 
 func (m *middlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string, peers int, prefetch int) (middleware.Receiver[T], error) {
-	log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' ", sourceName, groupName)
+	m.Log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' ", sourceName, groupName)
 	if sourceName == "" {
 		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
 	}
@@ -214,7 +215,7 @@ func (m *middlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string,
 }
 
 func (m *middlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, t string, routingKey string, peers int, prefetch int) (middleware.Receiver[T], error) {
-	log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' ", sourceName, groupName)
+	m.Log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' ", sourceName, groupName)
 	if sourceName == "" {
 		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
 	}
@@ -254,6 +255,7 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 		}),
 		pendingPrune: make([]middleware.Envelope[T], 0),
 		prefetchCids: make(map[string]int),
+		Log:          m.Log,
 	}
 
 	return receiver, nil
@@ -276,7 +278,7 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err != nil {
 		return SenderChannel[I]{}, err
 	}
-	newVar := SenderChannel[I]{readExchangeName, ch}
+	newVar := SenderChannel[I]{readExchangeName, ch, m.Log}
 	return newVar, nil
 }
 
@@ -297,7 +299,7 @@ func createConsumerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err != nil {
 		return ReceiverChannel[I]{}, fmt.Errorf("failed to register a consumer %v", err)
 	}
-	return ReceiverChannel[I]{readExchangeName, queueName, inputCh, &msgs}, nil
+	return ReceiverChannel[I]{readExchangeName, queueName, inputCh, &msgs, m.Log}, nil
 }
 
 func (m *middlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string) (middleware.Sender[T], error) {
@@ -309,7 +311,7 @@ func (m *middlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 }
 
 func (m *middlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[string][]string, t string) (middleware.Sender[T], error) {
-	log.Infof("Creating WriteTo exchange '%s'", outputName)
+	m.Log.Infof("Creating WriteTo exchange '%s'", outputName)
 	output, err := CreateProducerRK[T, T](m, outputName, t)
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
@@ -333,6 +335,7 @@ func (m *middlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 	sender := &SenderRabbitmq[T]{
 		exchangeName: outputName,
 		output:       output,
+		Log:          m.Log,
 	}
 	sender.isBlocked.Store(false)
 	sender.isClosed.Store(false)
@@ -348,7 +351,6 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	if err != nil {
 		return fmt.Errorf("failed to encode message: %v", err)
 	}
-	// log.Debugf("PUBLISHING message '%s' in chan %s", string(buf), s.exchangeName)
 	err = s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
 		routingKey,     // routing key
@@ -365,7 +367,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
 	}
-	log.Debugf("PUBLISHED message in chan %s msg:%v with type %v and cid %v", s.exchangeName, msg, normal.String(), cid)
+	s.Log.Debugf("PUBLISHED message in chan %s msg:%v with type %v and cid %v", s.exchangeName, msg, normal.String(), cid)
 	return nil
 }
 
@@ -397,7 +399,7 @@ func (s *SenderChannel[T]) SendEOFRK(ctx context.Context, routingKey string, cid
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
 	}
-	log.Debugf("PUBLISHED message in chan %s with type %v and cid %v", s.exchangeName, eofCid.String(), cid)
+	s.Log.Debugf("PUBLISHED message in chan %s with type %v and cid %v", s.exchangeName, eofCid.String(), cid)
 	return nil
 }
 
@@ -416,14 +418,20 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 		ctxDone = ctx.Done()
 	}
 
-	var timeoutPrefetchCid <-chan time.Time = time.After(1 * time.Second)
+	var timeoutPrefetchCid <-chan time.Time
+	skipResetTimer := false
 	for {
 		if len(r.pendingPrune) > 0 {
 			pendingPrune := r.pendingPrune[0]
-			log.Debugf("returning from pendingPrune: %+v", pendingPrune)
+			r.Log.Debugf("returning from pendingPrune: %+v", pendingPrune)
 			r.pendingPrune = r.pendingPrune[1:]
 			return pendingPrune, nil
 		}
+
+		if !skipResetTimer {
+			timeoutPrefetchCid = time.After(1 * time.Second)
+		}
+		skipResetTimer = false
 
 		select {
 		case msg, ok := <-*r.closeReceiver.C:
@@ -432,7 +440,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				continue
 			}
 			if shouldReturn {
-				log.Debugf("return %v envelope", e.Type())
+				r.Log.Debugf("return %v envelope", e.Type())
 				return e, err
 			}
 		default:
@@ -446,7 +454,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					return e, err
 				}
 			case msg, ok := <-*r.input.C:
-				log.Debugf("Received message: %v, from input '%s'", msg.Body, r.input.exchangeName)
+				r.Log.Debugf("Received message: %v, from input '%s'", msg.Body, r.input.exchangeName)
 				if !ok {
 					return nil, fmt.Errorf("read channel was closed")
 				}
@@ -458,7 +466,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				for prefetchCid := range r.prefetchCids {
 					r.prefetchCids[prefetchCid]--
 					if r.prefetchCids[prefetchCid] == 0 {
-						log.Debugf("Cid prefetch emptied %s", prefetchCid)
+						r.Log.Debugf("Cid prefetch emptied %s", prefetchCid)
 						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](prefetchCid, r.closeSender))
 						delete(r.prefetchCids, prefetchCid)
 					}
@@ -472,8 +480,8 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 						finishDonePending: r.peers + 1,
 						msg:               newEOFEnvelope[T](cid),
 					}
-					log.Debugf("eofCid received on channel for Cid %s", cid)
-					log.Debugf("added finishCid[%s] = %+v", cid, r.finishCids[cid])
+					r.Log.Debugf("eofCid received on channel for Cid %s", cid)
+					r.Log.Debugf("%s added finishCid[%s] = %+v", r.input.exchangeName, cid, r.finishCids[cid])
 					// r.pendingPrune = append(r.pendingPrune, newPruneEnvelope[T](cid, func() error {
 					// 	return r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, cid)
 					// }))
@@ -483,30 +491,29 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					}
 					r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
 
-					// == commented because user must prune references to that cid before sending finish done notifications ==
 					err = tag.Ack(false)
 					if err != nil {
-						log.Errorf("failed to ack message in close notification: %v", err)
+						r.Log.Errorf("failed to ack message in close notification: %v", err)
 					}
-					log.Debugf("return prune callback envelope")
+					r.Log.Debugf("return prune callback envelope")
 					continue
 				}
-				log.Debugf("return normal envelope")
+				r.Log.Debugf("return normal envelope")
 				return newNormalEnvelope(cid, msgbody, tag), nil
 
 			case <-timeoutPrefetchCid:
-				log.Debugf("Timeout prefetch cid")
-				log.Debugf("r.prefetchCids: %v", r.prefetchCids)
+				r.Log.Debugf("Timeout prefetch cid")
+				r.Log.Debugf("r.prefetchCids: %v", r.prefetchCids)
 				for CidMsg := range r.prefetchCids {
-					log.Debugf("return prune callback envelope for %s", CidMsg)
+					r.Log.Debugf("return prune callback envelope for %s", CidMsg)
 					r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](CidMsg, r.closeSender))
 					delete(r.prefetchCids, CidMsg)
 				}
-				timeoutPrefetchCid = time.After(1 * time.Second) // TODO por qué no funciona con nil?
-				// timeoutPrefetchCid = nil
+				timeoutPrefetchCid = nil
+				skipResetTimer = true
 				continue
 			case <-ctxDone:
-				log.Debugf("Timeout reached while waiting for message")
+				r.Log.Debugf("Timeout reached while waiting for message")
 				return nil, &middleware.TimeoutErr{}
 			}
 		}
@@ -520,7 +527,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	e middleware.Envelope[T],
 	err error,
 ) {
-	log.Debugf("Received message from close receiver '%s'", r.closeReceiver.exchangeName)
+	r.Log.Debugf("Received message from close receiver '%s'", r.closeReceiver.exchangeName)
 	if !ok {
 		return false, true, nil, fmt.Errorf("read channel was closed")
 	}
@@ -532,30 +539,31 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 
 	switch notification.notificationType {
 	case closeNotificationFinishCidDone:
-		log.Debugf("Finish done received for Cid %s", cid)
+		r.Log.Debugf("%s, Finish done received for Cid %s", r.input.exchangeName, cid)
 		finishCid, exists := r.finishCids[cid]
 		if !exists {
-			log.Infof("Finish done received for non-existent Cid %s", cid)
+			r.Log.Infof("Finish done received for non-existent Cid %s", cid)
 			return true, false, nil, nil
 		} else {
-			log.Debugf("Finish done pending for Cid before %s: %d", cid, r.finishCids[cid].finishDonePending)
+			r.Log.Debugf("Finish done pending for Cid before %s: %d", cid, r.finishCids[cid].finishDonePending)
 			finishCid.finishDonePending--
 			r.finishCids[cid] = finishCid
-			log.Debugf("Finish done pending for Cid %s: %d", cid, r.finishCids[cid].finishDonePending)
+			r.Log.Debugf("Finish done pending for Cid %s: %d", cid, r.finishCids[cid].finishDonePending)
 			if r.finishCids[cid].finishDonePending == 0 {
-				log.Debugf("Finishes done received for Cid %s", cid)
+				r.Log.Debugf("Finishes done received for Cid %s", cid)
 				delete(r.finishCids, cid)
 				return false, true, finishCid.msg, nil
 			}
 		}
 	case closeNotificationFinishCid:
-		log.Debugf("Finish received for Cid %s", cid)
+		r.Log.Debugf("Finish received for Cid %s", cid)
 		_, exists := r.finishCids[cid]
 		if exists {
 			return true, false, nil, nil
 		}
 		r.prefetchCids[cid] = r.prefetch + PREFETCH_MAX
-		log.Debugf("r.prefetchCids[%s] = %d", cid, r.prefetchCids[cid])
+		r.Log.Debugf("r.prefetchCids[%s] = %d", cid, r.prefetchCids[cid])
+		return true, false, nil, nil
 	}
 	return false, false, nil, nil
 }
@@ -647,7 +655,7 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 	if groupName != "" {
 		queueName = fmt.Sprintf("%s_%s", exchangeName, groupName)
 	}
-	log.Debugf("createQueue: Creating queue '%s' for exchange '%s'", queueName, exchangeName)
+	m.Log.Debugf("createQueue: Creating queue '%s' for exchange '%s'", queueName, exchangeName)
 	queue, err := ch.QueueDeclare(
 		queueName, // name
 		false,     // durable

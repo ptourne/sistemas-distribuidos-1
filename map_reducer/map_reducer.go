@@ -83,13 +83,15 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	if batchSize < 2 {
 		return nil, fmt.Errorf("batchSize must be at least two")
 	}
-	connIn := rabbitmq.NewMiddleware[I](connector)
+
+	middlewareLogger := logger.NewConsoleLogger(fmt.Sprintf("middleware_%s", id), logger.Info)
+	connIn := rabbitmq.NewMiddleware[I](connector, middlewareLogger)
 
 	inputCh, err := connIn.ConsumeFromRK(input, name, t, routingKeys[0], peers, 1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create input channel: %w", err)
 	}
-	connOut := rabbitmq.NewMiddleware[R](connector)
+	connOut := rabbitmq.NewMiddleware[R](connector, middlewareLogger)
 
 	output, err := connOut.WriteToRK(name, subscribersMap, t)
 	if err != nil {
@@ -97,7 +99,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	}
 
 	partialResultName := partialResultName(name)
-	connPartialResult := rabbitmq.NewMiddleware[A](connector)
+	connPartialResult := rabbitmq.NewMiddleware[A](connector, middlewareLogger)
 	partialResultIn, err := connPartialResult.ConsumeFrom(partialResultName, name, peers, 1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create accumulator input channel: %w", err)
@@ -108,11 +110,11 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	}
 
 	finalReuceName := finalReduceName(name)
-	connFinalReduce := rabbitmq.NewMiddleware[A](connector)
+	connFinalReduce := rabbitmq.NewMiddleware[A](connector, middlewareLogger)
 	var finalReduceInP *middleware.Receiver[A] = nil
 	if id == "1" {
 		// Only leader gets to consume from the final reduce queue
-		finalReduceIn, err := connFinalReduce.ConsumeFrom(finalReuceName, name, peers, 1)
+		finalReduceIn, err := connFinalReduce.ConsumeFrom(finalReuceName, name, 0, 1)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create accumulator input channel: %w", err)
 		}
