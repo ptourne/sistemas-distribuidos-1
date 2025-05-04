@@ -32,6 +32,8 @@ func NewMapReducerByMovieId(
 	routingKeys []string,
 	batchSize uint,
 	subscribers []string,
+	id string,
+	count uint,
 ) (*MapReducerSum, error) {
 	return NewMapReducer[In, *Acc, Res](
 		connector,
@@ -41,6 +43,8 @@ func NewMapReducerByMovieId(
 		&SumMapReduce{},
 		subscribers,
 		routingKeys,
+		id,
+		count,
 	)
 }
 
@@ -98,6 +102,8 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	mapReducer map_reducer.MapReduce[I, A, R],
 	subscribers []string,
 	routingKeys []string,
+	id string,
+	count uint,
 ) (*map_reducer.MapReducer[I, A, R], error) {
 	return map_reducer.NewMapReducer(
 		connector,
@@ -107,6 +113,8 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		mapReducer,
 		subscribers,
 		routingKeys,
+		id,
+		count,
 	)
 	// var t string = "direct"
 	// nameId := fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID)

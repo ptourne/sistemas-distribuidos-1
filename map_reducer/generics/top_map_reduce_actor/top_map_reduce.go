@@ -30,6 +30,8 @@ func NewTopMapReducerActor(
 	topSize uint,
 	batchSize uint,
 	subscribers []string,
+	id string,
+	count uint,
 ) (*TopMapReducer, error) {
 	return map_reducer.NewMapReducer[In, *Acc, Res](
 		connector,
@@ -39,6 +41,8 @@ func NewTopMapReducerActor(
 		&TopMapReduce{topSize},
 		subscribers,
 		[]string{},
+		id,
+		count,
 	)
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	top_map_reduce "github.com/ptourne/sistemas-distribuidos-1/map_reducer/generics/top_map_reduce_actor"
@@ -18,6 +19,13 @@ func main() {
 		log.Errorf("failed to create connector: %w", err)
 		return
 	}
+	id := os.Getenv("WORKER_ID")
+	count_str := os.Getenv("WORKER_COUNT")
+	count, err := strconv.Atoi(count_str)
+	if err != nil {
+		log.Errorf("failed to parse worker count: %w", err)
+		return
+	}
 	mapReducer, err := top_map_reduce.NewTopMapReducerActor(
 		connector,
 		"reduce_top_10_by_actor",
@@ -25,6 +33,8 @@ func main() {
 		10,
 		2,
 		[]string{"q4"},
+		id,
+		uint(count),
 	)
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)

@@ -53,26 +53,30 @@ type r = *num
 type sumMapReducer struct{}
 
 func (s sumMapReducer) Map(in i) []a {
+	log.Debugf("Mapping input %d", in.val)
 	return []*sum{&sum{val: in.val}}
 }
 
 func (s sumMapReducer) Reduce(in []a) a {
+	log.Debugf("Reducing %d inputs", len(in))
 	var red uint64
 	for _, v := range in {
 		red += v.val
 	}
+	log.Debugf("Reduced sum is %d", red)
 	return &sum{val: red}
 }
 
-func (s sumMapReducer) Output(a) []r {
-	return []*num{&num{val: 0}}
+func (s sumMapReducer) Output(in a) []r {
+	log.Debugf("Outputting reduced sum %d", in.val)
+	return []*num{&num{val: in.val}}
 }
 
 func newTimer() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 5*time.Second)
+	return context.WithTimeout(context.Background(), 3*time.Second)
 }
 
-const RABBITMQ_EXPOSED_PORT_BASE = uint16(3000)
+const RABBITMQ_EXPOSED_PORT_BASE = uint16(4000)
 
 var baseConfig = rabbitmq.NewConfiguration("guest", "guest", "localhost", RABBITMQ_EXPOSED_PORT_BASE)
 
@@ -103,22 +107,25 @@ func TestMapReducer(t *testing.T) {
 			"map_reducer",
 			"input",
 			2,
-			sumMapReducer{}, []string{"output"}, []string{})
+			sumMapReducer{},
+			[]string{"output"},
+			[]string{},
+			"1",
+			1,
+		)
 		assert.NoError(t, err)
 
 		go func() {
+			log.Infof("Starting map reducer: %v", mapReducer)
 			err = mapReducer.Run()
-			if err != nil {
-				log.Errorf("error running map reducer: %s", err)
-				return
-			}
+			// assert.NoErrorf(t, err, "error running map reducer: %s", err)
 			log.Infof("map reducer finished")
 		}()
 
 		receiverConnector, err := rabbitmq.ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiverMiddleware := rabbitmq.NewMiddleware[r](receiverConnector)
-		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 0, 1)
+		receiver, err := receiverMiddleware.ConsumeFrom("map_reducer", "receiver", 0, 1)
 		assert.NoError(t, err)
 
 		err = sender.Send(&num{val: 1}, cid)
@@ -138,17 +145,24 @@ func TestMapReducer(t *testing.T) {
 		cancel()
 		assert.NoError(t, err)
 		assert.True(t, ok)
-		assert.Equal(t, e.Type(), middleware.Normal)
-		assert.Equal(t, e.Msg().val, uint64(1))
+		assert.Equal(t, middleware.Normal, e.Type())
+		assert.Equal(t, uint64(1), e.Msg().val)
 		e.Ack(true)
 
 		ctx, cancel = newTimer()
 		e, ok, err = receiver.Next(ctx)
 		cancel()
 		assert.NoError(t, err)
-		assert.True(t, ok)
-		assert.Equal(t, e.Type(), middleware.EOF)
-		assert.Equal(t, e.Msg().val, uint64(1))
+		assert.False(t, ok)
+		assert.Equal(t, middleware.Prune, e.Type())
+		e.Ack(true)
+
+		ctx, cancel = newTimer()
+		e, ok, err = receiver.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		assert.False(t, ok)
+		assert.Equal(t, middleware.EOF, e.Type())
 		e.Ack(true)
 	})
 }

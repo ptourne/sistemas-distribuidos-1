@@ -443,7 +443,6 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					continue
 				}
 				if shouldReturn {
-					log.Debugf("return %v envelope", e.Type())
 					return e, false, err
 				}
 			case msg, ok := <-*r.input.C:
@@ -554,13 +553,12 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 			}
 		}
 	case closeNotificationFinishCid:
-		log.Infof("Finish received for Cid %s", cid)
+		log.Debugf("Finish received for Cid %s", cid)
 		_, exists := r.finishCids[cid]
 		if exists {
 			return true, false, nil, nil
 		}
 		r.prefetchCids[cid] = r.prefetch + PREFETCH_MAX
-		log.Debugf("Finish received for Cid %s", cid)
 	}
 	return false, false, nil, nil
 }

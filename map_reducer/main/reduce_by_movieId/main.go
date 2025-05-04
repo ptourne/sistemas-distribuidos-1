@@ -19,6 +19,13 @@ func main() {
 		log.Errorf("failed to create connector: %w", err)
 		return
 	}
+	id := os.Getenv("WORKER_ID")
+	count_str := os.Getenv("WORKER_COUNT")
+	count, err := strconv.Atoi(count_str)
+	if err != nil {
+		log.Errorf("failed to parse worker count: %w", err)
+		return
+	}
 	rk, err := strconv.Atoi(WORKER_ID)
 	if err != nil {
 		log.Errorf("error converting WORKER_ID to int: %s", err)
@@ -34,6 +41,8 @@ func main() {
 		[]string{rkString},
 		2,
 		[]string{"filter_avg_rating"},
+		id,
+		uint(count),
 	)
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)

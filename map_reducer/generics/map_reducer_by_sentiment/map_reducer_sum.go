@@ -24,6 +24,8 @@ func NewMapReducerBySentiment(
 	input string,
 	batchSize uint,
 	subscribers []string,
+	id string,
+	count uint,
 ) (*MapReducerSum, error) {
 	return map_reducer.NewMapReducer[In, *Acc, Res](
 		connector,
@@ -33,6 +35,8 @@ func NewMapReducerBySentiment(
 		&SumMapReduce{},
 		subscribers,
 		[]string{},
+		id,
+		count,
 	)
 }
 
