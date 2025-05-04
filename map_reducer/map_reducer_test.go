@@ -3,6 +3,7 @@ package map_reducer
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -80,6 +81,59 @@ const RABBITMQ_EXPOSED_PORT_BASE = uint16(4000)
 
 var baseConfig = rabbitmq.NewConfiguration("guest", "guest", "localhost", RABBITMQ_EXPOSED_PORT_BASE)
 
+func setupReducerPipeline(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, reducerCount uint) (
+	sender middleware.Sender[i],
+	receiver middleware.Receiver[r],
+	stopReducers context.CancelFunc,
+	reducerHandles []chan struct{},
+	err error,
+) {
+	senderConnector, err := rabbitmq.ConnectorCustom(init.Config)
+	assert.NoError(t, err)
+
+	senderMiddleware := rabbitmq.NewMiddleware[i](senderConnector)
+	sender, err = senderMiddleware.WriteTo("input", []string{"map_reducer"})
+	assert.NoError(t, err)
+
+	handlers := make([]chan struct{}, 0)
+	mapReducerCtx, stopMapReducer := context.WithCancel(context.Background())
+	for idx := range reducerCount {
+		reducerConnector, err := rabbitmq.ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		id := idx + 1
+		mapReducer, err := NewMapReducer(
+			reducerConnector,
+			"map_reducer",
+			"input",
+			2,
+			sumMapReducer{},
+			[]string{"output"},
+			[]string{},
+			fmt.Sprintf("%d", id),
+			id,
+		)
+		assert.NoError(t, err)
+
+		handler := make(chan struct{})
+		go func() {
+			log.Infof("Starting map reducer: %v", mapReducer)
+			err = mapReducer.Run(mapReducerCtx)
+			assert.NoErrorf(t, err, "error running map reducer: %s", err)
+			assert.EqualError(t, mapReducerCtx.Err(), context.Canceled.Error())
+			log.Infof("map reducer finished")
+			close(handler)
+		}()
+		handlers = append(handlers, handler)
+	}
+
+	receiverConnector, err := rabbitmq.ConnectorCustom(init.Config)
+	assert.NoError(t, err)
+	receiverMiddleware := rabbitmq.NewMiddleware[r](receiverConnector)
+	receiver, err = receiverMiddleware.ConsumeFrom("map_reducer", "receiver", 0, 1)
+	assert.NoError(t, err)
+	return sender, receiver, stopMapReducer, handlers, err
+}
+
 func TestMapReducer(t *testing.T) {
 	provider := rabbitmq.NewContainerProvider(baseConfig)
 
@@ -92,45 +146,8 @@ func TestMapReducer(t *testing.T) {
 		init := test1container
 		assert.NoError(t, init.Err)
 
-		senderConnector, err := rabbitmq.ConnectorCustom(init.Config)
-		assert.NoError(t, err)
-
-		senderMiddleware := rabbitmq.NewMiddleware[i](senderConnector)
-		sender, err := senderMiddleware.WriteTo("input", []string{"map_reducer"})
-		assert.NoError(t, err)
 		cid := "1"
-
-		reducerConnector, err := rabbitmq.ConnectorCustom(init.Config)
-		assert.NoError(t, err)
-		mapReducer, err := NewMapReducer[i, a, r](
-			reducerConnector,
-			"map_reducer",
-			"input",
-			2,
-			sumMapReducer{},
-			[]string{"output"},
-			[]string{},
-			"1",
-			1,
-		)
-		assert.NoError(t, err)
-
-		handler := make(chan struct{})
-		mapReducerCtx, stopMapReducer := context.WithCancel(context.Background())
-		go func() {
-			log.Infof("Starting map reducer: %v", mapReducer)
-			err = mapReducer.Run(mapReducerCtx)
-			assert.NoErrorf(t, err, "error running map reducer: %s", err)
-			assert.EqualError(t, mapReducerCtx.Err(), context.Canceled.Error())
-			log.Infof("map reducer finished")
-			close(handler)
-		}()
-
-		receiverConnector, err := rabbitmq.ConnectorCustom(init.Config)
-		assert.NoError(t, err)
-		receiverMiddleware := rabbitmq.NewMiddleware[r](receiverConnector)
-		receiver, err := receiverMiddleware.ConsumeFrom("map_reducer", "receiver", 0, 1)
-		assert.NoError(t, err)
+		sender, receiver, stopMapReducer, handlers, err := setupReducerPipeline(t, init, 1)
 
 		err = sender.Send(&num{val: 1}, cid)
 		assert.NoError(t, err)
@@ -168,6 +185,8 @@ func TestMapReducer(t *testing.T) {
 		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
 
 		stopMapReducer()
-		<-handler
+		for _, handler := range handlers {
+			<-handler
+		}
 	})
 }
