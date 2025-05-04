@@ -115,11 +115,15 @@ func TestMapReducer(t *testing.T) {
 		)
 		assert.NoError(t, err)
 
+		handler := make(chan struct{})
+		mapReducerCtx, stopMapReducer := context.WithCancel(context.Background())
 		go func() {
 			log.Infof("Starting map reducer: %v", mapReducer)
-			err = mapReducer.Run()
-			// assert.NoErrorf(t, err, "error running map reducer: %s", err)
+			err = mapReducer.Run(mapReducerCtx)
+			assert.NoErrorf(t, err, "error running map reducer: %s", err)
+			assert.EqualError(t, mapReducerCtx.Err(), context.Canceled.Error())
 			log.Infof("map reducer finished")
+			close(handler)
 		}()
 
 		receiverConnector, err := rabbitmq.ConnectorCustom(init.Config)
@@ -164,5 +168,10 @@ func TestMapReducer(t *testing.T) {
 		assert.False(t, ok)
 		assert.Equal(t, middleware.EOF, e.Type())
 		e.Ack(true)
+
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		<-handler
 	})
 }

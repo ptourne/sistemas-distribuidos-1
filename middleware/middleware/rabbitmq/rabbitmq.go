@@ -513,7 +513,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				continue
 			case <-ctxDone:
 				log.Debugf("Timeout reached while waiting for message")
-				return nil, false, fmt.Errorf("timeout reached while waiting for message")
+				return nil, false, &middleware.TimeoutErr{}
 			}
 		}
 	}

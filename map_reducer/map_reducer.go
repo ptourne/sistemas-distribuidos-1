@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
-	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
@@ -170,12 +169,18 @@ func ExponentialBackoffDuration(step uint) (nextStep uint, duration uint) {
 	return step + 1, rand.UintN((step + 1) * WATING_JITTER)
 }
 
-func (mr *MapReducer[I, A, R]) Run() error {
+func (mr *MapReducer[I, A, R]) Run(ctx context.Context) error {
+	defer mr.Input.Close()
+	defer mr.PartialResultReceiver.Close()
 	defer mr.PartialResultSender.Close()
+	if mr.FinalReduceReceiver != nil {
+		defer (*mr.FinalReduceReceiver).Close()
+	}
+	defer mr.FinalReduceSender.Close()
 	defer mr.Output.Close()
-	inputChan := mr.readInput()
-	accBatch := mr.reduceBattchess()
-	finalReduce := mr.finalReduce()
+	inputChan := mr.readInput(ctx)
+	accBatch := mr.reduceBattchess(ctx)
+	finalReduce := mr.finalReduce(ctx)
 	var err error
 	for range 3 {
 		select {
@@ -203,26 +208,27 @@ func (mr *MapReducer[I, A, R]) Run() error {
 	return err
 }
 
-func (mr *MapReducer[I, A, R]) readInput() <-chan error {
+func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 	res := make(chan error)
 	task := func() {
 		var err error
 		defer func() {
 			res <- err
+			close(res)
 		}()
 		log.Infof("input : Starting maper")
 		for {
 			var envelope middleware.Envelope[I]
 			var ok bool
-			envelope, ok, err = mr.Input.Next(nil)
+			envelope, ok, err = mr.Input.Next(ctx)
 			if err != nil {
+				if (err.Error() == middleware.TimeoutErr{}.Error()) {
+					err = nil
+					log.Infof("input : Received termination signal")
+				}
 				return
 			}
 			_ = ok
-			// if !ok {
-			// 	log.Debugf("input : No more messages available")
-			// 	return
-			// }
 			switch envelope.Type() {
 			case middleware.Normal:
 				msg := envelope.Msg()
@@ -258,7 +264,7 @@ func (mr *MapReducer[I, A, R]) readInput() <-chan error {
 	return res
 }
 
-func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
+func (mr *MapReducer[I, A, R]) reduceBattchess(ctx context.Context) <-chan error {
 	res := make(chan error)
 	task := func() {
 		log.Infof("reduc : Starting partial reducer")
@@ -272,24 +278,16 @@ func (mr *MapReducer[I, A, R]) reduceBattchess() <-chan error {
 		}()
 
 		for {
-			<-time.NewTimer(time.Millisecond * time.Duration(mr.backoff)).C
-			ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(INITIAL_TIMEOUT_DURATION))
 			e, ok, err := mr.PartialResultReceiver.Next(ctx)
-			cancel()
 			if err != nil {
-				if err.Error() == "timeout reached while waiting for message" {
-					mr.backoffIncrease()
-					continue
+				if (err.Error() == middleware.TimeoutErr{}.Error()) {
+					err = nil
+					log.Infof("reduc : Received termination signal")
 				}
-				log.Errorf("reduc : %s | Next failed: %s", e.Cid(), err)
 				return
 			}
 			// TODO: should we remote ok from next?
 			_ = ok
-			// if !ok {
-			// 	log.Fatalf("reduc : Channel closed?")
-			// 	panic("Channel closed?")
-			// }
 			mr.resetBackoff()
 			switch e.Type() {
 			case middleware.Normal:
@@ -412,7 +410,7 @@ func (mr *MapReducer[I, A, R]) Prune(cid string) error {
 	return nil
 }
 
-func (mr *MapReducer[I, A, R]) finalReduce() chan error {
+func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 	res := make(chan error)
 	task := func() {
 		var err error
@@ -432,12 +430,12 @@ func (mr *MapReducer[I, A, R]) finalReduce() chan error {
 		for {
 			// <-time.NewTimer(time.Millisecond * time.Duration(mr.backoffFinal)).C
 			// ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(INITIAL_TIMEOUT_DURATION))
-			e, ok, err := FinalReduceReceiver.Next(nil)
+			e, ok, err := FinalReduceReceiver.Next(ctx)
 			// cancel()
 			if err != nil {
-				if err.Error() == "timeout reached while waiting for message" {
-					// mr.backoffIncreaseFinal()
-					continue
+				if (err.Error() == middleware.TimeoutErr{}.Error()) {
+					err = nil
+					log.Infof("Final : Received termination signal")
 				}
 				return
 			}

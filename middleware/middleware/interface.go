@@ -21,6 +21,12 @@ type Receiver[T codec.Serializable[T]] interface {
 	Close() error
 }
 
+type TimeoutErr struct{}
+
+func (e TimeoutErr) Error() string {
+	return "timeout reached while waiting for message"
+}
+
 type Envelope[T codec.Serializable[T]] interface {
 	Msg() T
 	Ack(multiple bool) error
