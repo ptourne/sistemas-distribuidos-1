@@ -411,6 +411,10 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 	if r.input.amqpCh == nil {
 		return nil, false, fmt.Errorf("read channel is not initialized")
 	}
+	var ctxDone <-chan struct{}
+	if ctx != nil {
+		ctxDone = ctx.Done()
+	}
 
 	var timeoutPrefetchCid <-chan time.Time = time.After(1 * time.Second)
 	for {
@@ -508,7 +512,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				}
 				timeoutPrefetchCid = nil
 				continue
-			case <-ctx.Done():
+			case <-ctxDone:
 				log.Debugf("Timeout reached while waiting for message")
 				return nil, false, fmt.Errorf("timeout reached while waiting for message")
 			}
