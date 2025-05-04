@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
@@ -52,6 +54,8 @@ type a = *sum
 type r = *num
 
 type sumMapReducer struct{}
+
+var log *logger.ConsoleLogger = logger.NewConsoleLogger("test", logger.Debug)
 
 func (s sumMapReducer) Map(in i) []a {
 	log.Debugf("Mapping input %d", in.val)
@@ -110,7 +114,7 @@ func setupReducerPipeline(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, redu
 			[]string{"output"},
 			[]string{},
 			fmt.Sprintf("%d", id),
-			id,
+			reducerCount,
 		)
 		assert.NoError(t, err)
 
@@ -118,8 +122,7 @@ func setupReducerPipeline(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, redu
 		go func() {
 			log.Infof("Starting map reducer: %v", mapReducer)
 			err = mapReducer.Run(mapReducerCtx)
-			assert.NoErrorf(t, err, "error running map reducer: %s", err)
-			assert.EqualError(t, mapReducerCtx.Err(), context.Canceled.Error())
+			assert.NoErrorf(t, err, "error running map reducer %d: %s", id, err)
 			log.Infof("map reducer finished")
 			close(handler)
 		}()
@@ -138,11 +141,23 @@ func TestMapReducer(t *testing.T) {
 	provider := rabbitmq.NewContainerProvider(baseConfig)
 
 	test1 := provider.AsyncDeployRabbit()
+	test2 := provider.AsyncDeployRabbit()
+	test3 := provider.AsyncDeployRabbit()
+	test4 := provider.AsyncDeployRabbit()
+	test5 := provider.AsyncDeployRabbit()
 
 	test1container := <-test1
 	defer test1container.Container.Teardown()
+	test2container := <-test2
+	defer test2container.Container.Teardown()
+	test3container := <-test3
+	defer test3container.Container.Teardown()
+	test4container := <-test4
+	defer test4container.Container.Teardown()
+	test5container := <-test5
+	defer test5container.Container.Teardown()
 
-	t.Run("OneReducerOneMsg", func(t *testing.T) {
+	t.Run("1Reducer1Cid1Msg", func(t *testing.T) {
 		init := test1container
 		assert.NoError(t, init.Err)
 
@@ -181,6 +196,254 @@ func TestMapReducer(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, middleware.EOF, e.Type())
 		e.Ack(true)
+
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
+		}
+	})
+
+	t.Run("1Reducer1Cid10Msg", func(t *testing.T) {
+		init := test2container
+		assert.NoError(t, init.Err)
+
+		cid := "1"
+		sender, receiver, stopMapReducer, handlers, err := setupReducerPipeline(t, init, 1)
+
+		expected := uint64(0)
+		for i := range uint64(10) {
+			err = sender.Send(&num{val: i}, cid)
+			assert.NoError(t, err)
+			expected += i
+		}
+
+		ctx, cancel := newTimer()
+		_, err = receiver.Next(ctx)
+		cancel()
+		assert.Error(t, err)
+
+		err = sender.SendEOF(cid)
+		assert.NoError(t, err)
+
+		ctx, cancel = newTimer()
+		e, err := receiver.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Normal, e.Type())
+		assert.Equal(t, expected, e.Msg().val)
+		e.Ack(true)
+
+		ctx, cancel = newTimer()
+		e, err = receiver.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Prune, e.Type())
+		e.Ack(true)
+
+		ctx, cancel = newTimer()
+		e, err = receiver.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(true)
+
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
+		}
+	})
+
+	t.Run("2Reducer1Cid10Msg", func(t *testing.T) {
+		init := test3container
+		assert.NoError(t, init.Err)
+
+		cid := "1"
+		sender, receiver, stopMapReducer, handlers, err := setupReducerPipeline(t, init, 2)
+
+		expected := uint64(0)
+		for i := range uint64(10) {
+			err = sender.Send(&num{val: i}, cid)
+			assert.NoError(t, err)
+			expected += i
+		}
+
+		ctx, cancel := newTimer()
+		_, err = receiver.Next(ctx)
+		cancel()
+		assert.Error(t, err)
+
+		err = sender.SendEOF(cid)
+		assert.NoError(t, err)
+
+		ctx, cancel = newTimer()
+		e, err := receiver.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Normal, e.Type())
+		assert.Equal(t, expected, e.Msg().val)
+		e.Ack(true)
+
+		ctx, cancel = newTimer()
+		e, err = receiver.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Prune, e.Type())
+		e.Ack(true)
+
+		ctx, cancel = newTimer()
+		e, err = receiver.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(true)
+
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
+		}
+	})
+
+	t.Run("2Reducer2Cid10MsgEach", func(t *testing.T) {
+		init := test4container
+		assert.NoError(t, init.Err)
+
+		cid1 := "1"
+		cid2 := "2"
+		sender, receiver, stopMapReducer, handlers, err := setupReducerPipeline(t, init, 2)
+
+		expected1 := uint64(0)
+		expected2 := uint64(0)
+		counter1 := uint64(0)
+		counter2 := uint64(0)
+		for {
+			if counter1 < 10 {
+				err = sender.Send(&num{val: counter1}, cid1)
+				assert.NoError(t, err)
+				expected1 += counter1
+				counter1++
+			}
+			if counter1 > 5 && counter2 < 10 {
+				err = sender.Send(&num{val: counter2}, cid2)
+				assert.NoError(t, err)
+				expected2 += counter2
+				counter2++
+			}
+			if counter1 == 10 && counter2 == 10 {
+				break
+			}
+		}
+
+		ctx, cancel := newTimer()
+		_, err = receiver.Next(ctx)
+		cancel()
+		assert.Error(t, err)
+
+		err = sender.SendEOF(cid1)
+		assert.NoError(t, err)
+		err = sender.SendEOF(cid2)
+		assert.NoError(t, err)
+
+		steps := map[string]uint{
+			cid1: 0,
+			cid2: 0,
+		}
+		for range 6 {
+			ctx, cancel = newTimer()
+			e, err := receiver.Next(ctx)
+			cancel()
+			assert.NoError(t, err)
+			switch steps[e.Cid()] {
+			case 0:
+				assert.Equal(t, middleware.Normal, e.Type())
+				expected := expected1
+				if e.Cid() == cid2 {
+					expected = expected2
+				}
+				assert.Equal(t, expected, e.Msg().val)
+			case 1:
+				assert.Equal(t, middleware.Prune, e.Type())
+			case 2:
+				assert.NoError(t, err)
+				assert.Equal(t, middleware.EOF, e.Type())
+			default:
+				t.Fatal("Got three msgs from same Cid")
+			}
+			e.Ack(true)
+			steps[e.Cid()]++
+		}
+
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
+		}
+	})
+
+	t.Run("10Reducer10Cid10000MsgEach", func(t *testing.T) {
+		init := test5container
+		assert.NoError(t, init.Err)
+
+		cids := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
+		sender, receiver, stopMapReducer, handlers, err := setupReducerPipeline(t, init, 10)
+		expecteds := []uint64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+		counters := []uint64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+		startingPoints := []uint64{0, 10, 20, 30, 40, 50, 60, 70, 80, 90}
+		i := uint64(0)
+		finished := 0
+		for {
+			if finished == 10 {
+				break
+			}
+			for j := range 10 {
+				if i > startingPoints[j] && counters[j] < 10 {
+					err = sender.Send(&num{val: i}, cids[j])
+					assert.NoError(t, err)
+					expecteds[j] += i
+				} else if counters[j] == 10 {
+					err = sender.SendEOF(cids[j])
+					assert.NoError(t, err)
+					finished++
+				}
+				if counters[j] == 11 {
+					continue
+				}
+				counters[j]++
+			}
+			i++
+		}
+
+		steps := map[string]uint{
+			"1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "9": 0, "10": 0,
+		}
+		for range 30 {
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+			e, err := receiver.Next(ctx)
+			cancel()
+			assert.NoError(t, err)
+			cidInt, err := strconv.Atoi(e.Cid())
+			assert.NoError(t, err)
+			log.Debugf("Received message from cid %d, type %s", cidInt, e.Type())
+			switch steps[e.Cid()] {
+			case 0:
+				assert.Equal(t, middleware.Normal, e.Type())
+				assert.Equal(t, expecteds[cidInt], e.Msg().val)
+			case 1:
+				assert.Equal(t, middleware.Prune, e.Type())
+			case 2:
+				assert.Equal(t, middleware.EOF, e.Type())
+			default:
+				t.Fatal("Got three msgs from same Cid")
+			}
+			e.Ack(true)
+			steps[e.Cid()]++
+		}
 
 		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
 

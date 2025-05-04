@@ -473,6 +473,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 						msg:               newEOFEnvelope[T](cid),
 					}
 					log.Debugf("eofCid received on channel for Cid %s", cid)
+					log.Debugf("added finishCid[%s] = %+v", cid, r.finishCids[cid])
 					// r.pendingPrune = append(r.pendingPrune, newPruneEnvelope[T](cid, func() error {
 					// 	return r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, cid)
 					// }))
@@ -495,21 +496,14 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 
 			case <-timeoutPrefetchCid:
 				log.Debugf("Timeout prefetch cid")
+				log.Debugf("r.prefetchCids: %v", r.prefetchCids)
 				for CidMsg := range r.prefetchCids {
 					log.Debugf("return prune callback envelope for %s", CidMsg)
 					r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](CidMsg, r.closeSender))
-					// r.pendingPrune = append(r.pendingPrune, newPruneEnvelope[T](CidMsg, func() error {
-					// 	log.Debugf("Finish done sent for Cid %s", CidMsg)
-					// 	err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, CidMsg)
-					// 	if err != nil {
-					// 		return fmt.Errorf("failed to ack message in close notification: %v", err)
-					// 	}
-					// 	return nil
-					// }))
-					//
 					delete(r.prefetchCids, CidMsg)
 				}
-				timeoutPrefetchCid = nil
+				timeoutPrefetchCid = time.After(1 * time.Second) // TODO por qué no funciona con nil?
+				// timeoutPrefetchCid = nil
 				continue
 			case <-ctxDone:
 				log.Debugf("Timeout reached while waiting for message")
@@ -541,12 +535,14 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 		log.Debugf("Finish done received for Cid %s", cid)
 		finishCid, exists := r.finishCids[cid]
 		if !exists {
+			log.Infof("Finish done received for non-existent Cid %s", cid)
 			return true, false, nil, nil
 		} else {
+			log.Debugf("Finish done pending for Cid before %s: %d", cid, r.finishCids[cid].finishDonePending)
 			finishCid.finishDonePending--
 			r.finishCids[cid] = finishCid
-			log.Debugf("Finish done pending for Cid %s: %d", cid, finishCid.finishDonePending)
-			if finishCid.finishDonePending == 0 {
+			log.Debugf("Finish done pending for Cid %s: %d", cid, r.finishCids[cid].finishDonePending)
+			if r.finishCids[cid].finishDonePending == 0 {
 				log.Debugf("Finishes done received for Cid %s", cid)
 				delete(r.finishCids, cid)
 				return false, true, finishCid.msg, nil
@@ -559,6 +555,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 			return true, false, nil, nil
 		}
 		r.prefetchCids[cid] = r.prefetch + PREFETCH_MAX
+		log.Debugf("r.prefetchCids[%s] = %d", cid, r.prefetchCids[cid])
 	}
 	return false, false, nil, nil
 }

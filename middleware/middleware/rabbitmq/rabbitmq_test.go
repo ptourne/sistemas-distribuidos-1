@@ -46,6 +46,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	test3 := provider.AsyncDeployRabbit()
 	test4 := provider.AsyncDeployRabbit()
 	test5 := provider.AsyncDeployRabbit()
+	test6 := provider.AsyncDeployRabbit()
 	test1container := <-test1
 	defer test1container.Container.Teardown()
 	test2container := <-test2
