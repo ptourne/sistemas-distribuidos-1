@@ -219,8 +219,7 @@ func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 		log.Infof("input : Starting maper")
 		for {
 			var envelope middleware.Envelope[I]
-			var ok bool
-			envelope, ok, err = mr.Input.Next(ctx)
+			envelope, err = mr.Input.Next(ctx)
 			if err != nil {
 				if (err.Error() == middleware.TimeoutErr{}.Error()) {
 					err = nil
@@ -228,7 +227,6 @@ func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 				}
 				return
 			}
-			_ = ok
 			switch envelope.Type() {
 			case middleware.Normal:
 				msg := envelope.Msg()
@@ -278,7 +276,8 @@ func (mr *MapReducer[I, A, R]) reduceBattchess(ctx context.Context) <-chan error
 		}()
 
 		for {
-			e, ok, err := mr.PartialResultReceiver.Next(ctx)
+			var e middleware.Envelope[A]
+			e, err = mr.PartialResultReceiver.Next(ctx)
 			if err != nil {
 				if (err.Error() == middleware.TimeoutErr{}.Error()) {
 					err = nil
@@ -286,8 +285,6 @@ func (mr *MapReducer[I, A, R]) reduceBattchess(ctx context.Context) <-chan error
 				}
 				return
 			}
-			// TODO: should we remote ok from next?
-			_ = ok
 			mr.resetBackoff()
 			switch e.Type() {
 			case middleware.Normal:
@@ -430,7 +427,7 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 		for {
 			// <-time.NewTimer(time.Millisecond * time.Duration(mr.backoffFinal)).C
 			// ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*time.Duration(INITIAL_TIMEOUT_DURATION))
-			e, ok, err := FinalReduceReceiver.Next(ctx)
+			e, err := FinalReduceReceiver.Next(ctx)
 			// cancel()
 			if err != nil {
 				if (err.Error() == middleware.TimeoutErr{}.Error()) {
@@ -439,12 +436,6 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 				}
 				return
 			}
-			_ = ok
-			// if !ok {
-			// 	log.Fatalf("Final : Channel closed?")
-			// 	panic("Channel closed?")
-			// }
-			// mr.resetBackoffFinal()
 			switch e.Type() {
 			case middleware.Normal:
 				log.Infof("Final : %s | Saving final reduce batch", e.Cid())

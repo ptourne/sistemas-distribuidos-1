@@ -17,7 +17,7 @@ type Connection[T codec.Serializable[T]] interface {
 }
 
 type Receiver[T codec.Serializable[T]] interface {
-	Next(ctx context.Context) (Envelope[T], bool, error)
+	Next(ctx context.Context) (Envelope[T], error)
 	Close() error
 }
 

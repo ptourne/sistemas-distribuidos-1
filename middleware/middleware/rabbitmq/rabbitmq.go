@@ -407,9 +407,9 @@ func (s *SenderChannel[T]) SendEOFRK(ctx context.Context, routingKey string, cid
 // - error: An error if occurred during processing, nil otherwise.
 //
 // If timer triggers, the function returns an error: "timeout reached while waiting for message"
-func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T], bool, error) {
+func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T], error) {
 	if r.input.amqpCh == nil {
-		return nil, false, fmt.Errorf("read channel is not initialized")
+		return nil, fmt.Errorf("read channel is not initialized")
 	}
 	var ctxDone <-chan struct{}
 	if ctx != nil {
@@ -422,7 +422,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 			pendingPrune := r.pendingPrune[0]
 			log.Debugf("returning from pendingPrune: %+v", pendingPrune)
 			r.pendingPrune = r.pendingPrune[1:]
-			return pendingPrune, false, nil
+			return pendingPrune, nil
 		}
 
 		select {
@@ -433,7 +433,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 			}
 			if shouldReturn {
 				log.Debugf("return %v envelope", e.Type())
-				return e, false, err
+				return e, err
 			}
 		default:
 			select {
@@ -443,16 +443,16 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					continue
 				}
 				if shouldReturn {
-					return e, false, err
+					return e, err
 				}
 			case msg, ok := <-*r.input.C:
 				log.Debugf("Received message: %v, from input '%s'", msg.Body, r.input.exchangeName)
 				if !ok {
-					return nil, false, fmt.Errorf("read channel was closed")
+					return nil, fmt.Errorf("read channel was closed")
 				}
 				t, cid, msgbody, tag, err := unpackMsg[T](msg)
 				if err != nil {
-					return nil, false, fmt.Errorf("failed to process close notification: %v", err)
+					return nil, fmt.Errorf("failed to process close notification: %v", err)
 				}
 
 				for prefetchCid := range r.prefetchCids {
@@ -478,7 +478,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					// }))
 					err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCid}, cid)
 					if err != nil {
-						return nil, false, fmt.Errorf("failed to ack message in close notification: %v", err)
+						return nil, fmt.Errorf("failed to ack message in close notification: %v", err)
 					}
 					r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
 
@@ -491,7 +491,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					continue
 				}
 				log.Debugf("return normal envelope")
-				return newNormalEnvelope(cid, msgbody, tag), true, nil
+				return newNormalEnvelope(cid, msgbody, tag), nil
 
 			case <-timeoutPrefetchCid:
 				log.Debugf("Timeout prefetch cid")
@@ -513,7 +513,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				continue
 			case <-ctxDone:
 				log.Debugf("Timeout reached while waiting for message")
-				return nil, false, &middleware.TimeoutErr{}
+				return nil, &middleware.TimeoutErr{}
 			}
 		}
 	}

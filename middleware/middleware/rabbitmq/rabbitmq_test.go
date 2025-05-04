@@ -75,7 +75,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 
 		timer, cancel := newTimer()
-		received, _, err := receiver.Next(timer)
+		received, err := receiver.Next(timer)
 		cancel()
 		if !assert.Error(t, err) {
 			fmt.Println("Received message:", received.Msg())
@@ -87,37 +87,33 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 
 		timer, cancel = newTimer()
-		received, ok, err := receiver.Next(timer)
+		received, err = receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
-		assert.True(t, ok)
 		assert.Equal(t, sentMsg, received.Msg())
 		assert.NoError(t, received.Ack(true))
 
 		timer, cancel = newTimer()
-		_, ok, err = receiver.Next(timer)
+		_, err = receiver.Next(timer)
 		cancel()
 		assert.Error(t, err)
-		assert.False(t, ok)
 
 		err = sender.SendEOF(cid)
 		assert.NoError(t, err)
 
 		timer, cancel = newTimer()
-		received, ok, err = receiver.Next(timer)
+		received, err = receiver.Next(timer)
 		cancel()
 		log.Debugf("received message in close notification: %+v", received)
 		assert.NoError(t, err)
-		assert.False(t, ok)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.Prune, received.Type())
 		assert.NoError(t, received.Ack(true))
 
 		timer, cancel = newTimer()
-		received, ok, err = receiver.Next(timer)
+		received, err = receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
-		assert.False(t, ok)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.EOF, received.Type())
 		assert.NoError(t, received.Ack(true))
@@ -141,7 +137,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 
 		timer, cancel := newTimer()
-		received, _, err := receiver.Next(timer)
+		received, err := receiver.Next(timer)
 		if !assert.Error(t, err) {
 			fmt.Println("Received message:", received.Msg())
 			return
@@ -153,10 +149,9 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 
 		timer, cancel = newTimer()
-		received, ok, err := receiver.Next(timer)
+		received, err = receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
-		assert.True(t, ok)
 		assert.Equal(t, sentMsg1, received.Msg())
 		assert.NoError(t, received.Ack(true))
 
@@ -165,10 +160,9 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 
 		timer, cancel = newTimer()
-		received, ok, err = receiver.Next(timer)
+		received, err = receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
-		assert.True(t, ok)
 		assert.Equal(t, sentMsg2, received.Msg())
 		assert.NoError(t, received.Ack(true))
 
@@ -176,19 +170,17 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 
 		timer, cancel = newTimer()
-		received, ok, err = receiver.Next(timer)
+		received, err = receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
-		assert.False(t, ok)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.Prune, received.Type())
 		assert.NoError(t, received.Ack(true))
 
 		timer, cancel = newTimer()
-		received, ok, err = receiver.Next(timer)
+		received, err = receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
-		assert.False(t, ok)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.EOF, received.Type())
 		assert.NoError(t, received.Ack(true))
@@ -219,27 +211,24 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 
 		timer, cancel := newTimer()
-		received, ok, err := receiver.Next(timer)
+		received, err := receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
-		assert.True(t, ok)
 		assert.Equal(t, sentMsg, received.Msg())
 		assert.NoError(t, received.Ack(true))
 
 		timer, cancel = newTimer()
-		received, ok, err = receiver.Next(timer)
+		received, err = receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
-		assert.False(t, ok)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.Prune, received.Type())
 		assert.NoError(t, received.Ack(true))
 
 		timer, cancel = newTimer()
-		received, ok, err = receiver.Next(timer)
+		received, err = receiver.Next(timer)
 		cancel()
 		assert.NoError(t, err)
-		assert.False(t, ok)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.EOF, received.Type())
 		assert.NoError(t, received.Ack(true))
@@ -275,29 +264,27 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		handle1 := make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver1.Next(ctx)
+			received, err := receiver1.Next(ctx)
 			cancel()
-			handle1 <- NextAsyncRes{received, ok, err}
+			handle1 <- NextAsyncRes{received, err}
 		}()
 		handle2 := make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver2.Next(ctx)
+			received, err := receiver2.Next(ctx)
 			cancel()
-			handle2 <- NextAsyncRes{received, ok, err}
+			handle2 <- NextAsyncRes{received, err}
 		}()
 
 		select {
 		case res := <-handle1:
 			assert.NoError(t, res.err)
-			assert.True(t, res.ok)
 			assert.Equal(t, sentMsg1, res.received.Msg())
 			assert.NoError(t, res.received.Ack(true))
 			resOther := <-handle2
 			assert.Error(t, resOther.err)
 		case res := <-handle2:
 			assert.NoError(t, res.err)
-			assert.True(t, res.ok)
 			assert.Equal(t, sentMsg1, res.received.Msg())
 			assert.NoError(t, res.received.Ack(true))
 			resOther := <-handle1
@@ -311,29 +298,27 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		handle1 = make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver1.Next(ctx)
+			received, err := receiver1.Next(ctx)
 			cancel()
-			handle1 <- NextAsyncRes{received, ok, err}
+			handle1 <- NextAsyncRes{received, err}
 		}()
 		handle2 = make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver2.Next(ctx)
+			received, err := receiver2.Next(ctx)
 			cancel()
-			handle2 <- NextAsyncRes{received, ok, err}
+			handle2 <- NextAsyncRes{received, err}
 		}()
 
 		select {
 		case res := <-handle1:
 			assert.NoError(t, res.err)
-			assert.True(t, res.ok)
 			assert.Equal(t, sentMsg2, res.received.Msg())
 			assert.NoError(t, res.received.Ack(true))
 			resOther := <-handle2
 			assert.Error(t, resOther.err)
 		case res := <-handle2:
 			assert.NoError(t, res.err)
-			assert.True(t, res.ok)
 			assert.Equal(t, sentMsg2, res.received.Msg())
 			assert.NoError(t, res.received.Ack(true))
 			resOther := <-handle1
@@ -346,27 +331,25 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		handle1 = make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver1.Next(ctx)
+			received, err := receiver1.Next(ctx)
 			cancel()
-			handle1 <- NextAsyncRes{received, ok, err}
+			handle1 <- NextAsyncRes{received, err}
 		}()
 		handle2 = make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver2.Next(ctx)
+			received, err := receiver2.Next(ctx)
 			cancel()
-			handle2 <- NextAsyncRes{received, ok, err}
+			handle2 <- NextAsyncRes{received, err}
 		}()
 
 		res1 := <-handle1
 		res2 := <-handle2
 
-		assert.False(t, res1.ok)
 		assert.Equal(t, cid, res1.received.Cid())
 		assert.Equal(t, middleware.Prune, res1.received.Type())
 		assert.NoError(t, res1.received.Ack(true))
 
-		assert.False(t, res2.ok)
 		assert.Equal(t, cid, res2.received.Cid())
 		assert.Equal(t, middleware.Prune, res2.received.Type())
 		assert.NoError(t, res2.received.Ack(true))
@@ -374,29 +357,27 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		handle1 = make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver1.Next(ctx)
+			received, err := receiver1.Next(ctx)
 			cancel()
-			handle1 <- NextAsyncRes{received, ok, err}
+			handle1 <- NextAsyncRes{received, err}
 		}()
 		handle2 = make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver2.Next(ctx)
+			received, err := receiver2.Next(ctx)
 			cancel()
-			handle2 <- NextAsyncRes{received, ok, err}
+			handle2 <- NextAsyncRes{received, err}
 		}()
 
 		res1 = <-handle1
 		res2 = <-handle2
 
 		if res1.err == nil {
-			assert.False(t, res1.ok)
 			assert.Equal(t, cid, res1.received.Cid())
 			assert.Equal(t, middleware.EOF, res1.received.Type())
 			assert.NoError(t, res1.received.Ack(true))
 			assert.Error(t, res2.err)
 		} else if assert.NoError(t, res2.err) {
-			assert.False(t, res2.ok)
 			assert.Equal(t, cid, res2.received.Cid())
 			assert.Equal(t, middleware.EOF, res2.received.Type())
 			assert.NoError(t, res2.received.Ack(true))
@@ -434,29 +415,27 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		handle1 := make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver1.Next(ctx)
+			received, err := receiver1.Next(ctx)
 			cancel()
-			handle1 <- NextAsyncRes{received, ok, err}
+			handle1 <- NextAsyncRes{received, err}
 		}()
 		handle2 := make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver2.Next(ctx)
+			received, err := receiver2.Next(ctx)
 			cancel()
-			handle2 <- NextAsyncRes{received, ok, err}
+			handle2 <- NextAsyncRes{received, err}
 		}()
 
 		select {
 		case res := <-handle1:
 			assert.NoError(t, res.err)
-			assert.True(t, res.ok)
 			assert.Equal(t, sentMsg1, res.received.Msg())
 			assert.NoError(t, res.received.Ack(true))
 			resOther := <-handle2
 			assert.Error(t, resOther.err)
 		case res := <-handle2:
 			assert.NoError(t, res.err)
-			assert.True(t, res.ok)
 			assert.Equal(t, sentMsg1, res.received.Msg())
 			assert.NoError(t, res.received.Ack(true))
 			resOther := <-handle1
@@ -470,30 +449,28 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		handle1 = make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver1.Next(ctx)
+			received, err := receiver1.Next(ctx)
 			cancel()
-			handle1 <- NextAsyncRes{received, ok, err}
+			handle1 <- NextAsyncRes{received, err}
 		}()
 
 		handle2 = make(chan NextAsyncRes)
 		go func() {
 			ctx, cancel := newTimer()
-			received, ok, err := receiver2.Next(ctx)
+			received, err := receiver2.Next(ctx)
 			cancel()
-			handle2 <- NextAsyncRes{received, ok, err}
+			handle2 <- NextAsyncRes{received, err}
 		}()
 
 		select {
 		case res := <-handle1:
 			assert.NoError(t, res.err)
-			assert.True(t, res.ok)
 			assert.Equal(t, sentMsg2, res.received.Msg())
 			assert.NoError(t, res.received.Ack(true))
 			resOther := <-handle2
 			assert.Error(t, resOther.err)
 		case res := <-handle2:
 			assert.NoError(t, res.err)
-			assert.True(t, res.ok)
 			assert.Equal(t, sentMsg2, res.received.Msg())
 			assert.NoError(t, res.received.Ack(true))
 			resOther := <-handle1
@@ -514,12 +491,12 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		ctx1, cancel1 := context.WithCancel(context.Background())
 		go func() {
 			for {
-				received, ok, err := receiver1.Next(ctx1)
+				received, err := receiver1.Next(ctx1)
 				if exit {
 					break
 				}
-				handle1 <- NextAsyncRes{received, ok, err}
-				if ok {
+				handle1 <- NextAsyncRes{received, err}
+				if received.Type() == middleware.Normal {
 					time.Sleep(100 * time.Millisecond)
 				}
 			}
@@ -529,12 +506,12 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		ctx2, cancel2 := context.WithCancel(context.Background())
 		go func() {
 			for {
-				received, ok, err := receiver2.Next(ctx2)
+				received, err := receiver2.Next(ctx2)
 				if exit {
 					break
 				}
-				handle2 <- NextAsyncRes{received, ok, err}
-				if ok {
+				handle2 <- NextAsyncRes{received, err}
+				if received.Type() == middleware.Normal {
 					time.Sleep(100 * time.Millisecond)
 				}
 			}
@@ -602,6 +579,5 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 type NextAsyncRes struct {
 	received middleware.Envelope[*Ball]
-	ok       bool
 	err      error
 }
