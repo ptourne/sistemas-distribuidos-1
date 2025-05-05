@@ -61,7 +61,7 @@ func main() {
 	}()
 
 	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap)
+	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1)
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -70,7 +70,7 @@ func main() {
 	}
 }
 
-func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid) {
+func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row]) {
 	for {
 		envelope, ok, err := queue.Next(ctx)
 		if err != nil {
@@ -95,7 +95,8 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 			log.Infof("cid %s finished receiving", cid)
 			delete(inputsChannelMap, envelope.Cid())
 		}
-		channelsCid.q1 <- envelope
+		queue := getFuc(channelsCid)
+		queue <- envelope
 	}
 }
 
@@ -384,6 +385,25 @@ func NewChannelsCid() *ChannelsCid {
 		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
 		q5: make(chan middleware.Envelope[*model.Row], 0),
 	}
+}
+
+func GetInput(c *ChannelsCid) chan middleware.Envelope[*common.PackageFile] {
+	return c.input
+}
+func GetQ1(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
+	return c.q1
+}
+func GetQ2(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
+	return c.q2
+}
+func GetQ3(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
+	return c.q3
+}
+func GetQ4(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
+	return c.q4
+}
+func GetQ5(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
+	return c.q5
 }
 
 func (c *ChannelsCid) Close() {
