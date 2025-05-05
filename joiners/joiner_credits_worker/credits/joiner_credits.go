@@ -97,11 +97,14 @@ func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string) e
 		//log.Errorf("Failed to process movie: %v", err)
 		return err
 	}
-	if output == nil {
+	if len(output) == 0 {
 		return nil
 	}
 	for _, r := range output {
-		Log.Debugf("Sending actor for client %s", cid)
+		if r == nil {
+			continue
+		}
+		Log.Infof("Sending actor %+v", r)
 		err = f.taskSender.Send(r, cid)
 		if err != nil {
 			Log.Errorf("Failed to send actor data: %v", err)

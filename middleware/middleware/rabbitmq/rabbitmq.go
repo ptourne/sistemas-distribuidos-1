@@ -453,6 +453,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				if !ok {
 					return nil, fmt.Errorf("read channel was closed")
 				}
+				//r.Log.Infof("Received message %+v", msg)
 				t, cid, msgbody, tag, err := unpackMsg[T](msg)
 				if err != nil {
 					return nil, fmt.Errorf("failed to process close notification: %v", err)

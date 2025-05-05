@@ -417,12 +417,12 @@ done
 # for i in $(seq 1 $number_of_reduce_by_sentiment); do
 #     compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
 # done
-# for i in $(seq 1 $number_of_reduce_by_actor); do
-#     compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
-# done
-# for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
-#     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
-# done
+for i in $(seq 1 $number_of_reduce_by_actor); do
+    compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
+done
+for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
+    compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
+done
 # NUMBER_OF_REDUCE_BY_MOVIEID=10
 # for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
 #     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name

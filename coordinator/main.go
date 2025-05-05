@@ -306,8 +306,7 @@ func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQCon
 	config.Q1Output = "filter_release_date_l_2010_and_include_es"
 	config.Q2Output = "reduce_top_5_by_budget"
 	config.Q3Output = "reduce_top_bottom_avg_rating"
-	//config.Q4Output = "reduce_top_10_by_actor"
-	config.Q4Output = "joiner_credits"
+	config.Q4Output = "reduce_top_10_by_actor"
 	config.Q5Output = "filter_avg_rate"
 	config.AllQuerysToEndpointName = "all_querys_to_endpoint"
 	config.CoordinatorsCant = 1
@@ -513,55 +512,22 @@ func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 }
 
 func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row]) {
-	// expectedOutputQ4 := []*model.Row{
-	// 	{Numerics: map[string]uint64{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
-	// 	{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
-	// 	{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Inés Efron"}},
-	// 	{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Leonardo Sbaraglia"}},
-	// 	{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Valeria Bertuccelli"}},
-	// 	{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Arturo Goetz"}},
-	// 	{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Diego Peretti"}},
-	// 	{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Pablo Echarri"}},
-	// 	{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
-	// 	{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
-	// }
-	cantExpected := 1515
-	cantRecv := 0
-	log.Infof("Verifying %s", "Q4")
-OuterLoop:
-	for {
-		envelope := <-qReceiver
-		//log.Infof("Received message type: %v", envelope.Type())
-		if envelope.Cid() != cid {
-			log.Errorf("Received message from wrong cid: %s", envelope.Cid())
-			continue
-		}
-		switch envelope.Type() {
-		case middleware.EOF:
-			log.Infof("No more actors, finish arrived")
-			err := envelope.Ack(false)
-			unwrap(err, "Failed to ack message", log)
-			break OuterLoop
-		case middleware.Prune:
-			log.Infof("Received prune message")
-			err := envelope.Ack(true)
-			unwrap(err, "Failed to ack message", log)
-			continue
-		}
-		receivedActor := envelope.Msg()
-		log.Infof("Received actor debug: %v", receivedActor)
-		cantRecv++
-		err := envelope.Ack(false)
-		unwrap(err, "Failed to ack message", log)
+	expectedOutputQ4 := []*model.Row{
+		{Numerics: map[string]uint64{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
+		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
+		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Inés Efron"}},
+		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Leonardo Sbaraglia"}},
+		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Valeria Bertuccelli"}},
+		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Arturo Goetz"}},
+		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Diego Peretti"}},
+		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Pablo Echarri"}},
+		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
+		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
 	}
-	if cantExpected != cantRecv {
-		log.Errorf("Not all expected rows received. Got %v, expected %v", cantRecv, cantExpected)
-	} else {
-
-		log.Infof("All actors rows received")
-	}
-	//verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q4", expectedOutputQ4, removeQ4, false)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Q4", expectedOutputQ4, removeQ4, false)
 }
+
+// reducing batch: failed to process close notification: failed to decode item: failed to decode map length: failed to read data: EOF
 
 func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
 	expectedOutputQ5 := []*model.Row{
@@ -598,14 +564,14 @@ OuterLoop:
 			unwrap(err, "Failed to ack message", log)
 			continue
 		}
-		receivedCountry := envelope.Msg()
-		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedCountry), cid)
+		receivedRow := envelope.Msg()
+		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedRow), cid)
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)
 			continue
 		}
-		log.Debugf("Received country debug: %v", receivedCountry)
-		expectedOutput = remove(expectedOutput, receivedCountry, log)
+		log.Debugf("Received row debug: %v", receivedRow)
+		expectedOutput = remove(expectedOutput, receivedRow, log)
 		err = envelope.Ack(false)
 		unwrap(err, "Failed to ack message", log)
 	}
