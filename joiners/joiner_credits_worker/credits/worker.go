@@ -1,4 +1,4 @@
-package main
+package credits
 
 import (
 	"fmt"
@@ -7,10 +7,8 @@ import (
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
-	"github.com/ptourne/sistemas-distribuidos-1/joiners/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
-	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
@@ -21,7 +19,7 @@ type Worker struct {
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
+var Log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
 
 type TType int
 
@@ -30,22 +28,17 @@ const (
 	Row
 )
 
-func (w *Worker) Run() {
-	connector, err := rabbitmq.Connector()
-	if err != nil {
-		log.Fatalf("Failed to connect to middleware: %s", err)
-	}
-	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
-
-	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
+	Log.Infof("Connected to middleware: %s", MIDDLEWARE)
 
 	inputChannels, err := w.Tasks.Connect(middlewareConnection, middlewareConnection)
 	if err != nil {
-		log.Fatalf("Failed to create channel for task %s: %s", w.Tasks.Name(), err)
+		Log.Fatalf("Failed to create channel for task %s: %s", w.Tasks.Name(), err)
 	}
-	log.Infof("Connected to task %s", w.Tasks.Name())
+	Log.Infof("Connected to task %s", w.Tasks.Name())
 	closed := 0
-	clientsFinished := make(map[string]int)
+	clientsFinished := make(map[string][]middleware.Envelope[*model.Row])
+	clientsPrune := make(map[string][]middleware.Envelope[*model.Row])
 	var envelope middleware.Envelope[*model.Row]
 	var ok bool
 	currentTask := w.Tasks
@@ -53,18 +46,26 @@ func (w *Worker) Run() {
 		select {
 		case envelope, ok = <-inputChannels[0]:
 			if envelope != nil && envelope.Type() == middleware.EOF {
-				clientsFinished[envelope.Cid()]++
+				eofMsg, exists := clientsFinished[envelope.Cid()]
+				if !exists {
+					eofMsg = []middleware.Envelope[*model.Row]{}
+				}
+				clientsFinished[envelope.Cid()] = append(eofMsg, envelope)
 			} else if !ok {
-				log.Infof("Channel closed 0, exiting...")
+				Log.Infof("Channel closed 0, exiting...")
 				closed++
 				inputChannels[0] = nil
 			}
 		case envelope, ok = <-inputChannels[1]:
 			if envelope != nil && envelope.Type() == middleware.EOF {
-				clientsFinished[envelope.Cid()]++
+				eofMsg, exists := clientsFinished[envelope.Cid()]
+				if !exists {
+					eofMsg = []middleware.Envelope[*model.Row]{}
+				}
+				clientsFinished[envelope.Cid()] = append(eofMsg, envelope)
 				currentTask.ProcessPendingMovies(envelope.Cid())
 			} else if !ok {
-				log.Infof("Channel closed 1, exiting...")
+				Log.Infof("Channel closed 1, exiting...")
 				inputChannels[1] = nil
 				closed++
 			}
@@ -77,35 +78,54 @@ func (w *Worker) Run() {
 			continue
 		}
 
-		if envelope != nil && envelope.Type() == middleware.EOF {
-			count, exists := clientsFinished[envelope.Cid()]
+		if envelope != nil && envelope.Type() == middleware.Prune {
+			pruneMsgs, exists := clientsPrune[envelope.Cid()]
 			if !exists {
-				log.Errorf("Client %s finished but not registered", envelope.Cid())
+				clientsPrune[envelope.Cid()] = []middleware.Envelope[*model.Row]{}
+			}
+			clientsPrune[envelope.Cid()] = append(clientsPrune[envelope.Cid()], envelope)
+			if len(clientsPrune[envelope.Cid()]) == 2 {
+				Log.Infof("Client %s prune", envelope.Cid())
+				delete(clientsPrune, envelope.Cid())
+				for _, pruneMsg := range pruneMsgs {
+					err = pruneMsg.Ack(false)
+					unwrap(err, "Failed to ack prune message")
+				}
+			}
+			continue
+		}
+
+		if envelope != nil && envelope.Type() == middleware.EOF {
+			eofMsgs, exists := clientsFinished[envelope.Cid()]
+			if !exists {
+				Log.Errorf("Client %s finished but not registered", envelope.Cid())
 				continue
 			}
-			if count == 2 {
-				log.Infof("Client %s finished", envelope.Cid())
+			if len(eofMsgs) == 2 {
+				Log.Infof("Client %s finished", envelope.Cid())
 				delete(clientsFinished, envelope.Cid())
 				err = currentTask.FinishProcessingClient(envelope.Cid())
 				if err != nil {
-					log.Errorf("Failed to finish processing client %s: %v", envelope.Cid(), err)
+					Log.Errorf("Failed to finish processing client %s: %v", envelope.Cid(), err)
 					continue
 				}
-				log.Infof("Finished processing client %s", envelope.Cid())
-			} else {
-				// ToDo: resend finish to next worker
-				continue
+				Log.Infof("Finished processing client %s", envelope.Cid())
+				for _, msg := range eofMsgs {
+					msg.Ack(false)
+				}
 			}
+			continue
+
 		}
 
 		row := envelope.Msg()
 		row.Strings["cid"] = envelope.Cid()
 		result := currentTask.ProcessAndSend(row)
 		if result != nil {
-			log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
+			Log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
 			continue
 		}
-		log.Debugf("TO ACK msg %v worker", envelope.Msg())
+		Log.Debugf("TO ACK msg %v worker", envelope.Msg())
 		err = envelope.Ack(false)
 		unwrap(err, "Failed to ack message")
 	}
@@ -115,9 +135,9 @@ func (w *Worker) Run() {
 func unwrap(err error, msg string) {
 	if err != nil {
 		if strings.Contains(err.Error(), "channel/connection is not open") {
-			log.Warnf("%s: %s", msg, err)
+			Log.Warnf("%s: %s", msg, err)
 		} else {
-			log.Fatalf("%s: %s", msg, err)
+			Log.Fatalf("%s: %s", msg, err)
 			panic(err)
 		}
 	}
@@ -151,11 +171,11 @@ func (t *SourceTask[O]) Connect(_ middleware.Connection[*model.Row], _ middlewar
 	return nil, nil
 }
 
-func NewWorker() Worker {
+func NewWorker(subscribers []string) Worker {
 	movies := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
 	credits := NewSourceTask[*model.Row]("clean_credits")
 
-	joiner_credits := joiner.NewJoinerCredits(movies, credits, []string{"reduce_by_actor"})
+	joiner_credits := NewJoinerCredits(movies, credits, subscribers)
 
 	return Worker{
 		Tasks: joiner_credits,

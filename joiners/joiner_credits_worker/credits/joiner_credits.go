@@ -1,4 +1,4 @@
-package joiner
+package credits
 
 import (
 	"context"
@@ -59,7 +59,7 @@ func (f *JoinerCredits) ProcessAndSend(row *model.Row) error {
 	} else if _, ok := row.Strings["ID"]; ok {
 		err = f.processCredit(row)
 	} else {
-		log.Warnf("Received row with no recognizable ID: %+v", row)
+		Log.Warnf("Received row with no recognizable ID: %+v", row)
 	}
 
 	return err
@@ -73,7 +73,7 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row) error {
 			clientID := row.Strings["cid"]
 			_, hasFinished := f.finishedCredits[clientID]
 			if hasFinished {
-				log.Infof("No cast found for movie %s", row.Strings["movieID"])
+				Log.Infof("No cast found for movie %s", row.Strings["movieID"])
 				delete(f.pendingMovies[clientID], row.Strings["movieID"])
 				return nil
 			}
@@ -85,10 +85,10 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row) error {
 			_, ok = f.pendingMovies[clientID][row.Strings["movieID"]]
 			if !ok {
 				f.pendingMovies[clientID][row.Strings["movieID"]] = row
-				log.Infof("Adding movie %s to pending movies", row.Strings["movieID"])
+				Log.Infof("Adding movie %s to pending movies", row.Strings["movieID"])
 			} else {
 				delete(f.pendingMovies[clientID], row.Strings["movieID"])
-				log.Infof("No cast found for movie %s", row.Strings["movieID"])
+				Log.Infof("No cast found for movie %s", row.Strings["movieID"])
 			}
 			f.pendingMoviesMu.Unlock()
 			return nil
@@ -111,7 +111,7 @@ func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string) e
 		//log.Infof("Sending actor %s from movie %s and client %s", r.Strings["actor"], r.Strings["movieID"], cid)
 		err = f.taskSender.Send(r, cid)
 		if err != nil {
-			log.Errorf("Failed to send actor data: %v", err)
+			Log.Errorf("Failed to send actor data: %v", err)
 			return err
 		}
 	}
@@ -130,21 +130,21 @@ func (f *JoinerCredits) processCredit(row *model.Row) error {
 		return nil
 	}
 	clientId := row.Strings["cid"]
-	log.Infof("Processing credit: %s for client %s", movieID, clientId)
+	Log.Infof("Processing credit: %s for client %s", movieID, clientId)
 	lastDigit := string(movieID[len(movieID)-1])
 
 	if err := os.MkdirAll(clientId, os.ModePerm); err != nil {
-		log.Errorf("Failed to create directory: %s", clientId)
+		Log.Errorf("Failed to create directory: %s", clientId)
 		return err
 	}
 	dirPath := fmt.Sprintf("%s/joiner_credits", clientId)
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		log.Errorf("Failed to create directory: %s", "joiner_credits")
+		Log.Errorf("Failed to create directory: %s", "joiner_credits")
 		return err
 	}
 	dirPath = fmt.Sprintf("%s/joiner%s", dirPath, WORKER_ID)
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		log.Errorf("Failed to create directory: %s", dirPath)
+		Log.Errorf("Failed to create directory: %s", dirPath)
 		return err
 	}
 
@@ -158,13 +158,13 @@ func (f *JoinerCredits) processCredit(row *model.Row) error {
 	} else if os.IsNotExist(err) {
 		writeHeader = true
 	} else {
-		log.Errorf("Error checking file status: %v", err)
+		Log.Errorf("Error checking file status: %v", err)
 		return err
 	}
 
 	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Errorf("Failed to open file: %s", fileName)
+		Log.Errorf("Failed to open file: %s", fileName)
 		return err
 	}
 	defer file.Close()
@@ -173,7 +173,7 @@ func (f *JoinerCredits) processCredit(row *model.Row) error {
 
 	if writeHeader {
 		if err := writer.Write([]string{"movieID", "cast"}); err != nil {
-			log.Errorf("Failed to write CSV header: %v", err)
+			Log.Errorf("Failed to write CSV header: %v", err)
 			return err
 		}
 	}
@@ -181,13 +181,13 @@ func (f *JoinerCredits) processCredit(row *model.Row) error {
 	castString, err := json.Marshal(cast)
 	//log.Infof("Writing cast for from strings=%v, arrays=%v", row.Strings, row.Arrays)
 	if err != nil {
-		log.Errorf("Failed to marshal cast: %v", err)
+		Log.Errorf("Failed to marshal cast: %v", err)
 		return err
 	}
 
 	err = writer.Write([]string{movieID, string(castString)})
 	if err != nil {
-		log.Errorf("Failed to write CSV row: %v", err)
+		Log.Errorf("Failed to write CSV row: %v", err)
 		return err
 	}
 
@@ -204,11 +204,11 @@ func (f *JoinerCredits) processCredit(row *model.Row) error {
 	}
 	f.pendingMoviesMu.Unlock()
 	if found {
-		log.Infof("Processing pending movie: %s", movieID)
+		Log.Infof("Processing pending movie: %s", movieID)
 		flattenCast := flattenCastList(cast, movieID)
 		err = f.sendActors(flattenCast, nil, clientId)
 		if err != nil {
-			log.Errorf("Failed to process pending movie: %v", err)
+			Log.Errorf("Failed to process pending movie: %v", err)
 		}
 	}
 
@@ -224,7 +224,7 @@ func (f *JoinerCredits) processMovie(row *model.Row) ([]*model.Row, error) {
 	movieID := row.Strings["movieID"]
 	lastDigit := string(movieID[len(movieID)-1])
 	clientId := row.Strings["cid"]
-	log.Infof("Processing movie: %s for client %s", movieID, clientId)
+	Log.Infof("Processing movie: %s for client %s", movieID, clientId)
 	dirPath := fmt.Sprintf("%s/joiner_credits/joiner%s", clientId, WORKER_ID)
 
 	fileName := fmt.Sprintf("%s/credits_%s.csv", dirPath, lastDigit)
@@ -239,7 +239,7 @@ func (f *JoinerCredits) processMovie(row *model.Row) ([]*model.Row, error) {
 	reader := csv.NewReader(file)
 	_, err = reader.Read()
 	if err != nil {
-		log.Errorf("Failed to read header: %s", err)
+		Log.Errorf("Failed to read header: %s", err)
 		return nil, err
 	}
 
@@ -251,7 +251,7 @@ func (f *JoinerCredits) processMovie(row *model.Row) ([]*model.Row, error) {
 			break
 		}
 		if err != nil || len(data) < 2 {
-			log.Errorf("Invalid credits row: %v", err)
+			Log.Errorf("Invalid credits row: %v", err)
 			continue
 		}
 
@@ -269,7 +269,7 @@ func (f *JoinerCredits) processMovie(row *model.Row) ([]*model.Row, error) {
 
 	var castList []string
 	if err := json.Unmarshal([]byte(cast), &castList); err != nil {
-		log.Errorf("Failed to unmarshal cast: %v; cast = %v", err, cast)
+		Log.Errorf("Failed to unmarshal cast: %v; cast = %v", err, cast)
 		return nil, err
 	}
 
@@ -297,16 +297,20 @@ func flattenCastList(castList []string, movieID string) []*model.Row {
 
 func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
+	id := WORKER_ID
+	if id == "" {
+		id = "1"
+	}
 	var WORKER_COUNT_STR = os.Getenv("WORKER_COUNT")
 	if WORKER_COUNT_STR == "" {
-		log.Errorf("WORKER_COUNT environment variable not set. It will be set to 1")
+		Log.Errorf("WORKER_COUNT environment variable not set. It will be set to 1")
 		WORKER_COUNT_STR = "1"
 	}
 	peers, err := strconv.Atoi(WORKER_COUNT_STR)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse WORKER_COUNT: %w", err)
 	}
-	groupQueueName := fmt.Sprintf("joiner_%s_credits", WORKER_ID)
+	groupQueueName := fmt.Sprintf("joiner_%s_credits", id)
 	f.taskReceiverCredits, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, peers-1, 2) // ToDo: usar los valores reales de 'peers' (sacar -1) y 'prefetch'
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue clean_credits for task %s", f.Name())
@@ -333,15 +337,15 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 			envelope, ok, err := f.taskReceiverCredits.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
-					log.Infof("Channel for credits closed from task: %v", f.Name())
+					Log.Infof("Channel for credits closed from task: %v", f.Name())
 					break
 				}
-				log.Errorf("Error reading from middleware (joiner_credits): %v", err)
+				Log.Errorf("Error reading from middleware (joiner_credits): %v", err)
 				continue
 			}
 			if !ok {
 				if envelope == nil || envelope.Type() != middleware.EOF {
-					log.Infof("Channel closed (credits): %v", f.Name())
+					Log.Infof("Channel closed (credits): %v", f.Name())
 
 					break
 				}
@@ -361,15 +365,15 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 			envelope, ok, err := f.taskReceiverMovies.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
-					log.Infof("Channel for movies closed from task: %v", f.Name())
+					Log.Infof("Channel for movies closed from task: %v", f.Name())
 					break
 				}
-				log.Errorf("Error reading from middleware: %v", err)
+				Log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
 			if !ok {
 				if envelope == nil || envelope.Type() != middleware.EOF {
-					log.Infof("Channel closed (movies): %v", f.Name())
+					Log.Infof("Channel closed (movies): %v", f.Name())
 					break
 				}
 			}
@@ -398,16 +402,16 @@ func (f *JoinerCredits) Finish() error {
 	if err := f.taskSender.Close(); err != nil {
 		return fmt.Errorf("failed to close task sender: %w", err)
 	}
-	log.Infof("Closed task %s", f.Name())
+	Log.Infof("Closed task %s", f.Name())
 	return nil
 }
 
 func (f *JoinerCredits) ProcessPendingMovies(clientID string) error {
-	log.Infof("Processing pending movies for client %s", clientID)
+	Log.Infof("Processing pending movies for client %s", clientID)
 	f.pendingMoviesMu.Lock()
 	pendings, ok := f.pendingMovies[clientID]
 	if !ok {
-		log.Infof("No pending movies for client %s", clientID)
+		Log.Infof("No pending movies for client %s", clientID)
 		f.pendingMoviesMu.Unlock()
 		return nil
 	}
@@ -428,14 +432,14 @@ func (f *JoinerCredits) ProcessPendingMovies(clientID string) error {
 }
 
 func (f *JoinerCredits) FinishProcessingClient(clientID string) error {
-	log.Infof("Finish processing credits and movies for client %s", clientID)
+	Log.Infof("Finish processing credits and movies for client %s", clientID)
 	f.ProcessPendingMovies(clientID)
 	dirPath := fmt.Sprintf("%s/joiner_credits/joiner%s", clientID, WORKER_ID)
 	err := os.RemoveAll(dirPath)
 	if err != nil {
 		return err
 	} else {
-		log.Infof("Removed directory: %s", dirPath)
+		Log.Infof("Removed directory: %s", dirPath)
 	}
 	f.taskSender.SendEOF(clientID)
 	return nil

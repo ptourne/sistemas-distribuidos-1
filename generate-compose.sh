@@ -150,9 +150,6 @@ compose_workers() {
                 condition: service_healthy
             sentiment_server:
                 condition: service_healthy
-        volumes:
-            - ${PWD}/joiner_credits:/joiner_credits
-            - ${PWD}/joiner_ratings:/joiner_ratings
 "
 }
 
@@ -200,8 +197,6 @@ compose_joiner_rating() {
                 condition: service_healthy
             sentiment_server:
                 condition: service_healthy
-        volumes:
-            - ${PWD}/joiner_ratings:/joiner_ratings
 "
 }
 
