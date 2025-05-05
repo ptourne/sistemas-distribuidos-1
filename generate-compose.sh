@@ -301,7 +301,7 @@ compose_reduce() {
     local name=$3
     local dockerfile_path=$4
     local entrypoint=$5
-    echo "    reduce_by_actor$worker_id:
+    echo "    $name$worker_id:
         container_name: $name$worker_id
         build:
             context: .

@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"slices"
 
@@ -19,194 +18,34 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
-type RatingB struct {
-	Id     uint32
-	Rating uint8
-}
-
-func (r *RatingB) Encode() []byte {
-	buf := make([]byte, 5)
-	binary.BigEndian.PutUint32(buf, r.Id)
-	buf[4] = r.Rating
-	return buf
-}
-
-func (r *RatingB) Decode(data []byte) {
-	if len(data) < 5 {
-		return
-	}
-	r.Id = binary.BigEndian.Uint32(data[:4])
-	r.Rating = data[4]
-}
-
-type ConfigCoordinator struct {
-	CoordinatorsCant          uint
-	CoordinatorPrefetch       int
-	MiddlewareChan            *middleware.Connection[*model.Row]
-	MiddlewareChanByte        *middleware.Connection[*model.FileChunk]
-	MiddlewareChanPackageByte *middleware.Connection[*common.PackageFile]
-	ReadFileByteQueue         string
-	MoviesMetadataName        string
-	CreditsName               string
-	RatingsName               string
-	Q1Output                  string
-	Q2Output                  string
-	Q3Output                  string
-	Q4Output                  string
-	Q5Output                  string
-	AllQuerysToEndpointName   string
-}
-
-func (c *ConfigCoordinator) Close() {
-	if c.MiddlewareChan != nil {
-		(*c.MiddlewareChan).Close()
-	}
-	if c.MiddlewareChanByte != nil {
-		(*c.MiddlewareChanByte).Close()
-	}
-	if c.MiddlewareChanPackageByte != nil {
-		(*c.MiddlewareChanPackageByte).Close()
-	}
-
-}
-
-type ChannelsCid struct {
-	input chan middleware.Envelope[*common.PackageFile]
-	q1    chan middleware.Envelope[*model.Row]
-	q2    chan middleware.Envelope[*model.Row]
-	q3    chan middleware.Envelope[*model.Row]
-	q4    chan middleware.Envelope[*model.Row]
-	q5    chan middleware.Envelope[*model.Row]
-}
-
-func NewChannelsCid() *ChannelsCid {
-	return &ChannelsCid{
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		input: make(chan middleware.Envelope[*common.PackageFile], 0),
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		q1: make(chan middleware.Envelope[*model.Row], 0),
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		q2: make(chan middleware.Envelope[*model.Row], 0),
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		q3: make(chan middleware.Envelope[*model.Row], 0),
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		q4: make(chan middleware.Envelope[*model.Row], 0),
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		q5: make(chan middleware.Envelope[*model.Row], 0),
-	}
-}
-
-func (c *ChannelsCid) Close() {
-	if c.input != nil {
-		close(c.input)
-		c.input = nil
-	}
-	if c.q1 != nil {
-		close(c.q1)
-		c.q1 = nil
-	}
-	if c.q2 != nil {
-		close(c.q2)
-		c.q2 = nil
-	}
-	if c.q3 != nil {
-		close(c.q3)
-		c.q3 = nil
-	}
-	if c.q4 != nil {
-		close(c.q4)
-		c.q4 = nil
-	}
-	if c.q5 != nil {
-		close(c.q5)
-		c.q5 = nil
-	}
-}
-
 func main() {
 	log := logger.NewConsoleLogger("coordinator", logger.Info)
-	logMiddleware := logger.NewConsoleLogger("coordinator_mid", logger.Info)
+	// logMiddleware := logger.NewConsoleLogger("coordinator_mid", logger.Info)
 	connector, err := rabbitmq.Connector()
 	if err != nil {
 		log.Errorf("Failed to connect middleware: %v", err)
 		return
 	}
-	config := ConfigCoordinator{}
-	middlewareChan := rabbitmq.NewMiddleware[*model.Row](connector, logMiddleware)
-	middlewareChanPackageByte := rabbitmq.NewMiddleware[*common.PackageFile](connector, logMiddleware)
-	middlewareChanByte := rabbitmq.NewMiddleware[*model.FileChunk](connector, logMiddleware)
-	config.MiddlewareChan = &middlewareChan
-	config.MiddlewareChanByte = &middlewareChanByte
-	config.MiddlewareChanPackageByte = &middlewareChanPackageByte
-	log.Infof("Connected to middleware")
-
+	config := NewConfiguration(log, connector)
 	defer config.Close()
 
-	config.ReadFileByteQueue = "file_bytes"
-	config.MoviesMetadataName = "movies_metadata"
-	config.CreditsName = "credits"
-	config.RatingsName = "ratings"
-	config.Q1Output = "filter_release_date_l_2010_and_include_es"
-	config.Q2Output = "reduce_top_5_by_budget"
-	config.Q3Output = "reduce_top_bottom_avg_rating"
-	config.Q4Output = "reduce_top_10_by_actor"
-	config.Q5Output = "filter_avg_rate"
-	config.AllQuerysToEndpointName = "all_querys_to_endpoint"
-
-	config.CoordinatorsCant = 1
-	config.CoordinatorPrefetch = 1
-
-	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	defer receiverFileByte.Close()
-
-	q1Receiver, err := middlewareChan.ConsumeFrom(config.Q1Output, "q1", config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	// defer q1Receiver.Close()
-
-	q2Receiver, err := middlewareChan.ConsumeFrom(config.Q2Output, "q2", config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	defer q2Receiver.Close()
-
-	q3Receiver, err := middlewareChan.ConsumeFrom(config.Q3Output, "q3", config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	defer q3Receiver.Close()
-
-	q4Receiver, err := middlewareChan.ConsumeFrom(config.Q4Output, "q4", config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	defer q4Receiver.Close()
-
-	q5Receiver, err := middlewareChan.ConsumeFrom(config.Q5Output, "q5", config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	defer q5Receiver.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // Cancel the context when the function exits
 	wg := sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	inputsChannelMap := map[string]*ChannelsCid{}
+	inputChannelMapLock := sync.Mutex{}
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
-			// ctx := context.Background()
-			envelope, err := receiverFileByte.Next(ctx)
+			envelope, err := config.ReceiverFileByte.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" {
 					log.Infof("Channel closed: %v", config.ReadFileByteQueue)
 					break
 				}
 				if err.Error() == "timeout reached while waiting for message or ctx canceled" {
+					log.Infof("Timeout reached while waiting for message or ctx canceled")
 					break
 				}
 				log.Errorf("Error reading from middleware: %v", err)
@@ -216,85 +55,81 @@ func main() {
 			channelsCid, exists := inputsChannelMap[cid]
 			if !exists {
 				channelsCid = NewChannelsCid()
+				inputChannelMapLock.Lock()
 				inputsChannelMap[cid] = channelsCid
+				inputChannelMapLock.Unlock()
 				wg.Add(1)
-				go handleClient(cid, channelsCid, config)
+				go handleClient(cid, channelsCid, config, &wg)
 			}
-			// TODO combinar lo de arriba y lo de abajo
 			switch envelope.Type() {
 			case middleware.EOF:
-				log.Infof("cid %s finished receiving", cid)
-				delete(inputsChannelMap, envelope.Cid())
-				continue
 			case middleware.Prune:
+				err = envelope.Ack(true)
+				unwrap(err, "Failed to ack message", log)
 				continue
-			case middleware.Normal:
-				channelsCid, exists := inputsChannelMap[cid]
-				if !exists {
-					channelsCid = NewChannelsCid()
-					inputsChannelMap[cid] = channelsCid
-					wg.Add(1)
-					go handleClient(cid, channelsCid, config)
-				}
-				channelsCid.input <- envelope
 			}
-			// TODO: no falta el ack?
+			channelsCid.input <- envelope
 		}
 	}()
-	wg.Add(1)
-	go func() {
-		for {
-			envelope, err := q1Receiver.Next(ctx)
-			if err != nil {
-				if err.Error() == "read channel was closed" {
-					log.Infof("Channel closed: %v", config.Q1Output)
-					break
-				}
-				if err.Error() == "timeout reached while waiting for message or ctx canceled" {
-					break
-				}
-				log.Errorf("Error reading from middleware: %v", err)
-				continue
-			}
-			cid := envelope.Cid()
-			//channelsCid, exists := inputsChannelMap[cid]
-			_, exists := inputsChannelMap[cid]
 
-			if !exists {
-				log.Errorf("Channel not found: %v", cid)
-				break
-			}
-			// TODO unir arriba y abajo
-			switch envelope.Type() {
-			case middleware.EOF:
-				log.Infof("cid %s finished receiving", cid)
-				delete(inputsChannelMap, envelope.Cid())
-				continue
-			case middleware.Prune:
-				continue
-			case middleware.Normal:
-				channelsCid, exists := inputsChannelMap[cid]
-				if !exists {
-					log.Errorf("Channel not found: %v", cid)
-					break
-				}
-				channelsCid.q1 <- envelope
-			}
-			// TODO: no falta el ack?
-		}
-	}()
-	log.Infof("CERRANDO COORDINADOR")
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, true)
+
+	wg.Wait()
+	log.Infof("EXITING COORDINATOR")
 	for _, channelCid := range inputsChannelMap {
 		channelCid.Close()
 	}
-
-	wg.Wait()
 }
 
-func handleClient(cid string, channelsCid *ChannelsCid, c ConfigCoordinator) {
-	// defer channelsCid.Close()
-	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%s", cid), logger.Info)
+func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex, wg *sync.WaitGroup, lastQuery bool) {
+	defer wg.Done()
+	for {
+		envelope, err := queue.Next(ctx)
+		if err != nil {
+			if err.Error() == "read channel was closed" {
+				log.Infof("Channel closed: %v", channelString)
+				break
+			}
+			if err.Error() == "timeout reached while waiting for message or ctx canceled" {
+				log.Infof("Timeout reached while waiting for message or ctx canceled")
+				break
+			}
+			log.Errorf("Error reading from middleware: %v", err)
+			continue
+		}
+		cid := envelope.Cid()
+		channelsCid, exists := inputsChannelMap[cid]
+		if !exists {
+			log.Errorf("Channel not found: %v", cid)
+			break
+		}
+		switch envelope.Type() {
+		case middleware.EOF:
+			if lastQuery { //TODO deberia ser SOLO EN Q5
+				log.Infof("cid %s finished receiving", cid)
+				inputChannelMapLock.Lock()
+				delete(inputsChannelMap, envelope.Cid())
+				inputChannelMapLock.Unlock()
+				// err = envelope.Ack(false)
+				// unwrap(err, "Failed to ack message", log)
+			}
+		case middleware.Prune:
+			err = envelope.Ack(true)
+			unwrap(err, "Failed to ack message", log)
+			continue
+		}
 
+		queue := getFuc(channelsCid)
+		queue <- envelope
+	}
+}
+
+func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup) {
+	defer wg.Done()
+	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%s", cid), logger.Info)
 	moviesMetadataSender, err := (*c.MiddlewareChan).WriteTo(c.MoviesMetadataName, []string{"clean_movies"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
@@ -422,27 +257,212 @@ OuterLoop:
 	log.Infof("CSV processing completed")
 
 	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
-	// verifyingQ2(log, allQuerysToEndpointSender, cid, q2Receiver)
-	// verifyingQ3(log, allQuerysToEndpointSender, cid, q3Receiver)
-	// verifyingQ4(log, q4Receiver)
-	// verifyingQ5(log, allQuerysToEndpointSender, cid, q5Receiver)
+	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
+	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
+	// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 
 	log.Infof("finish all querys verified")
-
-	// timer.Stop()
 }
 
-func contains(slice []string, value string) bool {
-	for _, v := range slice {
-		if v == value {
-			return true
-		}
+type ConfigCoordinator struct {
+	CoordinatorsCant            uint
+	CoordinatorPrefetch         int
+	MiddlewareChan              *middleware.Connection[*model.Row]
+	MiddlewareChanByte          *middleware.Connection[*model.FileChunk]
+	MiddlewareChanPackageByte   *middleware.Connection[*common.PackageFile]
+	ReadFileByteQueue           string
+	MoviesMetadataName          string
+	CreditsName                 string
+	RatingsName                 string
+	Q1Output                    string
+	Q2Output                    string
+	Q3Output                    string
+	Q4Output                    string
+	Q5Output                    string
+	AllQuerysToEndpointName     string
+	ReceiverFileByte            middleware.Receiver[*common.PackageFile]
+	ReceiverQ1                  middleware.Receiver[*model.Row]
+	ReceiverQ2                  middleware.Receiver[*model.Row]
+	ReceiverQ3                  middleware.Receiver[*model.Row]
+	ReceiverQ4                  middleware.Receiver[*model.Row]
+	ReceiverQ5                  middleware.Receiver[*model.Row]
+	ReceiverAllQuerysToEndpoint middleware.Receiver[*model.Row]
+}
+
+func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQConnector) *ConfigCoordinator {
+	config := ConfigCoordinator{}
+	middlewareChan := rabbitmq.NewMiddleware[*model.Row](connector, log)
+	middlewareChanPackageByte := rabbitmq.NewMiddleware[*common.PackageFile](connector, log)
+	middlewareChanByte := rabbitmq.NewMiddleware[*model.FileChunk](connector, log)
+	config.MiddlewareChan = &middlewareChan
+	config.MiddlewareChanByte = &middlewareChanByte
+	config.MiddlewareChanPackageByte = &middlewareChanPackageByte
+	log.Infof("Connected to middleware")
+	config.ReadFileByteQueue = "file_bytes"
+	config.MoviesMetadataName = "movies_metadata"
+	config.CreditsName = "credits"
+	config.RatingsName = "ratings"
+	config.Q1Output = "filter_release_date_l_2010_and_include_es"
+	config.Q2Output = "reduce_top_5_by_budget"
+	config.Q3Output = "reduce_top_bottom_avg_rating"
+	config.Q4Output = "reduce_top_10_by_actor"
+	config.Q5Output = "filter_avg_rate"
+	config.AllQuerysToEndpointName = "all_querys_to_endpoint"
+	config.CoordinatorsCant = 1
+	config.CoordinatorPrefetch = 1
+
+	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
 	}
-	return false
+	config.ReceiverFileByte = receiverFileByte
+
+	q1Receiver, err := middlewareChan.ConsumeFrom(config.Q1Output, "q1", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverQ1 = q1Receiver
+
+	q2Receiver, err := middlewareChan.ConsumeFrom(config.Q2Output, "q2", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverQ2 = q2Receiver
+
+	q3Receiver, err := middlewareChan.ConsumeFrom(config.Q3Output, "q3", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverQ3 = q3Receiver
+
+	q4Receiver, err := middlewareChan.ConsumeFrom(config.Q4Output, "q4", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverQ4 = q4Receiver
+
+	q5Receiver, err := middlewareChan.ConsumeFrom(config.Q5Output, "q5", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverQ5 = q5Receiver
+	return &config
+}
+
+func (c *ConfigCoordinator) Close() {
+	if c.MiddlewareChan != nil {
+		(*c.MiddlewareChan).Close()
+		c.MiddlewareChan = nil
+	}
+	if c.MiddlewareChanByte != nil {
+		(*c.MiddlewareChanByte).Close()
+		c.MiddlewareChanByte = nil
+	}
+	if c.MiddlewareChanPackageByte != nil {
+		(*c.MiddlewareChanPackageByte).Close()
+		c.MiddlewareChanPackageByte = nil
+	}
+	if c.ReceiverFileByte != nil {
+		(c.ReceiverFileByte).Close()
+		c.ReceiverFileByte = nil
+	}
+	if c.ReceiverQ1 != nil {
+		(c.ReceiverQ1).Close()
+		c.ReceiverQ1 = nil
+	}
+	if c.ReceiverQ2 != nil {
+		(c.ReceiverQ2).Close()
+		c.ReceiverQ2 = nil
+	}
+	if c.ReceiverQ3 != nil {
+		(c.ReceiverQ3).Close()
+		c.ReceiverQ3 = nil
+	}
+	if c.ReceiverQ4 != nil {
+		(c.ReceiverQ4).Close()
+		c.ReceiverQ4 = nil
+	}
+	if c.ReceiverQ5 != nil {
+		(c.ReceiverQ5).Close()
+		c.ReceiverQ5 = nil
+	}
+}
+
+type ChannelsCid struct {
+	input chan middleware.Envelope[*common.PackageFile]
+	q1    chan middleware.Envelope[*model.Row]
+	q2    chan middleware.Envelope[*model.Row]
+	q3    chan middleware.Envelope[*model.Row]
+	q4    chan middleware.Envelope[*model.Row]
+	q5    chan middleware.Envelope[*model.Row]
+}
+
+func NewChannelsCid() *ChannelsCid {
+	return &ChannelsCid{
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		input: make(chan middleware.Envelope[*common.PackageFile], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q1: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q2: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q3: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q4: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q5: make(chan middleware.Envelope[*model.Row], 0),
+	}
+}
+
+func GetInput(c *ChannelsCid) chan middleware.Envelope[*common.PackageFile] {
+	return c.input
+}
+func GetQ1(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
+	return c.q1
+}
+func GetQ2(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
+	return c.q2
+}
+func GetQ3(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
+	return c.q3
+}
+func GetQ4(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
+	return c.q4
+}
+func GetQ5(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
+	return c.q5
+}
+
+func (c *ChannelsCid) Close() {
+	if c.input != nil {
+		close(c.input)
+		c.input = nil
+	}
+	if c.q1 != nil {
+		close(c.q1)
+		c.q1 = nil
+	}
+	if c.q2 != nil {
+		close(c.q2)
+		c.q2 = nil
+	}
+	if c.q3 != nil {
+		close(c.q3)
+		c.q3 = nil
+	}
+	if c.q4 != nil {
+		close(c.q4)
+		c.q4 = nil
+	}
+	if c.q5 != nil {
+		close(c.q5)
+		c.q5 = nil
+	}
+
 }
 
 func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
-	log.Infof("Verifying Q1")
 	expectedOutputQ1 := []*model.Row{
 		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
 		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
@@ -469,112 +489,29 @@ func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 	}
-
-	err := allQuerysToEndpointSender.Send(model.RowQueryName("Q1"), cid)
-	if err != nil {
-		log.Errorf("Failed to send message: %v", err)
-	}
-	for {
-		envelope := <-q1Receiver
-		t := envelope.Type()
-
-		if envelope.Cid() != cid {
-			continue
-		}
-		if t == middleware.EOF {
-			log.Infof("No more countries, finish arrived")
-			break
-		}
-		receivedCountry := envelope.Msg()
-		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedCountry), cid)
-		if err != nil {
-			log.Errorf("Failed to send message: %v", err)
-			continue
-		}
-		log.Debugf("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
-		log.Debugf("Received country debug: %+v", receivedCountry)
-		expectedOutputQ1 = removeQ1(expectedOutputQ1, receivedCountry, log)
-		err = envelope.Ack(true)
-		unwrap(err, "Failed to ack message", log)
-	}
-	if len(expectedOutputQ1) > 0 {
-		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ1)
-	}
-	if len(expectedOutputQ1) == 0 {
-		log.Infof("All expected films received")
-	}
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q1", expectedOutputQ1, removeQ1, false)
 }
 
-func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q5Receiver middleware.Receiver[*model.Row]) {
-	log.Infof("Verifying Q5")
-	// Expected:
-	// NEGATIVE    5453.397595
-	// POSITIVE    5668.650541
-	expectedOutputQ5 := []*model.Row{
-		{Strings: map[string]string{"sentiment": "NEGATIVE"}, Floats: map[string]float64{"avg_rate": 5453.397595}},
-		{Strings: map[string]string{"sentiment": "POSITIVE"}, Floats: map[string]float64{"avg_rate": 5668.650541}},
+func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
+	expectedOutputQ2 := []*model.Row{
+		{Numerics: map[string]uint64{"budget_sum": 120153886644}, Strings: map[string]string{"country": "US"}},
+		{Numerics: map[string]uint64{"budget_sum": 2256831838}, Strings: map[string]string{"country": "FR"}},
+		{Numerics: map[string]uint64{"budget_sum": 1611604610}, Strings: map[string]string{"country": "GB"}},
+		{Numerics: map[string]uint64{"budget_sum": 1169682797}, Strings: map[string]string{"country": "IN"}},
+		{Numerics: map[string]uint64{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	}
-
-	err := allQuerysToEndpointSender.Send(model.RowQueryName("Q5"), cid)
-	if err != nil {
-		log.Errorf("Failed to send message q5: %v", err)
-	}
-	for {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-		envelope, err := q5Receiver.Next(ctx)
-		cancel()
-		if err != nil {
-			if err.Error() == "close channel was closed" {
-				log.Infof("Channel was closed")
-				break
-			}
-			if err.Error() == "timeout reached while waiting for message" {
-				log.Infof("Timeout reached while waiting for message")
-				break
-			} else {
-				log.Errorf("Failed to read message: %v", err)
-				continue
-			}
-		}
-		switch envelope.Type() {
-		case middleware.EOF:
-			log.Infof("No more films")
-			err = envelope.Ack(true)
-			unwrap(err, "Failed to ack message", log)
-			break
-		case middleware.Prune:
-			err = envelope.Ack(true)
-			unwrap(err, "Failed to ack message", log)
-			continue
-		}
-		receivedSentiment := envelope.Msg()
-
-		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedSentiment), cid)
-		if err != nil {
-			log.Errorf("Failed to send message sentiment: %v", err)
-			continue
-		}
-		log.Infof("Received sentiment debug: %+v", receivedSentiment)
-		expectedOutputQ5 = removeQ5(expectedOutputQ5, receivedSentiment, log)
-		if len(expectedOutputQ5) == 0 {
-			log.Infof("All expected films received")
-			break
-		}
-
-		err = envelope.Ack(true)
-		unwrap(err, "Failed to ack message", log)
-	}
-	if len(expectedOutputQ5) > 0 {
-		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ5)
-	}
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q2", expectedOutputQ2, removeQ2, true) //TODO MANDARLO el send eof en q5
 }
 
-func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q4Receiver middleware.Receiver[*model.Row]) {
-	log.Infof("Verifying Q4")
-	err := allQuerysToEndpointSender.Send(model.RowQueryName("Q4"), cid)
-	if err != nil {
-		log.Errorf("Failed to send message: %v", err)
+func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
+	expectedOutputQ3 := []*model.Row{
+		{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
+		{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
 	}
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3, removeQ3, false)
+}
+
+func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
 	expectedOutputQ4 := []*model.Row{
 		{Numerics: map[string]uint64{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
 		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
@@ -587,147 +524,39 @@ func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
 	}
-	countCredit := 0
-	for {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-		envelope, err := q4Receiver.Next(ctx)
-		cancel()
-		if err != nil {
-			if err.Error() == "close channel was closed" {
-				log.Infof("Channel was closed")
-				break
-			}
-			if err.Error() == "timeout reached while waiting for message" {
-				log.Infof("Timeout reached while waiting for message")
-				break
-			} else {
-				log.Errorf("Failed to read message: %v", err)
-				continue
-			}
-		}
-		switch envelope.Type() {
-		case middleware.EOF:
-			log.Infof("No more actors")
-			err = envelope.Ack(true)
-			unwrap(err, "Failed to ack message", log)
-			break
-		case middleware.Prune:
-			err = envelope.Ack(true)
-			unwrap(err, "Failed to ack message", log)
-			continue
-		}
-		countCredit++
-		receivedActor := envelope.Msg()
-		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedActor), cid)
-		if err != nil {
-			log.Errorf("Failed to send message: %v", err)
-			continue
-		}
-		log.Infof("Received country: %s %v", receivedActor.Strings["actor"], receivedActor.Numerics["count"])
-		log.Infof("Received country debug: %+v", receivedActor)
-		expectedOutputQ4 = removeQ4(expectedOutputQ4, receivedActor, log)
-		if len(expectedOutputQ4) == 0 {
-			log.Infof("All expected actors received")
-			break
-		}
-		err = envelope.Ack(true)
-		unwrap(err, "Failed to ack message", log)
-	}
-	if len(expectedOutputQ4) > 0 {
-		log.Errorf("Not all expected actors received. Missing %v", expectedOutputQ4)
-	}
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q4", expectedOutputQ4, removeQ4, false)
 }
 
-func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q3Receiver middleware.Receiver[*model.Row]) {
-	log.Infof("Verifying Q3")
-	err := allQuerysToEndpointSender.Send(model.RowQueryName("Q3"), cid)
+func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
+	expectedOutputQ5 := []*model.Row{
+		{Strings: map[string]string{"sentiment": "NEGATIVE"}, Floats: map[string]float64{"avg_rate": 5453.397595}},
+		{Strings: map[string]string{"sentiment": "POSITIVE"}, Floats: map[string]float64{"avg_rate": 5668.650541}},
+	}
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q5", expectedOutputQ5, removeQ5, true)
+}
+
+func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row], queryNumber string, expectedOutput []*model.Row, remove func([]*model.Row, *model.Row, *logger.ConsoleLogger) []*model.Row, lastQuery bool) {
+	log.Infof("Verifying %s", queryNumber)
+	err := allQuerysToEndpointSender.Send(model.RowQueryName(queryNumber), cid)
 	if err != nil {
 		log.Errorf("Failed to send message: %v", err)
 	}
-	expectedOutputQ3 := []*model.Row{
-		{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
-		{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
-	}
+OuterLoop:
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-		envelope, err := q3Receiver.Next(ctx)
-		cancel()
-		if err != nil {
-			if err.Error() == "timeout reached while waiting for message" {
-				log.Infof("Timeout reached while waiting for message")
-				break
-			} else {
-				log.Errorf("Failed to read message: %v", err)
-				continue
-			}
+		envelope := <-qReceiver
+		if envelope.Cid() != cid {
+			log.Errorf("Received message from wrong cid: %s", envelope.Cid())
+			continue
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
-			log.Infof("No more films")
-			err = envelope.Ack(true)
-			unwrap(err, "Failed to ack message", log)
-			break
-		case middleware.Prune:
-			err = envelope.Ack(true)
-			unwrap(err, "Failed to ack message", log)
-			continue
-		}
-		receivedMovie := envelope.Msg()
-		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedMovie), cid)
-		if err != nil {
-			log.Errorf("Failed to send message: %v", err)
-			continue
-		}
-		// log.Infof("Received film: %s %v", receivedMovie.Strings["title"], receivedMovie.Arrays["genres"])
-		// log.Infof("Received film debug: %+v", receivedMovie)
-		expectedOutputQ3 = removeQ3(expectedOutputQ3, receivedMovie, log)
-		if len(expectedOutputQ3) == 0 {
-			log.Infof("All expected films received")
-			break
-		}
-		err = envelope.Ack(true)
-		unwrap(err, "Failed to ack message", log)
-	}
-	if len(expectedOutputQ3) > 0 {
-		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ3)
-	}
-}
-
-func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q2Receiver middleware.Receiver[*model.Row]) {
-	log.Infof("Verifying Q2")
-	err := allQuerysToEndpointSender.Send(model.RowQueryName("Q2"), cid)
-	if err != nil {
-		log.Errorf("Failed to send message: %v", err)
-	}
-	// Incorrect current answer
-	expectedOutputQ2 := []*model.Row{
-		{Numerics: map[string]uint64{"budget_sum": 120153886644}, Strings: map[string]string{"country": "US"}},
-		{Numerics: map[string]uint64{"budget_sum": 2256831838}, Strings: map[string]string{"country": "FR"}},
-		{Numerics: map[string]uint64{"budget_sum": 1611604610}, Strings: map[string]string{"country": "GB"}},
-		{Numerics: map[string]uint64{"budget_sum": 1169682797}, Strings: map[string]string{"country": "IN"}},
-		{Numerics: map[string]uint64{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
-	}
-
-	for {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-		envelope, err := q2Receiver.Next(ctx)
-		cancel()
-		if err != nil {
-			if err.Error() == "timeout reached while waiting for message" {
-				log.Infof("Timeout reached while waiting for message")
-				break
-			} else {
-				log.Errorf("Failed to read message: %v", err)
-				continue
+			log.Infof("No more countries, finish arrived")
+			if lastQuery {
+				allQuerysToEndpointSender.SendEOF(cid)
 			}
-		}
-
-		switch envelope.Type() {
-		case middleware.EOF:
-			log.Infof("No more countries")
-			err = envelope.Ack(true)
+			err = envelope.Ack(false)
 			unwrap(err, "Failed to ack message", log)
-			break
+			break OuterLoop
 		case middleware.Prune:
 			err = envelope.Ack(true)
 			unwrap(err, "Failed to ack message", log)
@@ -739,18 +568,16 @@ func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 			log.Errorf("Failed to send message: %v", err)
 			continue
 		}
-		log.Infof("Received country: %s %v", receivedCountry.Strings["country"], receivedCountry.Arrays["budget_sum"])
-		log.Infof("Received country debug: %+v", receivedCountry)
-		expectedOutputQ2 = removeQ2(expectedOutputQ2, receivedCountry, log)
-		if len(expectedOutputQ2) == 0 {
-			log.Infof("All expected films received")
-			break
-		}
-		err = envelope.Ack(true)
+		log.Debugf("Received country debug: %v", receivedCountry)
+		expectedOutput = remove(expectedOutput, receivedCountry, log)
+		err = envelope.Ack(false)
 		unwrap(err, "Failed to ack message", log)
 	}
-	if len(expectedOutputQ2) > 0 {
-		log.Errorf("Not all expected films received. Missing %v", expectedOutputQ2)
+	if len(expectedOutput) > 0 {
+		log.Errorf("Not all expected rows received. Missing %v", expectedOutput)
+	}
+	if len(expectedOutput) == 0 {
+		log.Infof("All expected rows received")
 	}
 }
 
@@ -923,4 +750,24 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 	}
 	msgEnvelope.Ack(false)
 	return n, err
+}
+
+type RatingB struct {
+	Id     uint32
+	Rating uint8
+}
+
+func (r *RatingB) Encode() []byte {
+	buf := make([]byte, 5)
+	binary.BigEndian.PutUint32(buf, r.Id)
+	buf[4] = r.Rating
+	return buf
+}
+
+func (r *RatingB) Decode(data []byte) {
+	if len(data) < 5 {
+		return
+	}
+	r.Id = binary.BigEndian.Uint32(data[:4])
+	r.Rating = data[4]
 }
