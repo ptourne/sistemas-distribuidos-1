@@ -18,110 +18,6 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
-type RatingB struct {
-	Id     uint32
-	Rating uint8
-}
-
-func (r *RatingB) Encode() []byte {
-	buf := make([]byte, 5)
-	binary.BigEndian.PutUint32(buf, r.Id)
-	buf[4] = r.Rating
-	return buf
-}
-
-func (r *RatingB) Decode(data []byte) {
-	if len(data) < 5 {
-		return
-	}
-	r.Id = binary.BigEndian.Uint32(data[:4])
-	r.Rating = data[4]
-}
-
-type ConfigCoordinator struct {
-	CoordinatorsCant          int
-	CoordinatorPrefetch       int
-	MiddlewareChan            *middleware.Connection[*model.Row]
-	MiddlewareChanByte        *middleware.Connection[*model.FileChunk]
-	MiddlewareChanPackageByte *middleware.Connection[*common.PackageFile]
-	ReadFileByteQueue         string
-	MoviesMetadataName        string
-	CreditsName               string
-	RatingsName               string
-	Q1Output                  string
-	Q2Output                  string
-	Q3Output                  string
-	Q4Output                  string
-	Q5Output                  string
-	AllQuerysToEndpointName   string
-}
-
-func (c *ConfigCoordinator) Close() {
-	if c.MiddlewareChan != nil {
-		(*c.MiddlewareChan).Close()
-	}
-	if c.MiddlewareChanByte != nil {
-		(*c.MiddlewareChanByte).Close()
-	}
-	if c.MiddlewareChanPackageByte != nil {
-		(*c.MiddlewareChanPackageByte).Close()
-	}
-
-}
-
-type ChannelsCid struct {
-	input chan middleware.Envelope[*common.PackageFile]
-	q1    chan middleware.Envelope[*model.Row]
-	q2    chan middleware.Envelope[*model.Row]
-	q3    chan middleware.Envelope[*model.Row]
-	q4    chan middleware.Envelope[*model.Row]
-	q5    chan middleware.Envelope[*model.Row]
-}
-
-func NewChannelsCid() *ChannelsCid {
-	return &ChannelsCid{
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		input: make(chan middleware.Envelope[*common.PackageFile], 0),
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		q1: make(chan middleware.Envelope[*model.Row], 0),
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		q2: make(chan middleware.Envelope[*model.Row], 0),
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		q3: make(chan middleware.Envelope[*model.Row], 0),
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		q4: make(chan middleware.Envelope[*model.Row], 0),
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		q5: make(chan middleware.Envelope[*model.Row], 0),
-	}
-}
-
-func (c *ChannelsCid) Close() {
-	if c.input != nil {
-		close(c.input)
-		c.input = nil
-	}
-	if c.q1 != nil {
-		close(c.q1)
-		c.q1 = nil
-	}
-	if c.q2 != nil {
-		close(c.q2)
-		c.q2 = nil
-	}
-	if c.q3 != nil {
-		close(c.q3)
-		c.q3 = nil
-	}
-	if c.q4 != nil {
-		close(c.q4)
-		c.q4 = nil
-	}
-	if c.q5 != nil {
-		close(c.q5)
-		c.q5 = nil
-	}
-}
-
 func main() {
 	var log = logger.NewConsoleLogger("coordinator", logger.Info)
 	connector, err := rabbitmq.Connector()
@@ -129,66 +25,8 @@ func main() {
 		log.Errorf("Failed to connect middleware: %v", err)
 		return
 	}
-	config := ConfigCoordinator{}
-	middlewareChan := rabbitmq.NewMiddleware[*model.Row](connector)
-	middlewareChanPackageByte := rabbitmq.NewMiddleware[*common.PackageFile](connector)
-	middlewareChanByte := rabbitmq.NewMiddleware[*model.FileChunk](connector)
-	config.MiddlewareChan = &middlewareChan
-	config.MiddlewareChanByte = &middlewareChanByte
-	config.MiddlewareChanPackageByte = &middlewareChanPackageByte
-	log.Infof("Connected to middleware")
-
+	config := NewConfiguration(log, connector)
 	defer config.Close()
-
-	config.ReadFileByteQueue = "file_bytes"
-	config.MoviesMetadataName = "movies_metadata"
-	config.CreditsName = "credits"
-	config.RatingsName = "ratings"
-	config.Q1Output = "filter_release_date_l_2010_and_include_es"
-	config.Q2Output = "reduce_top_5_by_budget"
-	config.Q3Output = "reduce_top_bottom_avg_rating"
-	config.Q4Output = "reduce_top_10_by_actor"
-	config.Q5Output = "filter_avg_rate"
-	config.AllQuerysToEndpointName = "all_querys_to_endpoint"
-
-	config.CoordinatorsCant = 1
-	config.CoordinatorPrefetch = 1
-
-	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	defer receiverFileByte.Close()
-
-	q1Receiver, err := middlewareChan.ConsumeFrom(config.Q1Output, "q1", config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	defer q1Receiver.Close()
-
-	q2Receiver, err := middlewareChan.ConsumeFrom(config.Q2Output, "q2", config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	defer q2Receiver.Close()
-
-	q3Receiver, err := middlewareChan.ConsumeFrom(config.Q3Output, "q3", config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	defer q3Receiver.Close()
-
-	q4Receiver, err := middlewareChan.ConsumeFrom(config.Q4Output, "q4", config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	defer q4Receiver.Close()
-
-	q5Receiver, err := middlewareChan.ConsumeFrom(config.Q5Output, "q5", config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	defer q5Receiver.Close()
 
 	wg := sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -197,7 +35,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		for {
-			envelope, _, err := receiverFileByte.Next(ctx)
+			envelope, _, err := config.ReceiverFileByte.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" {
 					log.Infof("Channel closed: %v", config.ReadFileByteQueue)
@@ -223,36 +61,7 @@ func main() {
 	}()
 
 	wg.Add(1)
-	go func() {
-		for {
-			envelope, ok, err := q1Receiver.Next(ctx) // TODO SACAR EL OK ACA DESPUES
-			log.Infof(" msg arrive from q1")
-
-			if err != nil {
-				if err.Error() == "read channel was closed" {
-					log.Infof("Channel closed: %v", config.Q1Output)
-					break
-				}
-				if err.Error() == "timeout reached while waiting for message or ctx canceled" {
-					log.Infof("Timeout reached while waiting for message or ctx canceled")
-					break
-				}
-				log.Errorf("Error reading from middleware: %v", err)
-				continue
-			}
-			cid := envelope.Cid()
-			channelsCid, exists := inputsChannelMap[cid]
-			if !exists {
-				log.Errorf("Channel not found: %v", cid)
-				break
-			}
-			if !ok {
-				log.Infof("cid %s finished receiving", cid)
-				delete(inputsChannelMap, envelope.Cid())
-			}
-			channelsCid.q1 <- envelope
-		}
-	}()
+	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap)
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -261,7 +70,36 @@ func main() {
 	}
 }
 
-func handleClient(cid string, channelsCid *ChannelsCid, c ConfigCoordinator) {
+func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid) {
+	for {
+		envelope, ok, err := queue.Next(ctx)
+		if err != nil {
+			if err.Error() == "read channel was closed" {
+				log.Infof("Channel closed: %v", channelString)
+				break
+			}
+			if err.Error() == "timeout reached while waiting for message or ctx canceled" {
+				log.Infof("Timeout reached while waiting for message or ctx canceled")
+				break
+			}
+			log.Errorf("Error reading from middleware: %v", err)
+			continue
+		}
+		cid := envelope.Cid()
+		channelsCid, exists := inputsChannelMap[cid]
+		if !exists {
+			log.Errorf("Channel not found: %v", cid)
+			break
+		}
+		if !ok {
+			log.Infof("cid %s finished receiving", cid)
+			delete(inputsChannelMap, envelope.Cid())
+		}
+		channelsCid.q1 <- envelope
+	}
+}
+
+func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator) {
 	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%s", cid), logger.Info)
 	moviesMetadataSender, err := (*c.MiddlewareChan).WriteTo(c.MoviesMetadataName, []string{"clean_movies"})
 	if err != nil {
@@ -396,6 +234,184 @@ OuterLoop:
 	// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 
 	log.Infof("finish all querys verified")
+}
+
+type ConfigCoordinator struct {
+	CoordinatorsCant            int
+	CoordinatorPrefetch         int
+	MiddlewareChan              *middleware.Connection[*model.Row]
+	MiddlewareChanByte          *middleware.Connection[*model.FileChunk]
+	MiddlewareChanPackageByte   *middleware.Connection[*common.PackageFile]
+	ReadFileByteQueue           string
+	MoviesMetadataName          string
+	CreditsName                 string
+	RatingsName                 string
+	Q1Output                    string
+	Q2Output                    string
+	Q3Output                    string
+	Q4Output                    string
+	Q5Output                    string
+	AllQuerysToEndpointName     string
+	ReceiverFileByte            middleware.Receiver[*common.PackageFile]
+	ReceiverQ1                  middleware.Receiver[*model.Row]
+	ReceiverQ2                  middleware.Receiver[*model.Row]
+	ReceiverQ3                  middleware.Receiver[*model.Row]
+	ReceiverQ4                  middleware.Receiver[*model.Row]
+	ReceiverQ5                  middleware.Receiver[*model.Row]
+	ReceiverAllQuerysToEndpoint middleware.Receiver[*model.Row]
+}
+
+func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQConnector) *ConfigCoordinator {
+	config := ConfigCoordinator{}
+	middlewareChan := rabbitmq.NewMiddleware[*model.Row](connector)
+	middlewareChanPackageByte := rabbitmq.NewMiddleware[*common.PackageFile](connector)
+	middlewareChanByte := rabbitmq.NewMiddleware[*model.FileChunk](connector)
+	config.MiddlewareChan = &middlewareChan
+	config.MiddlewareChanByte = &middlewareChanByte
+	config.MiddlewareChanPackageByte = &middlewareChanPackageByte
+	log.Infof("Connected to middleware")
+	config.ReadFileByteQueue = "file_bytes"
+	config.MoviesMetadataName = "movies_metadata"
+	config.CreditsName = "credits"
+	config.RatingsName = "ratings"
+	config.Q1Output = "filter_release_date_l_2010_and_include_es"
+	config.Q2Output = "reduce_top_5_by_budget"
+	config.Q3Output = "reduce_top_bottom_avg_rating"
+	config.Q4Output = "reduce_top_10_by_actor"
+	config.Q5Output = "filter_avg_rate"
+	config.AllQuerysToEndpointName = "all_querys_to_endpoint"
+	config.CoordinatorsCant = 1
+	config.CoordinatorPrefetch = 1
+
+	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverFileByte = receiverFileByte
+
+	q1Receiver, err := middlewareChan.ConsumeFrom(config.Q1Output, "q1", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverQ1 = q1Receiver
+
+	q2Receiver, err := middlewareChan.ConsumeFrom(config.Q2Output, "q2", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverQ2 = q2Receiver
+
+	q3Receiver, err := middlewareChan.ConsumeFrom(config.Q3Output, "q3", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverQ3 = q3Receiver
+
+	q4Receiver, err := middlewareChan.ConsumeFrom(config.Q4Output, "q4", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverQ4 = q4Receiver
+
+	q5Receiver, err := middlewareChan.ConsumeFrom(config.Q5Output, "q5", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverQ5 = q5Receiver
+	return &config
+}
+
+func (c *ConfigCoordinator) Close() {
+	if c.MiddlewareChan != nil {
+		(*c.MiddlewareChan).Close()
+		c.MiddlewareChan = nil
+	}
+	if c.MiddlewareChanByte != nil {
+		(*c.MiddlewareChanByte).Close()
+		c.MiddlewareChanByte = nil
+	}
+	if c.MiddlewareChanPackageByte != nil {
+		(*c.MiddlewareChanPackageByte).Close()
+		c.MiddlewareChanPackageByte = nil
+	}
+	if c.ReceiverFileByte != nil {
+		(c.ReceiverFileByte).Close()
+		c.ReceiverFileByte = nil
+	}
+	if c.ReceiverQ1 != nil {
+		(c.ReceiverQ1).Close()
+		c.ReceiverQ1 = nil
+	}
+	if c.ReceiverQ2 != nil {
+		(c.ReceiverQ2).Close()
+		c.ReceiverQ2 = nil
+	}
+	if c.ReceiverQ3 != nil {
+		(c.ReceiverQ3).Close()
+		c.ReceiverQ3 = nil
+	}
+	if c.ReceiverQ4 != nil {
+		(c.ReceiverQ4).Close()
+		c.ReceiverQ4 = nil
+	}
+	if c.ReceiverQ5 != nil {
+		(c.ReceiverQ5).Close()
+		c.ReceiverQ5 = nil
+	}
+}
+
+type ChannelsCid struct {
+	input chan middleware.Envelope[*common.PackageFile]
+	q1    chan middleware.Envelope[*model.Row]
+	q2    chan middleware.Envelope[*model.Row]
+	q3    chan middleware.Envelope[*model.Row]
+	q4    chan middleware.Envelope[*model.Row]
+	q5    chan middleware.Envelope[*model.Row]
+}
+
+func NewChannelsCid() *ChannelsCid {
+	return &ChannelsCid{
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		input: make(chan middleware.Envelope[*common.PackageFile], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q1: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q2: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q3: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q4: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		q5: make(chan middleware.Envelope[*model.Row], 0),
+	}
+}
+
+func (c *ChannelsCid) Close() {
+	if c.input != nil {
+		close(c.input)
+		c.input = nil
+	}
+	if c.q1 != nil {
+		close(c.q1)
+		c.q1 = nil
+	}
+	if c.q2 != nil {
+		close(c.q2)
+		c.q2 = nil
+	}
+	if c.q3 != nil {
+		close(c.q3)
+		c.q3 = nil
+	}
+	if c.q4 != nil {
+		close(c.q4)
+		c.q4 = nil
+	}
+	if c.q5 != nil {
+		close(c.q5)
+		c.q5 = nil
+	}
+
 }
 
 func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
@@ -677,4 +693,24 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 	}
 	msgEnvelope.Ack(false)
 	return n, err
+}
+
+type RatingB struct {
+	Id     uint32
+	Rating uint8
+}
+
+func (r *RatingB) Encode() []byte {
+	buf := make([]byte, 5)
+	binary.BigEndian.PutUint32(buf, r.Id)
+	buf[4] = r.Rating
+	return buf
+}
+
+func (r *RatingB) Decode(data []byte) {
+	if len(data) < 5 {
+		return
+	}
+	r.Id = binary.BigEndian.Uint32(data[:4])
+	r.Rating = data[4]
 }
