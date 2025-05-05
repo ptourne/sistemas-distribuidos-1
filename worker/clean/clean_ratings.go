@@ -82,7 +82,7 @@ func (f CleanRatings) process(row []byte) *model.Row {
 	return res
 }
 
-func (f *CleanRatings) Connect(middIn middleware.Connection[*model.FileChunk], middOut middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.FileChunk], error) {
+func (f *CleanRatings) Connect(inputMiddleware middleware.Connection[*model.FileChunk], outputMiddleware middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.FileChunk], error) {
 	var err error
 	prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
 	if err != nil {
@@ -92,11 +92,11 @@ func (f *CleanRatings) Connect(middIn middleware.Connection[*model.FileChunk], m
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse N_WORKERS: %w", err)
 	}
-	f.taskReceiver, err = middIn.ConsumeFrom(f.Input(), f.Name(), prefetch, n_workers)
+	f.taskReceiver, err = inputMiddleware.ConsumeFrom(f.Input(), f.Name(), uint(n_workers), prefetch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middOut.WriteToRK(f.Name(), f.subscribers, "direct")
+	f.taskSender, err = outputMiddleware.WriteToRK(f.Name(), f.subscribers, "direct")
 	//f.taskReceiver.LimitUnacked(10000)
 
 	if err != nil {
@@ -108,26 +108,31 @@ func (f *CleanRatings) Connect(middIn middleware.Connection[*model.FileChunk], m
 	go func() {
 		for {
 			ctx := context.Background()
-			envelope, ok, err := f.taskReceiver.Next(ctx)
+			envelope, err := f.taskReceiver.Next(ctx)
 			if err != nil {
-				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
+				if err.Error() == "read channel was closed" {
 					log.Infof("Channel closed: %v", f.Name())
 					break
 				}
 				log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
-			if !ok {
+			switch envelope.Type() {
+			case middleware.EOF:
 				// log.Infof("Channel closed: %v", f.Name())
 				// break
 				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
+			case middleware.Prune:
+				envelope.Ack(true)
+				continue
 			}
 			inputChannel <- envelope
+			// TODO falta un ack?
 		}
 		close(inputChannel)
 	}()
-	channels := []chan middleware.Envelope[*model.FileChunk]{inputChannel}
 
+	channels := []chan middleware.Envelope[*model.FileChunk]{inputChannel}
 	return channels, nil
 }
 

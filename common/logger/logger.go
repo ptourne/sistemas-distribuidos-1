@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"io"
 	"math"
@@ -125,33 +126,35 @@ func (l *ConsoleLogger) Logf(level LogLevel, format string, args ...interface{})
 		return
 	}
 	now := time.Now()
-	TimeColor.Fprintf(l.w, "%s ", now.Format("15:04:05.000000"))
-	l.nameColor.Fprintf(l.w, " %-*s ", 11, l.name)
+	buf := new(bytes.Buffer)
+
+	TimeColor.Fprintf(buf, "%s ", now.Format("15:04:05.000000"))
+	l.nameColor.Fprintf(buf, " %-*s ", 11, l.name)
 	switch level {
 	case Debug:
-		DebugColorTag.Fprintf(l.w, " DEBUG ")
-		DebugColorText.Fprint(l.w, " ")
-		DebugColorText.Fprintf(l.w, format, args...)
+		DebugColorTag.Fprintf(buf, " DEBUG ")
+		DebugColorText.Fprint(buf, " ")
+		DebugColorText.Fprintf(buf, format, args...)
 	case Info:
-		InfoColorTag.Fprintf(l.w, " INFO  ")
-		InfoColorText.Fprint(l.w, " ")
-		InfoColorText.Fprintf(l.w, format, args...)
+		InfoColorTag.Fprintf(buf, " INFO  ")
+		InfoColorText.Fprint(buf, " ")
+		InfoColorText.Fprintf(buf, format, args...)
 	case Warn:
-		WarnColorTag.Fprintf(l.w, " WARN  ")
-		WarnColorText.Fprint(l.w, " ")
-		WarnColorText.Fprintf(l.w, format, args...)
+		WarnColorTag.Fprintf(buf, " WARN  ")
+		WarnColorText.Fprint(buf, " ")
+		WarnColorText.Fprintf(buf, format, args...)
 	case Error:
-		ErrorColorTag.Fprintf(l.w, " ERROR ")
-		ErrorColorText.Fprint(l.w, " ")
-		ErrorColorText.Fprintf(l.w, format, args...)
+		ErrorColorTag.Fprintf(buf, " ERROR ")
+		ErrorColorText.Fprint(buf, " ")
+		ErrorColorText.Fprintf(buf, format, args...)
 	case Fatal:
-		FatalColorTag.Fprintf(l.w, " FATAL ")
-		FatalColorText.Fprint(l.w, " ")
-		FatalColorText.Fprintf(l.w, format, args...)
+		FatalColorTag.Fprintf(buf, " FATAL ")
+		FatalColorText.Fprint(buf, " ")
+		FatalColorText.Fprintf(buf, format, args...)
 	}
-
-	l.w.Write([]byte("\n"))
-
+	buf.Write([]byte("\n"))
+	output := buf.String()
+	l.w.Write([]byte(output))
 }
 
 func (l *ConsoleLogger) Debugf(format string, args ...interface{}) {

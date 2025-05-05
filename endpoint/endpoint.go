@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
@@ -55,11 +56,13 @@ func (e *Endpoint) Run() error {
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	middlewareChanByte := rabbitmq.NewMiddleware[*common.PackageFile](connector)
+	middlewareLogger := logger.NewConsoleLogger("coordinator", logger.Info)
+
+	middlewareChanByte := rabbitmq.NewMiddleware[*common.PackageFile](connector, middlewareLogger)
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChanByte.Close()
 
-	middlewareChanRow := rabbitmq.NewMiddleware[*model.Row](connector)
+	middlewareChanRow := rabbitmq.NewMiddleware[*model.Row](connector, middlewareLogger)
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChanRow.Close()
 
@@ -76,7 +79,7 @@ func (e *Endpoint) Run() error {
 		}
 		defer receiverAllQuerysToEndpoint.Close()
 		for {
-			envelope, ok, err := receiverAllQuerysToEndpoint.Next(ctx)
+			envelope, err := receiverAllQuerysToEndpoint.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" {
 					log.Infof("Channel closed: %v", allQuerysToEndpointName)
@@ -98,11 +101,18 @@ func (e *Endpoint) Run() error {
 				log.Errorf("Cid not found: %v", cid)
 				break
 			}
-			if !ok {
+			switch envelope.Type() {
+			case middleware.EOF:
 				log.Infof("cid %s finished receiving", cid)
 				e.lockClientsConn.Lock()
 				delete(e.clientsConn, envelope.Cid())
 				e.lockClientsConn.Unlock()
+			case middleware.Prune:
+				err = envelope.Ack(false)
+				if err != nil {
+					log.Errorf("failed to ack message in endpoint %s", err)
+				}
+				continue
 			}
 			outputCid <- envelope
 		}
@@ -165,21 +175,32 @@ func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
 func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, output chan middleware.Envelope[*model.Row], cid string) error {
 	log.Infof("Receiving and sending querys results to client %s", cid)
 	var err error
+OuterLoop:
 	for {
 		envelope := <-output
-		t := envelope.Type()
 		if envelope.Cid() != cid {
 			log.Errorf("Received message from wrong cid: %s", envelope.Cid())
 			continue
 		}
-		if t == middleware.EOF {
+		switch envelope.Type() {
+		case middleware.EOF:
 			log.Infof("No more querys")
 			bufAck := []byte("FinishQuerys")
 			err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), model.FinishQuerys)
 			if err != nil {
 				log.Errorf("Failed to send message: %v", err)
 			}
-			break
+			err = envelope.Ack(false)
+			if err != nil {
+				return fmt.Errorf("failed to ack message in endpoint %s", err)
+			}
+			break OuterLoop
+		case middleware.Prune:
+			err = envelope.Ack(false)
+			if err != nil {
+				return fmt.Errorf("failed to ack message in endpoint %s", err)
+			}
+			continue
 		}
 		receivedMovie := envelope.Msg()
 		var bufAck []byte

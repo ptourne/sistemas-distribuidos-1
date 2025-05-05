@@ -31,7 +31,7 @@ else
     echo "Error: Incorrect number of arguments"
     echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_lean_workers>,<number_of_joiners_ratings>,
     <number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment>,
-    <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>, 
+    <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>,
     <number_of_reduce_top_bottom_avg_ratings>, <number_of_clients>"
     exit 1
 fi
@@ -97,7 +97,7 @@ services:"
 compose_rabbitmq() {
     echo "    rabbitmq:
         container_name: rabbitmq
-        image: rabbitmq:management
+        image: rabbitmq:4.1.0-management
         ports:
             - \"5672:5672\"
             - \"15672:15672\"
@@ -366,7 +366,7 @@ compose_reduce_by_movieId() {
 
 compose_header > $file_name
 compose_rabbitmq >> $file_name
-# compose_sentiment_server >> $file_name
+compose_sentiment_server >> $file_name
 compose_coordinator >> $file_name
 for i in $(seq 1 $number_of_workers); do
     compose_workers $i >> $file_name

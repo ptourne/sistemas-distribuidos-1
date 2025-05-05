@@ -1,4 +1,5 @@
 import subprocess
+# python3 generate_compose.py 
 
 # Variables globales
 file_name = "./docker-compose.yml"

@@ -2,7 +2,7 @@ name: analisis-peliculas
 services:
     rabbitmq:
         container_name: rabbitmq
-        image: rabbitmq:management
+        image: rabbitmq:4.1.0-management
         ports:
             - "5672:5672"
             - "15672:15672"

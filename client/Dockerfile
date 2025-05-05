@@ -19,7 +19,7 @@ RUN go mod download
 
 COPY ./client .
 
-RUN go test -v ./...
+RUN CI=BUILD go test -v ./...
 
 # CGO_ENABLED must be disabled to run go binary in Alpine
 RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/client github.com/ptourne/sistemas-distribuidos-1/client

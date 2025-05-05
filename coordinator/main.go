@@ -19,7 +19,8 @@ import (
 )
 
 func main() {
-	var log = logger.NewConsoleLogger("coordinator", logger.Info)
+	log := logger.NewConsoleLogger("coordinator", logger.Info)
+	// logMiddleware := logger.NewConsoleLogger("coordinator_mid", logger.Info)
 	connector, err := rabbitmq.Connector()
 	if err != nil {
 		log.Errorf("Failed to connect middleware: %v", err)
@@ -37,7 +38,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		for {
-			envelope, _, err := config.ReceiverFileByte.Next(ctx)
+			envelope, err := config.ReceiverFileByte.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" {
 					log.Infof("Channel closed: %v", config.ReadFileByteQueue)
@@ -60,6 +61,13 @@ func main() {
 				wg.Add(1)
 				go handleClient(cid, channelsCid, config, &wg)
 			}
+			switch envelope.Type() {
+			case middleware.EOF:
+			case middleware.Prune:
+				err = envelope.Ack(true)
+				unwrap(err, "Failed to ack message", log)
+				continue
+			}
 			channelsCid.input <- envelope
 		}
 	}()
@@ -77,7 +85,7 @@ func main() {
 func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for {
-		envelope, ok, err := queue.Next(ctx)
+		envelope, err := queue.Next(ctx)
 		if err != nil {
 			if err.Error() == "read channel was closed" {
 				log.Infof("Channel closed: %v", channelString)
@@ -96,12 +104,20 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 			log.Errorf("Channel not found: %v", cid)
 			break
 		}
-		if !ok {
+		switch envelope.Type() {
+		case middleware.EOF:
 			log.Infof("cid %s finished receiving", cid)
 			inputChannelMapLock.Lock()
 			delete(inputsChannelMap, envelope.Cid()) //TODO deberia ser SOLO EN Q5
 			inputChannelMapLock.Unlock()
+			err = envelope.Ack(false)
+			unwrap(err, "Failed to ack message", log)
+		case middleware.Prune:
+			err = envelope.Ack(true)
+			unwrap(err, "Failed to ack message", log)
+			continue
 		}
+
 		queue := getFuc(channelsCid)
 		queue <- envelope
 	}
@@ -246,7 +262,7 @@ OuterLoop:
 }
 
 type ConfigCoordinator struct {
-	CoordinatorsCant            int
+	CoordinatorsCant            uint
 	CoordinatorPrefetch         int
 	MiddlewareChan              *middleware.Connection[*model.Row]
 	MiddlewareChanByte          *middleware.Connection[*model.FileChunk]
@@ -272,9 +288,9 @@ type ConfigCoordinator struct {
 
 func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQConnector) *ConfigCoordinator {
 	config := ConfigCoordinator{}
-	middlewareChan := rabbitmq.NewMiddleware[*model.Row](connector)
-	middlewareChanPackageByte := rabbitmq.NewMiddleware[*common.PackageFile](connector)
-	middlewareChanByte := rabbitmq.NewMiddleware[*model.FileChunk](connector)
+	middlewareChan := rabbitmq.NewMiddleware[*model.Row](connector, log)
+	middlewareChanPackageByte := rabbitmq.NewMiddleware[*common.PackageFile](connector, log)
+	middlewareChanByte := rabbitmq.NewMiddleware[*model.FileChunk](connector, log)
 	config.MiddlewareChan = &middlewareChan
 	config.MiddlewareChanByte = &middlewareChanByte
 	config.MiddlewareChanPackageByte = &middlewareChanPackageByte
@@ -521,18 +537,24 @@ func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middlew
 	if err != nil {
 		log.Errorf("Failed to send message: %v", err)
 	}
-
+OuterLoop:
 	for {
 		envelope := <-qReceiver
-		t := envelope.Type()
 		if envelope.Cid() != cid {
 			log.Errorf("Received message from wrong cid: %s", envelope.Cid())
 			continue
 		}
-		if t == middleware.EOF {
+		switch envelope.Type() {
+		case middleware.EOF:
 			log.Infof("No more countries, finish arrived") //TODO MANDARLO el send eof en q5
 			allQuerysToEndpointSender.SendEOF(cid)
-			break
+			err = envelope.Ack(false)
+			unwrap(err, "Failed to ack message", log)
+			break OuterLoop
+		case middleware.Prune:
+			err = envelope.Ack(true)
+			unwrap(err, "Failed to ack message", log)
+			continue
 		}
 		receivedCountry := envelope.Msg()
 		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedCountry), cid)
