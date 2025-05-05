@@ -32,6 +32,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	inputsChannelMap := map[string]*ChannelsCid{}
+	inputChannelMapLock := sync.Mutex{}
 	wg.Add(1)
 	go func() {
 		for {
@@ -52,7 +53,9 @@ func main() {
 			channelsCid, exists := inputsChannelMap[cid]
 			if !exists {
 				channelsCid = NewChannelsCid()
+				inputChannelMapLock.Lock()
 				inputsChannelMap[cid] = channelsCid
+				inputChannelMapLock.Unlock()
 				wg.Add(1)
 				go handleClient(cid, channelsCid, config)
 			}
@@ -61,7 +64,7 @@ func main() {
 	}()
 
 	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1)
+	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock)
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -70,7 +73,7 @@ func main() {
 	}
 }
 
-func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row]) {
+func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex) {
 	for {
 		envelope, ok, err := queue.Next(ctx)
 		if err != nil {
@@ -93,7 +96,9 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 		}
 		if !ok {
 			log.Infof("cid %s finished receiving", cid)
-			delete(inputsChannelMap, envelope.Cid())
+			inputChannelMapLock.Lock()
+			delete(inputsChannelMap, envelope.Cid()) //TODO deberia ser SOLO EN Q5
+			inputChannelMapLock.Unlock()
 		}
 		queue := getFuc(channelsCid)
 		queue <- envelope
