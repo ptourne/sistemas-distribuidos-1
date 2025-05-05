@@ -43,8 +43,9 @@ func (w *Worker) Run() {
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
-	middlewareConnectionBin := rabbitmq.NewMiddleware[*model.FileChunk](connector)
+	middlewareLog := logger.NewConsoleLogger("middleware", logger.Info)
+	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector, middlewareLog)
+	middlewareConnectionBin := rabbitmq.NewMiddleware[*model.FileChunk](connector, middlewareLog)
 	if err != nil {
 		unwrap(err, "Failed to create middleware")
 	}

@@ -83,7 +83,7 @@ func (f CleanCredits) process(row *model.Row) *model.Row {
 	}
 }
 
-func (f *CleanCredits) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
+func (f *CleanCredits) Connect(inputMiddleware middleware.Connection[*model.Row], outputMiddleware middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
 	prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
 	if err != nil {
@@ -93,11 +93,11 @@ func (f *CleanCredits) Connect(middlewareConnection middleware.Connection[*model
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse N_WORKERS: %w", err)
 	}
-	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), prefetch, n_workers)
+	f.taskReceiver, err = inputMiddleware.ConsumeFrom(f.Input(), f.Name(), uint(n_workers), prefetch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), f.subscribers)
+	f.taskSender, err = outputMiddleware.WriteTo(f.Name(), f.subscribers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create write queue for task %s", f.Name())
 	}
@@ -107,7 +107,7 @@ func (f *CleanCredits) Connect(middlewareConnection middleware.Connection[*model
 	go func() {
 		for {
 			ctx := context.Background()
-			envelope, ok, err := f.taskReceiver.Next(ctx)
+			envelope, err := f.taskReceiver.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" {
 					log.Infof("Channel closed: %v", f.Name())
@@ -116,12 +116,17 @@ func (f *CleanCredits) Connect(middlewareConnection middleware.Connection[*model
 				log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
-			if !ok {
+			switch envelope.Type() {
+			case middleware.EOF:
 				// log.Infof("Channel closed: %v", f.Name())
 				// break
 				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
+			case middleware.Prune:
+				envelope.Ack(true)
+				continue
 			}
 			inputChannel <- envelope
+			// TODO falta un ack?
 		}
 		close(inputChannel)
 	}()

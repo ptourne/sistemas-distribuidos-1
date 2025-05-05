@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
@@ -50,11 +51,13 @@ func (e *Endpoint) Run() error {
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	middlewareChanByte := rabbitmq.NewMiddleware[*common.PackageFile](connector)
+	middlewareLogger := logger.NewConsoleLogger("coordinator", logger.Info)
+
+	middlewareChanByte := rabbitmq.NewMiddleware[*common.PackageFile](connector, middlewareLogger)
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChanByte.Close()
 
-	middlewareChanRow := rabbitmq.NewMiddleware[*model.Row](connector)
+	middlewareChanRow := rabbitmq.NewMiddleware[*model.Row](connector, middlewareLogger)
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 	defer middlewareChanRow.Close()
 
@@ -117,7 +120,7 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Minute)
-		envelope, ok, err := receiverAllQuerysToEndpoint.Next(ctx)
+		envelope, err := receiverAllQuerysToEndpoint.Next(ctx)
 		cancel()
 		if err != nil {
 			if err.Error() == "timeout reached while waiting for message" {
@@ -128,14 +131,25 @@ func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, middlew
 				continue
 			}
 		}
-		if !ok {
+		switch envelope.Type() {
+		case middleware.EOF:
 			log.Infof("No more querys")
 			bufAck := []byte("FinishQuerys")
 			err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), model.FinishQuerys)
 			if err != nil {
 				log.Errorf("Failed to send message: %v", err)
 			}
+			err = envelope.Ack(false)
+			if err != nil {
+				return fmt.Errorf("failed to ack message in endpoint %s", err)
+			}
 			break
+		case middleware.Prune:
+			err = envelope.Ack(false)
+			if err != nil {
+				return fmt.Errorf("failed to ack message in endpoint %s", err)
+			}
+			continue
 		}
 		receivedMovie := envelope.Msg()
 		var bufAck []byte

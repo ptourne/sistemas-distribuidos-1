@@ -36,7 +36,9 @@ func (w *Worker) Run() {
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
+	middlewareLog := logger.NewConsoleLogger("middleware", logger.Info)
+
+	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector, middlewareLog)
 
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 

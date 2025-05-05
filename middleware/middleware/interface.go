@@ -9,16 +9,22 @@ import (
 
 // ver de declare, tratr de devovler un struct, ghacer read/write
 type Connection[T codec.Serializable[T]] interface {
-	ConsumeFrom(sourceName string, groupName string, peers int, prefetch int) (Receiver[T], error)
-	ConsumeFromRK(sourceName string, groupName string, t string, routingkey string, peers int, prefetch int) (Receiver[T], error)
+	ConsumeFrom(sourceName string, groupName string, consumerCount uint, prefetch int) (Receiver[T], error)
+	ConsumeFromRK(sourceName string, groupName string, t string, routingkey string, consumerCount uint, prefetch int) (Receiver[T], error)
 	WriteTo(writeExchangeName string, subscribers []string) (Sender[T], error)
 	WriteToRK(writeExchangeName string, subscribers map[string][]string, t string) (Sender[T], error)
 	Close() error
 }
 
 type Receiver[T codec.Serializable[T]] interface {
-	Next(ctx context.Context) (Envelope[T], bool, error)
+	Next(ctx context.Context) (Envelope[T], error)
 	Close() error
+}
+
+type TimeoutErr struct{}
+
+func (e TimeoutErr) Error() string {
+	return "timeout reached while waiting for message"
 }
 
 type Envelope[T codec.Serializable[T]] interface {
@@ -33,8 +39,8 @@ type TypeMsg int
 
 const (
 	Normal TypeMsg = iota
-	EOF
 	Prune
+	EOF
 )
 
 // TypeMsg indicates the type received on Next().
