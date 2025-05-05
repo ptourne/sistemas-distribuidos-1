@@ -237,7 +237,7 @@ func NewWorker() Worker {
 
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits", "joiner_ratings"})
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"})
-	// filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
+	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
 	// joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{"reduce_by_actor"})
 
 	// grpcAddress := os.Getenv("NLP_GRPC_ADDR")
@@ -253,7 +253,7 @@ func NewWorker() Worker {
 			// credits_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
-			// filter_one_production_country,
+			filter_one_production_country,
 			// joiner_credits,
 			// map_nlp,
 			// filter_avg_rate,

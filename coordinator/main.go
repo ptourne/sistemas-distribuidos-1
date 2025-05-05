@@ -73,7 +73,9 @@ func main() {
 	}()
 
 	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg)
+	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, true)
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -82,7 +84,7 @@ func main() {
 	}
 }
 
-func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex, wg *sync.WaitGroup) {
+func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex, wg *sync.WaitGroup, lastQuery bool) {
 	defer wg.Done()
 	for {
 		envelope, err := queue.Next(ctx)
@@ -106,12 +108,14 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
-			log.Infof("cid %s finished receiving", cid)
-			inputChannelMapLock.Lock()
-			delete(inputsChannelMap, envelope.Cid()) //TODO deberia ser SOLO EN Q5
-			inputChannelMapLock.Unlock()
-			err = envelope.Ack(false)
-			unwrap(err, "Failed to ack message", log)
+			if lastQuery { //TODO deberia ser SOLO EN Q5
+				log.Infof("cid %s finished receiving", cid)
+				inputChannelMapLock.Lock()
+				delete(inputsChannelMap, envelope.Cid())
+				inputChannelMapLock.Unlock()
+				// err = envelope.Ack(false)
+				// unwrap(err, "Failed to ack message", log)
+			}
 		case middleware.Prune:
 			err = envelope.Ack(true)
 			unwrap(err, "Failed to ack message", log)
@@ -253,7 +257,7 @@ OuterLoop:
 	log.Infof("CSV processing completed")
 
 	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
-	// verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
 	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
 	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
 	// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
@@ -485,7 +489,7 @@ func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q1", expectedOutputQ1, removeQ1)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q1", expectedOutputQ1, removeQ1, false)
 }
 
 func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
@@ -496,7 +500,7 @@ func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Numerics: map[string]uint64{"budget_sum": 1169682797}, Strings: map[string]string{"country": "IN"}},
 		{Numerics: map[string]uint64{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q2", expectedOutputQ2, removeQ2)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q2", expectedOutputQ2, removeQ2, true) //TODO MANDARLO el send eof en q5
 }
 
 func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
@@ -504,7 +508,7 @@ func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
 		{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3, removeQ3)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3, removeQ3, false)
 }
 
 func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
@@ -520,7 +524,7 @@ func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q4", expectedOutputQ4, removeQ4)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q4", expectedOutputQ4, removeQ4, false)
 }
 
 func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
@@ -528,10 +532,10 @@ func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Strings: map[string]string{"sentiment": "NEGATIVE"}, Floats: map[string]float64{"avg_rate": 5453.397595}},
 		{Strings: map[string]string{"sentiment": "POSITIVE"}, Floats: map[string]float64{"avg_rate": 5668.650541}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q5", expectedOutputQ5, removeQ5)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q5", expectedOutputQ5, removeQ5, true)
 }
 
-func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row], queryNumber string, expectedOutput []*model.Row, remove func([]*model.Row, *model.Row, *logger.ConsoleLogger) []*model.Row) {
+func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row], queryNumber string, expectedOutput []*model.Row, remove func([]*model.Row, *model.Row, *logger.ConsoleLogger) []*model.Row, lastQuery bool) {
 	log.Infof("Verifying %s", queryNumber)
 	err := allQuerysToEndpointSender.Send(model.RowQueryName(queryNumber), cid)
 	if err != nil {
@@ -546,8 +550,10 @@ OuterLoop:
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
-			log.Infof("No more countries, finish arrived") //TODO MANDARLO el send eof en q5
-			allQuerysToEndpointSender.SendEOF(cid)
+			log.Infof("No more countries, finish arrived")
+			if lastQuery {
+				allQuerysToEndpointSender.SendEOF(cid)
+			}
 			err = envelope.Ack(false)
 			unwrap(err, "Failed to ack message", log)
 			break OuterLoop

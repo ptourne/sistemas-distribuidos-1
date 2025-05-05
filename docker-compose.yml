@@ -16,6 +16,24 @@ services:
         volumes:
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
+    sentiment_server:
+        container_name: sentiment_server
+        build:
+            context: .
+            dockerfile: worker/nlp/python_server/Dockerfile
+        ports:
+            - "50051:50051"
+        networks:
+            - local_net
+        environment:
+            - GRPC_PORT=50051
+            - GRPC_WORKERS=30
+        healthcheck:
+            test: ncat -zv localhost 50051
+            interval: 10s
+            timeout: 10s
+            retries: 10
+
     coordinator:
         container_name: coordinator
         build:
@@ -31,6 +49,8 @@ services:
             - PREFETCH=1
         depends_on:
             rabbitmq:
+                condition: service_healthy
+            sentiment_server:
                 condition: service_healthy
 
     worker1:
@@ -50,6 +70,8 @@ services:
             - local_net
         depends_on:
             rabbitmq:
+                condition: service_healthy
+            sentiment_server:
                 condition: service_healthy
         volumes:
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
@@ -73,9 +95,41 @@ services:
         depends_on:
             rabbitmq:
                 condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
         volumes:
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+
+    reduce_by_country_sum_budget1:
+        container_name: reduce_by_country_sum_budget1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_5_by_budget1:
+        container_name: reduce_top_5_by_budget1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
 
     client1:
         container_name: client1

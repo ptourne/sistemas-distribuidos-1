@@ -276,7 +276,7 @@ compose_reduce() {
     local name=$3
     local dockerfile_path=$4
     local entrypoint=$5
-    echo "    reduce_by_actor$worker_id:
+    echo "    $name$worker_id:
         container_name: $name$worker_id
         build:
             context: .
@@ -377,12 +377,12 @@ done
 # for i in $(seq 1 $number_of_joiners_ratings); do
 #     compose_joiner_rating $i >> $file_name
 # done
-# for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
-#     compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
-# done
-# for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
-#     compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
-# done
+for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
+    compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
+done
+for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
+    compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
+done
 # for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
 #     compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
 # done
