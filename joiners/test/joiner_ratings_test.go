@@ -123,7 +123,7 @@ func configTestJoinerRatings(t *testing.T, output string, middlewareConnection m
 	assert.NoError(t, err)
 	worker := joiner.NewRatingsWorker([]string{output})
 	currentTask := worker.Tasks
-	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), output, 0, 20)
+	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), output, 1, 20)
 	assert.NoError(t, err)
 	assert.NoError(t, err)
 	return inputMovies, inputCredits, worker, outputJoiner

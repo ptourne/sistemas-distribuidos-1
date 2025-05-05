@@ -6,6 +6,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
 type In = *model.Row
@@ -17,8 +18,26 @@ type Res = *model.Row
 
 type MapReducerSum = map_reducer.MapReducer[In, *Acc, Res]
 
-func NewMapReducerBySentiment(name string, input string, batchSize uint, subscribers []string) (*MapReducerSum, error) {
-	return map_reducer.NewMapReducer[In, *Acc, Res](name, input, batchSize, &SumMapReduce{}, subscribers, []string{})
+func NewMapReducerBySentiment(
+	connector *rabbitmq.RabbitMQConnector,
+	name string,
+	input string,
+	batchSize uint,
+	subscribers []string,
+	id string,
+	count uint,
+) (*MapReducerSum, error) {
+	return map_reducer.NewMapReducer[In, *Acc, Res](
+		connector,
+		name,
+		input,
+		batchSize,
+		&SumMapReduce{},
+		subscribers,
+		[]string{},
+		id,
+		count,
+	)
 }
 
 type SumMapReduce struct {

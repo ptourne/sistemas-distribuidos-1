@@ -12,6 +12,7 @@ if [ "$#" -eq 10 ]; then
     number_of_reduce_by_actor=$8
     number_of_reduce_top_10_by_actor=$9
     number_of_reduce_top_bottom_avg_ratings=$10
+    number_of_clients=${11}
 
 
 
@@ -26,13 +27,14 @@ elif [ "$#" -eq 11 ]; then
     number_of_reduce_by_sentiment=$8
     number_of_reduce_by_actor=$9
     number_of_reduce_top_10_by_actor=$10
-    number_of_reduce_top_bottom_avg_ratings=$11
-
+    number_of_reduce_top_bottom_avg_ratings=${11}
+    number_of_clients=${12}
 else
     echo "Error: Incorrect number of arguments"
     echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_lean_workers>,<number_of_joiners_credits>,<number_of_joiners_ratings>,
-    <number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,<number_of_reduce_by_sentiment>,
-    <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>, <number_of_reduce_top_bottom_avg_ratings>"
+    <number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,
+    <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>,
+    <number_of_reduce_top_bottom_avg_ratings>, <number_of_clients>"
     exit 1
 fi
 
@@ -81,6 +83,14 @@ if ! [[ "$number_of_reduce_top_10_by_actor" =~ ^[0-9]+$ ]] || [ "$number_of_redu
     exit 1
 fi
 
+# Verify number_of_clients is a positive integer
+if ! [[ "$number_of_clients" =~ ^[0-9]+$ ]] || [ "$number_of_clients" -le -1 ]; then
+    echo "Error: Number of clients must be a positive integer"
+    exit 1
+fi
+
+
+
 compose_header() {
     echo "name: analisis-peliculas
 services:"
@@ -89,7 +99,7 @@ services:"
 compose_rabbitmq() {
     echo "    rabbitmq:
         container_name: rabbitmq
-        image: rabbitmq:management
+        image: rabbitmq:4.1.0-management
         ports:
             - \"5672:5672\"
             - \"15672:15672\"
@@ -120,6 +130,7 @@ compose_coordinator() {
             - NUMBER_OF_WORKERS=$number_of_workers
             - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=$number_of_reduce_by_country_sum_budgets
             - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=$number_of_reduce_top_5_by_budgets
+            - PREFETCH=1
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -141,8 +152,10 @@ compose_workers() {
             - WORKER_ID=$worker_id
             - N_JOINERS_CREDITS=$number_of_joiners_credits
             - N_JOINERS_RATINGS=$number_of_joiners_ratings
+            - N_WORKERS=$number_of_workers
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - PREFETCH=1
         networks:
             - local_net
         depends_on:
@@ -224,8 +237,9 @@ compose_joiner_credits() {
 }
 
 compose_client() {
-    echo "    client:
-        container_name: client
+    local client_id=$1
+    echo "    client$client_id:
+        container_name: client$client_id
         build:
             context: .
             dockerfile: client/Dockerfile
@@ -380,37 +394,41 @@ compose_coordinator >> $file_name
 for i in $(seq 1 $number_of_workers); do
     compose_workers $i >> $file_name
 done
-for i in $(seq 1 $number_of_lean_workers); do
-    compose_lean_workers $i >> $file_name
+# for i in $(seq 1 $number_of_lean_workers); do
+#     compose_lean_workers $i >> $file_name
+# done
+# for i in $(seq 1 $number_of_joiners_credits); do
+#     compose_joiner_credits $i $number_of_joiners_credits >> $file_name
+# done
+# for i in $(seq 1 $number_of_joiners_ratings); do
+#     compose_joiner_rating $i >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
+#     compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
+#     compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
+#     compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_by_sentiment); do
+#     compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_by_actor); do
+#     compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
+#     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
+# done
+# NUMBER_OF_REDUCE_BY_MOVIEID=10
+# for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
+#     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
+# done
+
+# compose_client >> $file_name
+for i in $(seq 1 $number_of_clients); do
+    compose_client $i $number_of_clients >> $file_name
 done
-for i in $(seq 1 $number_of_joiners_credits); do
-    compose_joiner_credits $i $number_of_joiners_credits >> $file_name
-done
-for i in $(seq 1 $number_of_joiners_ratings); do
-    compose_joiner_rating $i $number_of_joiners_ratings >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
-    compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
-    compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
-    compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_by_sentiment); do
-    compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_by_actor); do
-    compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
-    compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
-done
-NUMBER_OF_REDUCE_BY_MOVIEID=10
-for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
-    compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
-done
-compose_client >> $file_name
 compose_endpoint >> $file_name
 compose_network >> $file_name

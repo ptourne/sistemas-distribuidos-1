@@ -2,9 +2,12 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"testing"
 	"time"
+
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/joiners_ratings_workers/joiner"
@@ -131,7 +134,7 @@ func configTestJoinerCredits(t *testing.T, output string, middlewareConnection m
 	worker := joiner.NewCreditsWorker([]string{output})
 	currentTask := worker.Tasks
 	//currentTask = credits.NewJoinerCredits(movies, credits, []string{output})
-	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), output, 0, 20)
+	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), output, 1, 20)
 	assert.NoError(t, err)
 	assert.NoError(t, err)
 	return inputMovies, inputCredits, worker, outputJoiner
@@ -148,7 +151,10 @@ func ConnectToRabbitMQ(t *testing.T) middleware.Connection[*model.Row] {
 		time.Sleep(5 * time.Second)
 		connector, err = rabbitmq.ConnectorCustom(rabbitmq.NewConfiguration("guest", "guest", "localhost", 5672))
 	}
-	return rabbitmq.NewMiddleware[*model.Row](connector)
+	id := "1"
+	middlewareLogger := logger.NewConsoleLogger(fmt.Sprintf("middleware_%s", id), logger.Debug)
+	return rabbitmq.NewMiddleware[*model.Row](connector, middlewareLogger)
+
 }
 
 func SendRows(t *testing.T, sender middleware.Sender[*model.Row], cid string, rows ...*model.Row) {
@@ -163,7 +169,7 @@ func SendRows(t *testing.T, sender middleware.Sender[*model.Row], cid string, ro
 func ExpectNoMoreRows(t *testing.T, output middleware.Receiver[*model.Row]) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	_, _, err := output.Next(ctx)
+	_, err := output.Next(ctx)
 	assert.Error(t, err)
 	assert.Equal(t, err.Error(), "timeout reached while waiting for message")
 }
@@ -178,13 +184,13 @@ func AssertResults(t *testing.T, outputJoiner middleware.Receiver[*model.Row], e
 			steps[client] = 0
 			countExpected += len(expected[client])
 		}
-		countExpected++ // eof. ToDo: +=2 prune
+		countExpected += 2
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
 	t.Logf("Expecting %d messages", countExpected)
 	for range countExpected {
-		env, _, err := outputJoiner.Next(ctx)
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		env, err := outputJoiner.Next(ctx)
 		assert.NoError(t, err)
 		cid := env.Cid()
 		stepCid, exists := steps[cid]
@@ -210,18 +216,16 @@ func AssertResults(t *testing.T, outputJoiner middleware.Receiver[*model.Row], e
 				expected[cid] = expected[cid][1:]
 				continue
 			}
+
 		case 1:
+			assert.Equal(t, middleware.Prune, env.Type())
+			env.Ack(false)
+			t.Logf("Received prune for client %s", cid)
+		case 2:
 			assert.Equal(t, middleware.EOF, env.Type())
 			t.Logf("Received EOF for client %s", cid)
 			delete(steps, cid)
-			// case 1:
-			// 	assert.Equal(t, middleware.Prune, env.Type())
-			//  t.Logf("Received prune for client %s", cid)
-			// case 2:
-			// 	assert.Equal(t, middleware.EOF, env.Type())
-			//  t.Logf("Received EOF for client %s", cid)
-			//  delete(steps, cid)
-		case 2:
+		case 3:
 			assert.FailNow(t, "Unexpected message for client %s", cid)
 		}
 		steps[cid]++

@@ -66,7 +66,7 @@ func (w *Worker) Run() {
 			continue
 		}
 		err = envelope.Ack(false)
-		unwrap(err, "Failed to ack message")
+		unwrap(err, "Failed to ack message in run")
 	}
 }
 

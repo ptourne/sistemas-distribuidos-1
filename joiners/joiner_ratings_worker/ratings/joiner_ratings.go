@@ -41,18 +41,11 @@ func (f *JoinerRatings) Name() string {
 	return "joiner_ratings"
 }
 
-func (f *JoinerRatings) ProcessAndSend(row *model.Row) error {
+func (f *JoinerRatings) ProcessAndSend(env middleware.Envelope[*model.Row]) error {
 	var err error
-	//movieID := row.Strings["movieID"]
+	row := env.Msg()
+	row.Strings["cid"] = env.Cid()
 	if title, ok := row.Strings["title"]; ok && title != "" {
-		//log.Infof("Processing movie: %s", movieID)
-		// if !f.doneRatings.Load() {
-		// 	log.Infof("Adding movie to pending: %s", movieID)
-		// 	f.pendingMoviesMu.Lock()
-		// 	f.pendingMovies[movieID] = row
-		// 	f.pendingMoviesMu.Unlock()
-		// 	return nil
-		// }
 		err = f.processMovieAndSendRatings(row)
 	} else if _, ok := row.Floats["avg_rating"]; ok {
 		err = f.processRating(row)
@@ -304,13 +297,13 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 		return nil, fmt.Errorf("failed to parse WORKER_COUNT: %w", err)
 	}
 	groupQueueName := fmt.Sprintf("joiner_%s_ratings", id)
-	f.taskReceiverRatings, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, peers-1, 2) // ToDo: usar los valores reales de 'peers' (sacar -1) y 'prefetch'
+	f.taskReceiverRatings, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, uint(peers), 2) // ToDo: usar los valores reales de 'peers' (sacar -1) y 'prefetch'
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue clean_ratings for task %s", f.Name())
 	}
 	Log.Infof("Created read queue exchange %s with groupName %s", f.Name(), groupQueueName)
 
-	f.taskReceiverMovies, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), peers-1, 2) // ToDo: usar los valores reales de 'peers' (sacar -1 ) y 'prefetch'
+	f.taskReceiverMovies, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), uint(peers), 2) // ToDo: usar los valores reales de 'peers' (sacar -1 ) y 'prefetch'
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue %s for task %s", f.Input(), f.Name())
 	}
@@ -328,7 +321,7 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 		for {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			envelope, ok, err := f.taskReceiverRatings.Next(ctx)
+			envelope, err := f.taskReceiverRatings.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
 					Log.Infof("Channel for ratings closed from task: %v", f.Name())
@@ -337,13 +330,13 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 				Log.Errorf("Error reading from middleware (joiner_ratings): %v", err)
 				continue
 			}
-			if !ok {
-				if envelope == nil || envelope.Type() != middleware.EOF {
-					Log.Infof("Channel closed (ratings): %v", f.Name())
+			// if !ok {
+			// 	if envelope == nil || envelope.Type() != middleware.EOF {
+			// 		Log.Infof("Channel closed (ratings): %v", f.Name())
 
-					break
-				}
-			}
+			// 		break
+			// 	}
+			// }
 			inputChannelRatings <- envelope
 		}
 		//f.notifyRatingsDone()
@@ -354,7 +347,7 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 		for {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			envelope, ok, err := f.taskReceiverMovies.Next(ctx)
+			envelope, err := f.taskReceiverMovies.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
 					Log.Infof("Channel for movies closed from task: %v", f.Name())
@@ -363,13 +356,13 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 				Log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
-			if !ok {
-				if envelope == nil || envelope.Type() != middleware.EOF {
-					Log.Infof("Channel closed (movies): %v", f.Name())
+			// if !ok {
+			// 	if envelope == nil || envelope.Type() != middleware.EOF {
+			// 		Log.Infof("Channel closed (movies): %v", f.Name())
 
-					break
-				}
-			}
+			// 		break
+			// 	}
+			// }
 			inputChannelMovies <- envelope
 		}
 		close(inputChannelMovies)
@@ -382,10 +375,6 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 }
 
 func (f *JoinerRatings) Finish() error {
-	// if !f.doneRatings.Load() {
-	// 	log.Infof("Cannot finish: still processing ratings")
-	// 	return fmt.Errorf("cannot finish: still receiving ratings")
-	// }
 	if err := f.taskReceiverMovies.Close(); err != nil {
 		return fmt.Errorf("failed to close task receiver (movies): %w", err)
 	}

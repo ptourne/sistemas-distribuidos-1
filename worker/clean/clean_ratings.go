@@ -1,8 +1,11 @@
 package clean
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
@@ -48,46 +51,26 @@ func (f CleanRatings) Name() string {
 	return "clean_ratings"
 }
 
-func (f CleanRatings) ProcessAndSend(row *model.FileChunk) error {
-	output := f.process(row.Bytes) // TODO: this should be a different model
-	if output == nil {
-		return nil
+func (f CleanRatings) ProcessAndSend(envelope middleware.Envelope[*model.FileChunk]) error {
+	fileChunk := envelope.Msg()
+	cid := envelope.Cid()
+	t := envelope.Type()
+	if t == middleware.EOF {
+		return f.taskSender.SendEOF(cid)
+	} else {
+		output := f.process(fileChunk.Bytes) // TODO: this should be a different model
+		if output == nil {
+			return nil
+		}
+		movieId := output.Strings["movieID"]
+		routingKey := string(movieId[len(movieId)-1])
+		return f.taskSender.SendRK(output, routingKey, cid)
 	}
-	movieId := output.Strings["movieID"]
-	routingKey := string(movieId[len(movieId)-1])
-	return f.taskSender.SendRK(output, routingKey)
 }
 
 func (f CleanRatings) process(row []byte) *model.Row {
 	rating := &Rating{}
 	rating.Decode(row)
-	// requiredFields := []string{
-	// 	row.Strings["movieID"],
-	// 	row.Strings["rating"],
-	// }
-
-	// log.Debugf("Clean: movieID: %s, rating: %s",
-	// 	row.Strings["movieID"],
-	// 	row.Strings["rating"],
-	// )
-
-	// for _, field := range requiredFields {
-	// 	if utils.MustDropRow(field) {
-	// 		log.Debugf("warning: dropping row due to empty field: %s", field)
-	// 		return nil
-	// 	}
-	// }
-	// rating, ok := utils.ParseFloat(row.Strings["rating"])
-	// rating := strings.ReplaceAll(row.Strings["rating"], ".", "")
-	// ratingUint, err := strconv.ParseUint(rating, 10, 8)
-
-	// if err != nil {
-	// 	log.Warnf("could not parse rating: %s", row.Strings["rating"])
-	// 	return nil
-	// }
-
-	// log.Debugf("Clean ALL: movieID: %s, rating: %v", row.Strings["movieID"], rating)
-
 	res := &model.Row{
 		Strings: map[string]string{
 			"movieID": fmt.Sprintf("%d", rating.Id),
@@ -96,17 +79,24 @@ func (f CleanRatings) process(row []byte) *model.Row {
 			"rating": uint64(rating.Rating),
 		}, //Todo use codec.Decimals
 	}
-	// log.Debugf("rating: %v", res)
 	return res
 }
 
-func (f *CleanRatings) Connect(middIn middleware.Connection[*model.FileChunk], middOut middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.FileChunk], error) {
+func (f *CleanRatings) Connect(inputMiddleware middleware.Connection[*model.FileChunk], outputMiddleware middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.FileChunk], error) {
 	var err error
-	f.taskReceiver, err = middIn.ConsumeFrom(f.Input(), f.Name())
+	prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
+	}
+	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse N_WORKERS: %w", err)
+	}
+	f.taskReceiver, err = inputMiddleware.ConsumeFrom(f.Input(), f.Name(), uint(n_workers), prefetch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middOut.WriteToRK(f.Name(), f.subscribers, "direct")
+	f.taskSender, err = outputMiddleware.WriteToRK(f.Name(), f.subscribers, "direct")
 	//f.taskReceiver.LimitUnacked(10000)
 
 	if err != nil {
@@ -117,25 +107,32 @@ func (f *CleanRatings) Connect(middIn middleware.Connection[*model.FileChunk], m
 	inputChannel := make(chan middleware.Envelope[*model.FileChunk], 0)
 	go func() {
 		for {
-			envelope, ok, err := f.taskReceiver.Next(nil)
+			ctx := context.Background()
+			envelope, err := f.taskReceiver.Next(ctx)
 			if err != nil {
-				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
+				if err.Error() == "read channel was closed" {
 					log.Infof("Channel closed: %v", f.Name())
 					break
 				}
 				log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
-			if !ok {
-				log.Infof("Channel closed: %v", f.Name())
-				break
+			switch envelope.Type() {
+			case middleware.EOF:
+				// log.Infof("Channel closed: %v", f.Name())
+				// break
+				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
+			case middleware.Prune:
+				envelope.Ack(true)
+				continue
 			}
 			inputChannel <- envelope
+			// TODO falta un ack?
 		}
 		close(inputChannel)
 	}()
-	channels := []chan middleware.Envelope[*model.FileChunk]{inputChannel}
 
+	channels := []chan middleware.Envelope[*model.FileChunk]{inputChannel}
 	return channels, nil
 }
 

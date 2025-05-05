@@ -7,6 +7,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/map_reducer"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
 type ActorMovieCount struct {
@@ -22,8 +23,27 @@ type Res = *model.Row
 
 type TopMapReducer = map_reducer.MapReducer[In, *Acc, Res]
 
-func NewTopMapReducerActor(name string, input string, topSize uint, batchSize uint, subscribers []string) (*TopMapReducer, error) {
-	return map_reducer.NewMapReducer[In, *Acc, Res](name, input, batchSize, &TopMapReduce{topSize}, subscribers, []string{})
+func NewTopMapReducerActor(
+	connector *rabbitmq.RabbitMQConnector,
+	name string,
+	input string,
+	topSize uint,
+	batchSize uint,
+	subscribers []string,
+	id string,
+	count uint,
+) (*TopMapReducer, error) {
+	return map_reducer.NewMapReducer[In, *Acc, Res](
+		connector,
+		name,
+		input,
+		batchSize,
+		&TopMapReduce{topSize},
+		subscribers,
+		[]string{},
+		id,
+		count,
+	)
 }
 
 type TopMapReduce struct {

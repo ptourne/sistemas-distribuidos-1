@@ -1,7 +1,10 @@
 package clean
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"strconv"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
@@ -28,13 +31,20 @@ func (f CleanCredits) Name() string {
 	return "clean_credits"
 }
 
-func (f CleanCredits) ProcessAndSend(row *model.Row) error {
-	output := f.process(row)
-	if output == nil {
-		log.Infof("Row dropped: %+v by cleaner", row)
-		return nil
+func (f CleanCredits) ProcessAndSend(envelope middleware.Envelope[*model.Row]) error {
+	row := envelope.Msg()
+	cid := envelope.Cid()
+	t := envelope.Type()
+	if t == middleware.EOF {
+		return f.taskSender.SendEOF(cid)
+	} else {
+		output := f.process(row)
+		if output == nil {
+			log.Infof("Row dropped: %+v by cleaner", row)
+			return nil
+		}
+		return f.taskSender.Send(output, cid)
 	}
-	return f.taskSender.Send(output)
 }
 
 func (f CleanCredits) process(row *model.Row) *model.Row {
@@ -73,13 +83,21 @@ func (f CleanCredits) process(row *model.Row) *model.Row {
 	}
 }
 
-func (f *CleanCredits) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
+func (f *CleanCredits) Connect(inputMiddleware middleware.Connection[*model.Row], outputMiddleware middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
-	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name())
+	prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
+	}
+	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse N_WORKERS: %w", err)
+	}
+	f.taskReceiver, err = inputMiddleware.ConsumeFrom(f.Input(), f.Name(), uint(n_workers), prefetch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), f.subscribers)
+	f.taskSender, err = outputMiddleware.WriteTo(f.Name(), f.subscribers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create write queue for task %s", f.Name())
 	}
@@ -88,7 +106,8 @@ func (f *CleanCredits) Connect(middlewareConnection middleware.Connection[*model
 	inputChannel := make(chan middleware.Envelope[*model.Row], 0)
 	go func() {
 		for {
-			envelope, ok, err := f.taskReceiver.Next(nil)
+			ctx := context.Background()
+			envelope, err := f.taskReceiver.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" {
 					log.Infof("Channel closed: %v", f.Name())
@@ -97,11 +116,17 @@ func (f *CleanCredits) Connect(middlewareConnection middleware.Connection[*model
 				log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
-			if !ok {
-				log.Infof("Channel closed: %v", f.Name())
-				break
+			switch envelope.Type() {
+			case middleware.EOF:
+				// log.Infof("Channel closed: %v", f.Name())
+				// break
+				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
+			case middleware.Prune:
+				envelope.Ack(true)
+				continue
 			}
 			inputChannel <- envelope
+			// TODO falta un ack?
 		}
 		close(inputChannel)
 	}()

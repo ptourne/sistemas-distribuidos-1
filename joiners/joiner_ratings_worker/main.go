@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/joiners/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/joiners/joiner_ratings_worker/ratings"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
@@ -15,8 +18,11 @@ func main() {
 	if err != nil {
 		ratings.Log.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
+	id := ratings.WORKER_ID
+	middlewareLogger := logger.NewConsoleLogger(fmt.Sprintf("middleware_%s", id), logger.Debug)
+	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector, middlewareLogger)
 	defer middlewareConnection.Close()
 
 	worker.Run(middlewareConnection)
+
 }

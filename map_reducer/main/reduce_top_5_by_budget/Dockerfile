@@ -19,7 +19,7 @@ RUN go mod download
 
 COPY ./map_reducer .
 
-RUN go test -v ./...
+RUN CI=BUILD go test -v ./...
 
 # CGO_ENABLED must be disabled to run go binary in Alpine
 RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/map_reducer github.com/ptourne/sistemas-distribuidos-1/map_reducer/main/reduce_top_5_by_budget

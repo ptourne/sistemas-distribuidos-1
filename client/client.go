@@ -112,7 +112,7 @@ func (c *Client) SendFiles() error {
 		}
 	}
 	bufFinish := []byte("ALL FILES SENT")
-	common.WriteProtocolTypeMsg(c.conn, bufFinish, len(bufFinish), common.AllFilesSent)
+	common.WriteProtocolTypePackage(c.conn, bufFinish, len(bufFinish), common.AllFilesSent)
 	log.Infof("Files sent")
 	return nil
 }
@@ -126,7 +126,7 @@ func sendFile(c *Client, fileName string) error {
 	defer file.Close()
 
 	bufFile := []byte(fileName)
-	err = common.WriteProtocolTypeMsg(c.conn, bufFile, len(bufFile), common.FileName)
+	err = common.WriteProtocolTypePackage(c.conn, bufFile, len(bufFile), common.FileName)
 	if err != nil {
 		return fmt.Errorf("error enviando nombre de archivo: %v", err)
 	}
@@ -144,13 +144,13 @@ func sendFile(c *Client, fileName string) error {
 			break
 		}
 
-		common.WriteProtocolTypeMsg(c.conn, buf, n, common.FileData)
+		common.WriteProtocolTypePackage(c.conn, buf, n, common.FileData)
 		if err == io.ErrUnexpectedEOF {
 			break
 		}
 	}
 	bufFinish := []byte(fileName)
-	common.WriteProtocolTypeMsg(c.conn, bufFinish, len(bufFinish), common.FinishFile)
+	common.WriteProtocolTypePackage(c.conn, bufFinish, len(bufFinish), common.FinishFile)
 	return nil
 }
 

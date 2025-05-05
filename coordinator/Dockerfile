@@ -19,7 +19,7 @@ RUN go mod download
 
 COPY ./coordinator .
 
-RUN go test -v ./...
+RUN CI=BUILD go test -v ./...
 
 # CGO_ENABLED must be disabled to run go binary in Alpine
 RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/coordinator github.com/ptourne/sistemas-distribuidos-1/coordinator

@@ -21,7 +21,7 @@ RUN go mod download
 
 COPY ./lean_worker .
 
-RUN go test -v ./...
+RUN CI=BUILD go test -v ./...
 
 # CGO_ENABLED must be disabled to run go binary in Alpine
 RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/lean_worker github.com/ptourne/sistemas-distribuidos-1/lean_worker

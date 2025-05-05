@@ -42,6 +42,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 		select {
 		case envelope, ok = <-inputChannels[0]:
 			if envelope != nil && envelope.Type() == middleware.EOF {
+				log.Infof("Movies: EOF message received from %s", envelope.Cid())
 				eofMsg, exists := clientsFinished[envelope.Cid()]
 				if !exists {
 					eofMsg = []middleware.Envelope[*model.Row]{}
@@ -54,6 +55,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 			}
 		case envelope, ok = <-inputChannels[1]:
 			if envelope != nil && envelope.Type() == middleware.EOF {
+				log.Infof("Credits: EOF message received from %s", envelope.Cid())
 				eofMsg, exists := clientsFinished[envelope.Cid()]
 				if !exists {
 					eofMsg = []middleware.Envelope[*model.Row]{}
@@ -75,18 +77,19 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 		}
 
 		if envelope != nil && envelope.Type() == middleware.Prune {
-			pruneMsgs, exists := clientsPrune[envelope.Cid()]
+			_, exists := clientsPrune[envelope.Cid()]
 			if !exists {
 				clientsPrune[envelope.Cid()] = []middleware.Envelope[*model.Row]{}
 			}
 			clientsPrune[envelope.Cid()] = append(clientsPrune[envelope.Cid()], envelope)
 			if len(clientsPrune[envelope.Cid()]) == 2 {
 				log.Infof("Client %s prune", envelope.Cid())
-				delete(clientsPrune, envelope.Cid())
-				for _, pruneMsg := range pruneMsgs {
+				for _, pruneMsg := range clientsPrune[envelope.Cid()] {
+					log.Infof("ack Prune message")
 					err = pruneMsg.Ack(false)
 					unwrap(err, "Failed to ack prune message")
 				}
+				delete(clientsPrune, envelope.Cid())
 			}
 			continue
 		}
@@ -114,11 +117,9 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 
 		}
 
-		row := envelope.Msg()
-		row.Strings["cid"] = envelope.Cid()
-		result := currentTask.ProcessAndSend(row)
+		result := currentTask.ProcessAndSend(envelope)
 		if result != nil {
-			log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
+			log.Errorf("Failed to process row: %v by task: %v", envelope.Msg(), currentTask.Name())
 			continue
 		}
 		log.Debugf("TO ACK msg %v worker", envelope.Msg())
@@ -147,7 +148,7 @@ func NewSourceTask[O codec.Serializable[O]](name string) task.Task[*model.Row, O
 	return &SourceTask[O]{name}
 }
 
-func (t *SourceTask[O]) ProcessAndSend(r *model.Row) error {
+func (t *SourceTask[O]) ProcessAndSend(r middleware.Envelope[*model.Row]) error {
 	return nil
 }
 
