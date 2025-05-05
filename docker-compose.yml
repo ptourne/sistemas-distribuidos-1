@@ -14,7 +14,7 @@ services:
             timeout: 10s
             retries: 10
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - /home/sofiagb/Documents/sd1/movies/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
     sentiment_server:
         container_name: sentiment_server
@@ -43,9 +43,9 @@ services:
         networks:
             - local_net
         environment:
-            - NUMBER_OF_WORKERS=5
-            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=5
-            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=5
+            - NUMBER_OF_WORKERS=1
+            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=0
+            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=0
             - PREFETCH=1
         depends_on:
             rabbitmq:
@@ -59,12 +59,32 @@ services:
             context: .
             dockerfile: worker/Dockerfile
         entrypoint: /worker
+        environment: 
+            - WORKER_ID=1
+            - N_JOINERS_CREDITS=1
+            - N_JOINERS_RATINGS=1
+            - N_WORKERS=1
+            - NLP_GRPC_ADDR=sentiment_server:50051
+            - SERVER_PORT=1234
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+
+    joiner_credits1:
+        container_name: joiner_credits1
+        build:
+            context: .
+            dockerfile: joiners/joiner_credits_worker/Dockerfile
+        entrypoint: /joiners
         environment:
             - WORKER_ID=1
-            - N_JOINERS=5
-            - N_WORKERS=5
-            - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - WORKER_COUNT=1
             - PREFETCH=1
         networks:
             - local_net
@@ -73,22 +93,17 @@ services:
                 condition: service_healthy
             sentiment_server:
                 condition: service_healthy
-        volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_credits:/joiner_credits
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_ratings:/joiner_ratings
 
-    worker2:
-        container_name: worker2
+    joiner_rating1:
+        container_name: joiner_rating1
         build:
             context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
+            dockerfile: joiners/joiner_ratings_worker/Dockerfile
+        entrypoint: /joiners
         environment:
-            - WORKER_ID=2
-            - N_JOINERS=5
-            - N_WORKERS=5
-            - NLP_GRPC_ADDR=sentiment_server:50051
+            - WORKER_ID=1
             - SERVER_PORT=1234
+            - WORKER_COUNT=
             - PREFETCH=1
         networks:
             - local_net
@@ -97,81 +112,6 @@ services:
                 condition: service_healthy
             sentiment_server:
                 condition: service_healthy
-        volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_credits:/joiner_credits
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_ratings:/joiner_ratings
-
-    worker3:
-        container_name: worker3
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=3
-            - N_JOINERS=5
-            - N_WORKERS=5
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-            - PREFETCH=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_credits:/joiner_credits
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_ratings:/joiner_ratings
-
-    worker4:
-        container_name: worker4
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=4
-            - N_JOINERS=5
-            - N_WORKERS=5
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-            - PREFETCH=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_credits:/joiner_credits
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_ratings:/joiner_ratings
-
-    worker5:
-        container_name: worker5
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment:
-            - WORKER_ID=5
-            - N_JOINERS=5
-            - N_WORKERS=5
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-            - PREFETCH=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-        volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_credits:/joiner_credits
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_ratings:/joiner_ratings
 
     client1:
         container_name: client1
@@ -186,67 +126,7 @@ services:
         depends_on:
             - endpoint
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/client/datasets:/datasets
-
-    client2:
-        container_name: client2
-        build:
-            context: .
-            dockerfile: client/Dockerfile
-        entrypoint: /client
-        environment:
-            - SERVER_PORT=endpoint:9876
-        networks:
-            - local_net
-        depends_on:
-            - endpoint
-        volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/client/datasets:/datasets
-
-    client3:
-        container_name: client3
-        build:
-            context: .
-            dockerfile: client/Dockerfile
-        entrypoint: /client
-        environment:
-            - SERVER_PORT=endpoint:9876
-        networks:
-            - local_net
-        depends_on:
-            - endpoint
-        volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/client/datasets:/datasets
-
-    client4:
-        container_name: client4
-        build:
-            context: .
-            dockerfile: client/Dockerfile
-        entrypoint: /client
-        environment:
-            - SERVER_PORT=endpoint:9876
-        networks:
-            - local_net
-        depends_on:
-            - endpoint
-        volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/client/datasets:/datasets
-
-    client5:
-        container_name: client5
-        build:
-            context: .
-            dockerfile: client/Dockerfile
-        entrypoint: /client
-        environment:
-            - SERVER_PORT=endpoint:9876
-        networks:
-            - local_net
-        depends_on:
-            - endpoint
-        volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/client/datasets:/datasets
+            - /home/sofiagb/Documents/sd1/movies/client/datasets:/datasets
 
     endpoint:
         container_name: endpoint

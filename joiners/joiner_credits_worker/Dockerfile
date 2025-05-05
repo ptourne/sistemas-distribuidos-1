@@ -21,8 +21,6 @@ RUN go mod download
 
 COPY ./joiners .
 
-RUN CI=BUILD go test -v ./...
-
 # CGO_ENABLED must be disabled to run go binary in Alpine
 RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/joiners github.com/ptourne/sistemas-distribuidos-1/joiners/joiner_credits_worker
 

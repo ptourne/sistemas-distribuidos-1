@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [ "$#" -eq 10 ]; then
+if [ "$#" -eq 11 ]; then
     file_name=./docker-compose.yml
     number_of_workers=$1
     number_of_lean_workers=$2
@@ -16,7 +16,7 @@ if [ "$#" -eq 10 ]; then
 
 
 
-elif [ "$#" -eq 11 ]; then
+elif [ "$#" -eq 12 ]; then
     file_name=$1
     number_of_workers=$2
     number_of_lean_workers=$3
@@ -203,6 +203,7 @@ compose_joiner_rating() {
             - WORKER_ID=$worker_id
             - SERVER_PORT=1234
             - WORKER_COUNT=$worker_count
+            - PREFETCH=1
         networks:
             - local_net
         depends_on:
@@ -226,6 +227,7 @@ compose_joiner_credits() {
             - WORKER_ID=$worker_id
             - SERVER_PORT=1234
             - WORKER_COUNT=$worker_count
+            - PREFETCH=1
         networks:
             - local_net
         depends_on:
@@ -397,12 +399,12 @@ done
 # for i in $(seq 1 $number_of_lean_workers); do
 #     compose_lean_workers $i >> $file_name
 # done
-# for i in $(seq 1 $number_of_joiners_credits); do
-#     compose_joiner_credits $i $number_of_joiners_credits >> $file_name
-# done
-# for i in $(seq 1 $number_of_joiners_ratings); do
-#     compose_joiner_rating $i >> $file_name
-# done
+for i in $(seq 1 $number_of_joiners_credits); do
+    compose_joiner_credits $i $number_of_joiners_credits >> $file_name
+done
+for i in $(seq 1 $number_of_joiners_ratings); do
+    compose_joiner_rating $i >> $file_name
+done
 # for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
 #     compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
 # done

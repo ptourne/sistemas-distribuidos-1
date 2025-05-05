@@ -296,14 +296,24 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse WORKER_COUNT: %w", err)
 	}
+
+	var prefetchStr = os.Getenv("WORKER_COUNT")
+	if prefetchStr == "" {
+		prefetchStr = "1"
+	}
+	prefetch, err := strconv.Atoi(prefetchStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
+	}
+
 	groupQueueName := fmt.Sprintf("joiner_%s_ratings", id)
-	f.taskReceiverRatings, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, uint(peers), 2) // ToDo: usar los valores reales de 'peers' (sacar -1) y 'prefetch'
+	f.taskReceiverRatings, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, uint(peers), prefetch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue clean_ratings for task %s", f.Name())
 	}
 	Log.Infof("Created read queue exchange %s with groupName %s", f.Name(), groupQueueName)
 
-	f.taskReceiverMovies, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), uint(peers), 2) // ToDo: usar los valores reales de 'peers' (sacar -1 ) y 'prefetch'
+	f.taskReceiverMovies, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), uint(peers), prefetch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue %s for task %s", f.Input(), f.Name())
 	}
