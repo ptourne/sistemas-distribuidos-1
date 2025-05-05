@@ -35,6 +35,7 @@ func main() {
 	inputChannelMapLock := sync.Mutex{}
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
 			envelope, _, err := config.ReceiverFileByte.Next(ctx)
 			if err != nil {
@@ -57,14 +58,14 @@ func main() {
 				inputsChannelMap[cid] = channelsCid
 				inputChannelMapLock.Unlock()
 				wg.Add(1)
-				go handleClient(cid, channelsCid, config)
+				go handleClient(cid, channelsCid, config, &wg)
 			}
 			channelsCid.input <- envelope
 		}
 	}()
 
 	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock)
+	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg)
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -73,7 +74,8 @@ func main() {
 	}
 }
 
-func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex) {
+func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex, wg *sync.WaitGroup) {
+	defer wg.Done()
 	for {
 		envelope, ok, err := queue.Next(ctx)
 		if err != nil {
@@ -105,7 +107,8 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 	}
 }
 
-func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator) {
+func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup) {
+	defer wg.Done()
 	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%s", cid), logger.Info)
 	moviesMetadataSender, err := (*c.MiddlewareChan).WriteTo(c.MoviesMetadataName, []string{"clean_movies"})
 	if err != nil {
@@ -527,7 +530,8 @@ func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middlew
 			continue
 		}
 		if t == middleware.EOF {
-			log.Infof("No more countries, finish arrived")
+			log.Infof("No more countries, finish arrived") //TODO MANDARLO el send eof en q5
+			allQuerysToEndpointSender.SendEOF(cid)
 			break
 		}
 		receivedCountry := envelope.Msg()
