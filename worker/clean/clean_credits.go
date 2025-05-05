@@ -35,15 +35,26 @@ func (f CleanCredits) ProcessAndSend(envelope middleware.Envelope[*model.Row]) e
 	row := envelope.Msg()
 	cid := envelope.Cid()
 	t := envelope.Type()
-	if t == middleware.EOF {
-		return f.taskSender.SendEOF(cid)
-	} else {
+	switch t {
+	case middleware.EOF:
+		err := f.taskSender.SendEOF(cid)
+		if err != nil {
+			return fmt.Errorf("failed to send EOF: %w", err)
+		}
+		return nil
+	case middleware.Prune:
+		return nil
+	default:
 		output := f.process(row)
 		if output == nil {
 			log.Infof("Row dropped: %+v by cleaner", row)
 			return nil
 		}
-		return f.taskSender.Send(output, cid)
+		err := f.taskSender.Send(output, cid)
+		if err != nil {
+			return fmt.Errorf("failed to send message: %w", err)
+		}
+		return nil
 	}
 }
 

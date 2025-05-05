@@ -36,14 +36,25 @@ func (f CleanMovies) ProcessAndSend(envelope middleware.Envelope[*model.Row]) er
 	cid := envelope.Cid()
 	t := envelope.Type()
 
-	if t == middleware.EOF {
-		return f.taskSender.SendEOF(cid)
-	} else {
+	switch t {
+	case middleware.EOF:
+		err := f.taskSender.SendEOF(cid)
+		if err != nil {
+			return fmt.Errorf("failed to send EOF: %w", err)
+		}
+		return nil
+	case middleware.Prune:
+		return nil
+	default:
 		output := f.process(row)
 		if output == nil {
 			return nil
 		}
-		return f.taskSender.Send(output, cid)
+		err := f.taskSender.Send(output, cid)
+		if err != nil {
+			return fmt.Errorf("failed to send message: %w", err)
+		}
+		return nil
 	}
 }
 
@@ -171,7 +182,7 @@ func (f *CleanMovies) Connect(inputMiddleware middleware.Connection[*model.Row],
 				continue
 			}
 			inputChannel <- envelope
-			// TODO falta un ack?
+			// TODO falta un ack? // Creo que no porque se ackea del otro lado del channel?
 		}
 		close(inputChannel)
 	}()

@@ -442,6 +442,7 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 					mr.log.Fatalf("Final : error sending EOF after sending partial result: %s", err)
 					panic("Resending EOF not implemented")
 				}
+				// TODO missing ack here?
 			case middleware.Prune:
 				mr.log.Infof("Final : %s | Pruning final reduce batch", e.Cid())
 				clientBatch, ok := mr.FinalReduceBatches[e.Cid()]
