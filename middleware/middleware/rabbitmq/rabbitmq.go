@@ -233,12 +233,12 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 	}
 	input.amqpCh.Qos(prefetch, 0, false)
 
-	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName), "", "fanout", "")
+	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "", "fanout", "")
 	if err != nil {
 		return nil, err
 	}
 
-	closeSender, err := CreateProducerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName), "fanout")
+	closeSender, err := CreateProducerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "fanout")
 	if err != nil {
 		return nil, err
 	}
@@ -323,11 +323,6 @@ func (m *middlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 			if err != nil {
 				return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
 			}
-			_, ch2, err := m.createQueueRK(closeExchangeName(outputName), sub, "fanout", "")
-			if err != nil {
-				return nil, fmt.Errorf("cannot create subscriber %s: %v", sub, err)
-			}
-			ch2.Close()
 			ch.Close()
 		}
 	}
@@ -650,7 +645,7 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 
 	queueName := ""
 	if groupName != "" {
-		queueName = fmt.Sprintf("%s_%s", exchangeName, groupName)
+		queueName = fmt.Sprintf("%s->%s", exchangeName, groupName)
 	}
 	m.Log.Debugf("createQueue: Creating queue '%s' for exchange '%s'", queueName, exchangeName)
 	queue, err := ch.QueueDeclare(
@@ -679,6 +674,6 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 	return &queue, ch, nil
 }
 
-func closeExchangeName(readExchangeName string) string {
-	return fmt.Sprintf("%s_close", readExchangeName)
+func closeExchangeName(readExchangeName string, queueName string) string {
+	return fmt.Sprintf("%s->%s:close", readExchangeName, queueName)
 }
