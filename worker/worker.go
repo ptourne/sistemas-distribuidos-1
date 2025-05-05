@@ -165,8 +165,8 @@ func (w *Worker) Run() {
 			if !ok {
 				panic("Failed to cast to envelope")
 			}
-			result := currentTask.ProcessAndSend(envelope)
-			if result != nil {
+			err = currentTask.ProcessAndSend(envelope)
+			if err != nil {
 				log.Errorf("Failed to process row: %v by task: %v", envelope, currentTask.Name())
 				continue
 			}
@@ -240,10 +240,10 @@ func NewWorker() Worker {
 	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
 	// joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{"reduce_by_actor"})
 
-	// grpcAddress := os.Getenv("NLP_GRPC_ADDR")
+	grpcAddress := os.Getenv("NLP_GRPC_ADDR")
 
-	// map_nlp := filter.NewFilterSentimentAndRate(movies_metadata_clean.Name(), []string{"reduce_by_sentiment"}, grpcAddress)
-	// filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
+	map_nlp := filter.NewFilterSentimentAndRate(movies_metadata_clean.Name(), []string{"reduce_by_sentiment"}, grpcAddress)
+	filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
 
 	// filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers)
 
@@ -255,8 +255,8 @@ func NewWorker() Worker {
 			filter_release_date_l_2010_and_include_es,
 			filter_one_production_country,
 			// joiner_credits,
-			// map_nlp,
-			// filter_avg_rate,
+			map_nlp,
+			filter_avg_rate,
 			// filter_avg_rating,
 		},
 	}

@@ -55,16 +55,28 @@ func (f CleanRatings) ProcessAndSend(envelope middleware.Envelope[*model.FileChu
 	fileChunk := envelope.Msg()
 	cid := envelope.Cid()
 	t := envelope.Type()
-	if t == middleware.EOF {
-		return f.taskSender.SendEOF(cid)
-	} else {
+
+	switch t {
+	case middleware.EOF:
+		err := f.taskSender.SendEOF(cid)
+		if err != nil {
+			return fmt.Errorf("failed to send EOF: %w", err)
+		}
+		return nil
+	case middleware.Prune:
+		return nil
+	default:
 		output := f.process(fileChunk.Bytes) // TODO: this should be a different model
 		if output == nil {
 			return nil
 		}
 		movieId := output.Strings["movieID"]
 		routingKey := string(movieId[len(movieId)-1])
-		return f.taskSender.SendRK(output, routingKey, cid)
+		err := f.taskSender.SendRK(output, routingKey, cid)
+		if err != nil {
+			return fmt.Errorf("failed to send message: %w", err)
+		}
+		return nil
 	}
 }
 

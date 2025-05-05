@@ -75,7 +75,9 @@ func main() {
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
 	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, true)
+	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, false)
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true)
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -129,7 +131,7 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 
 func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup) {
 	defer wg.Done()
-	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%s", cid), logger.Info)
+	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator_%s", cid), logger.Info)
 	moviesMetadataSender, err := (*c.MiddlewareChan).WriteTo(c.MoviesMetadataName, []string{"clean_movies"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
@@ -260,7 +262,7 @@ OuterLoop:
 	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
 	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
 	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
-	// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
+	verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 
 	log.Infof("finish all querys verified")
 }
@@ -500,7 +502,7 @@ func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Numerics: map[string]uint64{"budget_sum": 1169682797}, Strings: map[string]string{"country": "IN"}},
 		{Numerics: map[string]uint64{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q2", expectedOutputQ2, removeQ2, true) //TODO MANDARLO el send eof en q5
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q2", expectedOutputQ2, removeQ2, false)
 }
 
 func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
