@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
-	"github.com/ptourne/sistemas-distribuidos-1/joiners_ratings_workers/joiner_ratings_worker/ratings"
+	"github.com/ptourne/sistemas-distribuidos-1/joiners_ratings_workers/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/stretchr/testify/assert"
 )
@@ -37,10 +37,14 @@ func TestJoinerRatingsOneClient(t *testing.T) {
 	}()
 
 	// Verificar salida
-	assertReceiveRatingsRows(t, outputJoiner, cid, "A", "Movie A", 3.5)
-	AssertReceivedEOF(t, outputJoiner, cid)
-	ExpectNoMoreRows(t, outputJoiner)
-	//ToDO: expect receive prune msg
+	expected := map[string][]map[string]any{
+		"client1": {{
+			"movieID":    "A",
+			"title":      "Movie A",
+			"avg_rating": 3.5,
+		}},
+	}
+	AssertResults(t, outputJoiner, expected)
 
 	//currentTask.Finish()
 	inputMovies.Close()
@@ -89,11 +93,19 @@ func TestJoinerRatingsMultiClient(t *testing.T) {
 	}()
 
 	// Verificar salida
-	assertReceiveRatingsRows(t, outputJoiner, "client1", "A", "Movie A", 3.5)
-	assertReceiveRatingsRows(t, outputJoiner, "client2", "D", "Movie D", 1.0)
-	AssertReceivedEOF(t, outputJoiner, "client1") // xq primero lee el prefetch, q incluye los mensajes de client2|
-	AssertReceivedEOF(t, outputJoiner, "client2")
-	ExpectNoMoreRows(t, outputJoiner)
+	expected := map[string][]map[string]any{
+		"client1": {{
+			"movieID":    "A",
+			"title":      "Movie A",
+			"avg_rating": 3.5,
+		}},
+		"client2": {{
+			"movieID":    "D",
+			"title":      "Movie D",
+			"avg_rating": 1.0,
+		}},
+	}
+	AssertResults(t, outputJoiner, expected)
 
 	//currentTask.Finish()
 	inputMovies.Close()
@@ -102,24 +114,17 @@ func TestJoinerRatingsMultiClient(t *testing.T) {
 	middlewareConnection.Close()
 }
 
-func configTestJoinerRatings(t *testing.T, output string, middlewareConnection middleware.Connection[*model.Row]) (middleware.Sender[*model.Row], middleware.Sender[*model.Row], ratings.Worker, middleware.Receiver[*model.Row]) {
-	movies := ratings.NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
-	filter_ratings := ratings.NewSourceTask[*model.Row]("filter_avg_rating")
+func configTestJoinerRatings(t *testing.T, output string, middlewareConnection middleware.Connection[*model.Row]) (middleware.Sender[*model.Row], middleware.Sender[*model.Row], joiner.Worker, middleware.Receiver[*model.Row]) {
+	movies := joiner.NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
+	filter_ratings := joiner.NewSourceTask[*model.Row]("filter_avg_rating")
 	inputMovies, err := middlewareConnection.WriteTo(movies.Name(), []string{"joiner_ratings"})
 	assert.NoError(t, err)
 	inputCredits, err := middlewareConnection.WriteTo(filter_ratings.Name(), []string{"joiner_1_ratings"})
 	assert.NoError(t, err)
-	worker := ratings.NewWorker([]string{output})
+	worker := joiner.NewRatingsWorker([]string{output})
 	currentTask := worker.Tasks
 	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), output, 0, 20)
 	assert.NoError(t, err)
 	assert.NoError(t, err)
 	return inputMovies, inputCredits, worker, outputJoiner
-}
-
-func assertReceiveRatingsRows(t *testing.T, outputJoiner middleware.Receiver[*model.Row], cid string, expectedMovieID string, expectedTitle string, expectedRating float64) {
-	AssertReceiveRow(t, outputJoiner, cid,
-		map[string]string{"movieID": expectedMovieID, "title": expectedTitle},
-		map[string]float64{"avg_rating": expectedRating},
-	)
 }

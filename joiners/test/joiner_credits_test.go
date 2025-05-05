@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
-	"github.com/ptourne/sistemas-distribuidos-1/joiners_ratings_workers/joiner_credits_worker/credits"
+	"github.com/ptourne/sistemas-distribuidos-1/joiners_ratings_workers/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 	"github.com/stretchr/testify/assert"
@@ -39,12 +39,19 @@ func TestJoinerCreditsOneClient(t *testing.T) {
 	}()
 
 	// Verificar salida
-	t.Logf("Esperando recibir la salida del joiner")
-	assertReceiveCastRows(t, outputJoiner, cid, "A", "Actor 1")
-	assertReceiveCastRows(t, outputJoiner, cid, "A", "Actor 2")
-	AssertReceivedEOF(t, outputJoiner, cid)
-	ExpectNoMoreRows(t, outputJoiner)
-	t.Log("Asserted all rows")
+	expected := map[string][]map[string]any{
+		"client1": {
+			{
+				"movieID": "A",
+				"actor":   "Actor 1",
+			},
+			{
+				"movieID": "A",
+				"actor":   "Actor 2",
+			},
+		},
+	}
+	AssertResults(t, outputJoiner, expected)
 
 	//currentTask.Finish()
 	inputMovies.Close()
@@ -90,13 +97,14 @@ func TestJoinerCreditsMultipleClients(t *testing.T) {
 		worker.Run(middlewareConnection)
 	}()
 
-	// Cliente 1
-	assertReceiveCastRows(t, outputJoiner, "client1", "X", "Actor X")
-	AssertReceivedEOF(t, outputJoiner, "client1")
-	// Cliente 2: no debería producir salida (no tiene créditos)
-	AssertReceivedEOF(t, outputJoiner, "client2")
-	ExpectNoMoreRows(t, outputJoiner)
-	// ToDo: test receive prune msg
+	expected := map[string][]map[string]any{
+		"client1": {{
+			"movieID": "X",
+			"actor":   "Actor X",
+		}},
+		"client2": {},
+	}
+	AssertResults(t, outputJoiner, expected)
 
 	//currentTask.Finish()
 	inputMovies.Close()
@@ -113,14 +121,14 @@ func RunCommand(t *testing.T, name string, args ...string) {
 	}
 }
 
-func configTestJoinerCredits(t *testing.T, output string, middlewareConnection middleware.Connection[*model.Row]) (middleware.Sender[*model.Row], middleware.Sender[*model.Row], credits.Worker, middleware.Receiver[*model.Row]) {
+func configTestJoinerCredits(t *testing.T, output string, middlewareConnection middleware.Connection[*model.Row]) (middleware.Sender[*model.Row], middleware.Sender[*model.Row], joiner.Worker, middleware.Receiver[*model.Row]) {
 	// movies := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
 	// credits := NewSourceTask[*model.Row]("clean_credits")
 	inputMovies, err := middlewareConnection.WriteTo("filter_release_date_ge_2000_and_include_ar", []string{"joiner_credits"})
 	assert.NoError(t, err)
 	inputCredits, err := middlewareConnection.WriteTo("clean_credits", []string{"joiner_1_credits"})
 	assert.NoError(t, err)
-	worker := credits.NewWorker([]string{output})
+	worker := joiner.NewCreditsWorker([]string{output})
 	currentTask := worker.Tasks
 	//currentTask = credits.NewJoinerCredits(movies, credits, []string{output})
 	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), output, 0, 20)
@@ -160,56 +168,63 @@ func ExpectNoMoreRows(t *testing.T, output middleware.Receiver[*model.Row]) {
 	assert.Equal(t, err.Error(), "timeout reached while waiting for message")
 }
 
-func assertReceiveCastRows(t *testing.T, outputJoiner middleware.Receiver[*model.Row], cid string, expectedMovieID string, expectedActor string) {
-	AssertReceiveRow(t, outputJoiner, cid,
-		map[string]string{"movieID": expectedMovieID, "actor": expectedActor},
-		map[string]float64{},
-	)
-}
-
-func AssertReceiveRow(
-	t *testing.T,
-	output middleware.Receiver[*model.Row],
-	cid string,
-	expectedStrings map[string]string,
-	expectedFloats map[string]float64,
-) {
+func AssertResults(t *testing.T, outputJoiner middleware.Receiver[*model.Row], expected map[string][]map[string]any) {
+	steps := map[string]int{}
+	countExpected := 0
+	for client := range expected {
+		if len(expected[client]) == 0 {
+			steps[client] = 1
+		} else {
+			steps[client] = 0
+			countExpected += len(expected[client])
+		}
+		countExpected++ // eof. ToDo: +=2 prune
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-
-	env, _, err := output.Next(ctx)
-	assert.NoError(t, err)
-	//assert.True(t, ok)
-	assert.Equal(t, middleware.Normal, env.Type())
-
-	msg := env.Msg()
-	t.Logf("received envelope: %+v by %s", msg, env.Cid())
-
-	for key, expected := range expectedStrings {
-		assert.Equal(t, expected, msg.Strings[key], "String field mismatch for key '%s'", key)
+	t.Logf("Expecting %d messages", countExpected)
+	for range countExpected {
+		env, _, err := outputJoiner.Next(ctx)
+		assert.NoError(t, err)
+		cid := env.Cid()
+		stepCid, exists := steps[cid]
+		assert.True(t, exists, "Client %s not found in expected results", cid)
+		switch stepCid {
+		case 0:
+			row := env.Msg()
+			t.Logf("Received msg %+v for client %s", row, cid)
+			expectedValues := expected[cid][0]
+			for key, value := range expectedValues {
+				switch key {
+				case "movieID":
+					assert.Equal(t, row.Strings["movieID"], value)
+				case "title":
+					assert.Equal(t, row.Strings["title"], value)
+				case "avg_rating":
+					assert.Equal(t, row.Floats["avg_rating"], value)
+				case "actor":
+					assert.Equal(t, row.Strings["actor"], value)
+				}
+			}
+			if len(expected[cid]) > 1 {
+				expected[cid] = expected[cid][1:]
+				continue
+			}
+		case 1:
+			assert.Equal(t, middleware.EOF, env.Type())
+			t.Logf("Received EOF for client %s", cid)
+			delete(steps, cid)
+			// case 1:
+			// 	assert.Equal(t, middleware.Prune, env.Type())
+			//  t.Logf("Received prune for client %s", cid)
+			// case 2:
+			// 	assert.Equal(t, middleware.EOF, env.Type())
+			//  t.Logf("Received EOF for client %s", cid)
+			//  delete(steps, cid)
+		case 2:
+			assert.FailNow(t, "Unexpected message for client %s", cid)
+		}
+		steps[cid]++
 	}
-	for key, expected := range expectedFloats {
-		assert.Equal(t, expected, msg.Floats[key], "Float field mismatch for key '%s'", key)
-	}
-	assert.Equal(t, cid, env.Cid())
-}
-
-func AssertReceivedEOF(t *testing.T, output middleware.Receiver[*model.Row], cid string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	env, _, err := output.Next(ctx)
-	assert.NoError(t, err)
-	assert.Equal(t, middleware.EOF, env.Type())
-	assert.Equal(t, cid, env.Cid())
-}
-
-func AssertReceivedPrune(t *testing.T, output middleware.Receiver[*model.Row], cid string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	env, _, err := output.Next(ctx)
-	assert.NoError(t, err)
-	assert.Equal(t, middleware.Prune, env.Type())
-	assert.Equal(t, cid, env.Cid())
+	ExpectNoMoreRows(t, outputJoiner)
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/ptourne/sistemas-distribuidos-1/joiners_ratings_workers/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
@@ -8,7 +9,7 @@ import (
 )
 
 func main() {
-	worker := credits.NewWorker([]string{"reduce_by_actor"})
+	worker := joiner.NewCreditsWorker([]string{"reduce_by_actor"})
 	connector, err := rabbitmq.Connector()
 	if err != nil {
 		credits.Log.Fatalf("Failed to connect to middleware: %s", err)
