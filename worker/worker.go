@@ -219,7 +219,7 @@ func (t *SourceTask[O]) Connect(_ middleware.Connection[*model.Row], _ middlewar
 
 func NewWorker() Worker {
 	movies_metadata := NewSourceTask[*model.Row]("movies_metadata")
-	// credits := NewSourceTask[*model.Row]("credits")
+	credits := NewSourceTask[*model.Row]("credits")
 	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country", "map_sentiment_rate"})
 
 	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS_CREDITS"))
@@ -227,37 +227,36 @@ func NewWorker() Worker {
 		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
 	}
 
-	// var joiner_credits_subscribers []string
-	// for i := range n_worker {
-	// 	joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
-	// }
+	var joiner_credits_subscribers []string
+	for i := range n_worker {
+		joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
+	}
 
-	// credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers)
+	credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers)
 
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits", "joiner_ratings"})
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"})
 	//filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
-	// joiner_credits := joiner.NewJoinerCredits(filter_release_date_ge_2000_and_include_ar, credits_clean, []string{"reduce_by_actor"})
 
 	// grpcAddress := os.Getenv("NLP_GRPC_ADDR")
 
 	// map_nlp := filter.NewFilterSentimentAndRate(movies_metadata_clean.Name(), []string{"reduce_by_sentiment"}, grpcAddress)
 	// filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
 
-	n_worker, err = strconv.Atoi(os.Getenv("N_JOINERS_RATINGS"))
-	if err != nil {
-		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
-	}
-	var joiner_ratings_subscribers []string
-	for i := range n_worker {
-		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
-	}
+	// n_worker, err = strconv.Atoi(os.Getenv("N_JOINERS_RATINGS"))
+	// if err != nil {
+	// 	log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
+	// }
+	// var joiner_ratings_subscribers []string
+	// for i := range n_worker {
+	// 	joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
+	// }
 	//filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers)
 
 	return Worker{
 		Tasks: []task.Task[*model.Row, *model.Row]{
 			movies_metadata_clean,
-			// credits_clean,
+			credits_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
 			// filter_one_production_country,

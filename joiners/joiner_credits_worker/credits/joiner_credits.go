@@ -66,7 +66,7 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row) error {
 			clientID := row.Strings["cid"]
 			_, hasFinished := f.finishedCredits[clientID]
 			if hasFinished {
-				Log.Infof("No cast found for movie %s", row.Strings["movieID"])
+				Log.Debugf("No cast found for movie %s", row.Strings["movieID"])
 				delete(f.pendingMovies[clientID], row.Strings["movieID"])
 				return nil
 			}
@@ -78,7 +78,7 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row) error {
 			_, ok = f.pendingMovies[clientID][row.Strings["movieID"]]
 			if !ok {
 				f.pendingMovies[clientID][row.Strings["movieID"]] = row
-				Log.Infof("Adding movie %s to pending movies", row.Strings["movieID"])
+				Log.Debugf("Adding movie %s to pending movies", row.Strings["movieID"])
 			} else {
 				delete(f.pendingMovies[clientID], row.Strings["movieID"])
 				Log.Infof("No cast found for movie %s", row.Strings["movieID"])
@@ -101,7 +101,7 @@ func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string) e
 		return nil
 	}
 	for _, r := range output {
-		//log.Infof("Sending actor %s from movie %s and client %s", r.Strings["actor"], r.Strings["movieID"], cid)
+		Log.Debugf("Sending actor for client %s", cid)
 		err = f.taskSender.Send(r, cid)
 		if err != nil {
 			Log.Errorf("Failed to send actor data: %v", err)
@@ -123,7 +123,7 @@ func (f *JoinerCredits) processCredit(row *model.Row) error {
 		return nil
 	}
 	clientId := row.Strings["cid"]
-	Log.Infof("Processing credit: %s for client %s", movieID, clientId)
+	Log.Debugf("Processing credit: %s for client %s", movieID, clientId)
 	lastDigit := string(movieID[len(movieID)-1])
 
 	if err := os.MkdirAll(clientId, os.ModePerm); err != nil {
@@ -197,7 +197,7 @@ func (f *JoinerCredits) processCredit(row *model.Row) error {
 	}
 	f.pendingMoviesMu.Unlock()
 	if found {
-		Log.Infof("Processing pending movie: %s", movieID)
+		Log.Debugf("Processing pending movie: %s", movieID)
 		flattenCast := flattenCastList(cast, movieID)
 		err = f.sendActors(flattenCast, nil, clientId)
 		if err != nil {
@@ -213,7 +213,7 @@ func (f *JoinerCredits) processMovie(row *model.Row) ([]*model.Row, error) {
 	movieID := row.Strings["movieID"]
 	lastDigit := string(movieID[len(movieID)-1])
 	clientId := row.Strings["cid"]
-	Log.Infof("Processing movie: %s for client %s", movieID, clientId)
+	Log.Debugf("Processing movie: %s for client %s", movieID, clientId)
 	dirPath := fmt.Sprintf("%s/joiner_credits/joiner%s", clientId, WORKER_ID)
 
 	fileName := fmt.Sprintf("%s/credits_%s.csv", dirPath, lastDigit)
@@ -338,7 +338,7 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 					Log.Infof("Channel for credits closed from task: %v", f.Name())
 					break
 				}
-				Log.Errorf("Error reading from middleware (joiner_credits): %v", err)
+				//Log.Errorf("Error reading from middleware (joiner_credits): %v", err)
 				continue
 			}
 			// if !ok {
@@ -365,7 +365,7 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 					Log.Infof("Channel for movies closed from task: %v", f.Name())
 					break
 				}
-				Log.Errorf("Error reading from middleware: %v", err)
+				//Log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
 			// if !ok {

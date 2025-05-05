@@ -72,7 +72,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 		if closed == 2 {
 			break
 		}
-		if !ok && (envelope == nil || envelope.Type() != middleware.EOF) {
+		if !ok && (envelope == nil || envelope.Type() == middleware.Normal) {
 			continue
 		}
 

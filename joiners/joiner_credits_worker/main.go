@@ -12,13 +12,13 @@ import (
 )
 
 func main() {
-	worker := joiner.NewCreditsWorker([]string{"reduce_by_actor"})
+	worker := joiner.NewCreditsWorker([]string{"q4"}) // "reduce_by_actor". ToDo: sacar q4
 	connector, err := rabbitmq.Connector()
 	if err != nil {
 		credits.Log.Fatalf("Failed to connect to middleware: %s", err)
 	}
 	id := credits.WORKER_ID
-	middlewareLogger := logger.NewConsoleLogger(fmt.Sprintf("middleware_%s", id), logger.Debug)
+	middlewareLogger := logger.NewConsoleLogger(fmt.Sprintf("middleware_%s", id), logger.Info)
 	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector, middlewareLogger)
 	defer middlewareConnection.Close()
 

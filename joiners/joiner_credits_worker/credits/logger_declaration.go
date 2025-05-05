@@ -15,4 +15,4 @@ func GetEnv(key, defaultValue string) string {
 }
 
 var WORKER_ID = GetEnv("WORKER_ID", "1")
-var Log = logger.NewConsoleLogger(fmt.Sprintf("joiner_%s", WORKER_ID), logger.Debug)
+var Log = logger.NewConsoleLogger(fmt.Sprintf("joiner_%s", WORKER_ID), logger.Info)

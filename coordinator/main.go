@@ -75,7 +75,7 @@ func main() {
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
 	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, true)
+	go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, true)
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -156,8 +156,8 @@ OuterLoop:
 		msg := msgEnvelope.Msg()
 		bytes := msg.Buf.Bytes
 		t := msg.PackageType
-		log.Infof("Received message type: %v", t)
-		log.Infof("Received message cid: %v", cid)
+		// log.Infof("Received message type: %v", t)
+		// log.Infof("Received message cid: %v", cid)
 		msgEnvelope.Ack(false)
 		switch t {
 		case common.FileName:
@@ -257,9 +257,9 @@ OuterLoop:
 	log.Infof("CSV processing completed")
 
 	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
-	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+	//verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
 	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
-	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
+	verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
 	// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 
 	log.Infof("finish all querys verified")
@@ -306,7 +306,8 @@ func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQCon
 	config.Q1Output = "filter_release_date_l_2010_and_include_es"
 	config.Q2Output = "reduce_top_5_by_budget"
 	config.Q3Output = "reduce_top_bottom_avg_rating"
-	config.Q4Output = "reduce_top_10_by_actor"
+	//config.Q4Output = "reduce_top_10_by_actor"
+	config.Q4Output = "joiner_credits"
 	config.Q5Output = "filter_avg_rate"
 	config.AllQuerysToEndpointName = "all_querys_to_endpoint"
 	config.CoordinatorsCant = 1
@@ -511,20 +512,55 @@ func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3, removeQ3, false)
 }
 
-func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
-	expectedOutputQ4 := []*model.Row{
-		{Numerics: map[string]uint64{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
-		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
-		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Inés Efron"}},
-		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Leonardo Sbaraglia"}},
-		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Valeria Bertuccelli"}},
-		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Arturo Goetz"}},
-		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Diego Peretti"}},
-		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Pablo Echarri"}},
-		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
-		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
+func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row]) {
+	// expectedOutputQ4 := []*model.Row{
+	// 	{Numerics: map[string]uint64{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
+	// 	{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
+	// 	{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Inés Efron"}},
+	// 	{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Leonardo Sbaraglia"}},
+	// 	{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Valeria Bertuccelli"}},
+	// 	{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Arturo Goetz"}},
+	// 	{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Diego Peretti"}},
+	// 	{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Pablo Echarri"}},
+	// 	{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
+	// 	{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
+	// }
+	cantExpected := 1515
+	cantRecv := 0
+	log.Infof("Verifying %s", "Q4")
+OuterLoop:
+	for {
+		envelope := <-qReceiver
+		//log.Infof("Received message type: %v", envelope.Type())
+		if envelope.Cid() != cid {
+			log.Errorf("Received message from wrong cid: %s", envelope.Cid())
+			continue
+		}
+		switch envelope.Type() {
+		case middleware.EOF:
+			log.Infof("No more actors, finish arrived")
+			err := envelope.Ack(false)
+			unwrap(err, "Failed to ack message", log)
+			break OuterLoop
+		case middleware.Prune:
+			log.Infof("Received prune message")
+			err := envelope.Ack(true)
+			unwrap(err, "Failed to ack message", log)
+			continue
+		}
+		receivedActor := envelope.Msg()
+		log.Infof("Received actor debug: %v", receivedActor)
+		cantRecv++
+		err := envelope.Ack(false)
+		unwrap(err, "Failed to ack message", log)
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q4", expectedOutputQ4, removeQ4, false)
+	if cantExpected != cantRecv {
+		log.Errorf("Not all expected rows received. Got %v, expected %v", cantRecv, cantExpected)
+	} else {
+
+		log.Infof("All actors rows received")
+	}
+	//verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q4", expectedOutputQ4, removeQ4, false)
 }
 
 func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
@@ -550,7 +586,7 @@ OuterLoop:
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
-			log.Infof("No more countries, finish arrived")
+			log.Infof("No more rows, EOF arrived")
 			if lastQuery {
 				allQuerysToEndpointSender.SendEOF(cid)
 			}

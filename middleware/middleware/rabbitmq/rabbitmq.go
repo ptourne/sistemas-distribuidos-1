@@ -542,7 +542,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 			r.Log.Debugf("Finish done received for non-existent Cid %s", cid)
 			return true, false, nil, nil
 		} else {
-			r.Log.Debugf("Finish done pending for Cid before %s: %d", cid, r.finishCids[cid].finishDonePending)
+			r.Log.Infof("Finish done pending for Cid before %s: %d", cid, r.finishCids[cid].finishDonePending)
 			finishCid.finishDonePending--
 			r.finishCids[cid] = finishCid
 			r.Log.Debugf("Finish done pending for Cid %s: %d", cid, r.finishCids[cid].finishDonePending)
