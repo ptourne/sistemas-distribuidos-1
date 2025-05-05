@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"bytes"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -58,6 +59,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	test3 := provider.AsyncDeployRabbit()
 	test4 := provider.AsyncDeployRabbit()
 	test5 := provider.AsyncDeployRabbit()
+	test6 := provider.AsyncDeployRabbit()
 	test1container := <-test1
 	defer test1container.Container.Teardown()
 	test2container := <-test2
@@ -68,6 +70,8 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	defer test4container.Container.Teardown()
 	test5container := <-test5
 	defer test5container.Container.Teardown()
+	test6container := <-test6
+	defer test6container.Container.Teardown()
 
 	t.Run("OneMessage", func(t *testing.T) {
 		init := test1container
@@ -587,6 +591,166 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		cancel2()
 	})
 
+	t.Run("TwoConsumerGroups", func(t *testing.T) {
+		// This test wants to ensure that an prune.Ack() on one group doesn't reach the seccond one.
+		init := test6container
+		assert.NoError(t, init.Err)
+
+		senderConnector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		var middlewareLogger_sender *logger.ConsoleLogger = logger.NewConsoleLogger("sender", logger.Debug)
+		senderMiddleware := NewMiddleware[*Ball](senderConnector, middlewareLogger_sender)
+		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
+		assert.NoError(t, err)
+		cid := "1"
+
+		consumers_group_a := make([]middleware.Receiver[*Ball], 2)
+		receiver1Connector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		var middlewareLogger_a_0 *logger.ConsoleLogger = logger.NewConsoleLogger("cons_a_0", logger.Debug)
+		receiver1Middleware := NewMiddleware[*Ball](receiver1Connector, middlewareLogger_a_0)
+		consumers_group_a[0], err = receiver1Middleware.ConsumeFrom("output", "group_a", 2, 1)
+		assert.NoError(t, err)
+
+		receiver2Connector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		var middlewareLogger_a_1 *logger.ConsoleLogger = logger.NewConsoleLogger("cons_a_1", logger.Debug)
+		receiver2Middleware := NewMiddleware[*Ball](receiver2Connector, middlewareLogger_a_1)
+		consumers_group_a[1], err = receiver2Middleware.ConsumeFrom("output", "group_a", 2, 1)
+		assert.NoError(t, err)
+
+		receiver3Connector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		var middlewareLogger_b *logger.ConsoleLogger = logger.NewConsoleLogger("cons_b", logger.Debug)
+		receiver3Middleware := NewMiddleware[*Ball](receiver3Connector, middlewareLogger_b)
+		consumer_group_b, err := receiver3Middleware.ConsumeFrom("output", "group_b", 1, 1)
+		assert.NoError(t, err)
+
+		sentMsg1 := &Ball{1}
+		err = sender.Send(sentMsg1, cid)
+		assert.NoError(t, err)
+
+		next, ctx, cancel := readTwoConsumers(t, consumers_group_a)
+		firstReceiver, res, err := next()
+		assert.NoError(t, err)
+		assert.Equal(t, sentMsg1, res.Msg())
+		assert.Equal(t, middleware.Normal, res.Type())
+		assert.NoError(t, res.Ack(true))
+
+		log.Debugf("Received message %v from consumer %d", res.Msg(), firstReceiver)
+
+		secondReceiver, _, err := next()
+		assert.NotEqual(t, firstReceiver, secondReceiver)
+		assert.Error(t, err)
+
+		log.Debugf("Received timeout from consumer %d", secondReceiver)
+
+		cancel()
+
+		ctx, cancel = newTimer()
+		res, err = consumer_group_b.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		assert.Equal(t, sentMsg1, res.Msg())
+		assert.Equal(t, middleware.Normal, res.Type())
+		assert.NoError(t, res.Ack(true))
+
+		err = sender.SendEOF(cid)
+		assert.NoError(t, err)
+
+		next, ctx, cancel = readTwoConsumers(t, consumers_group_a)
+
+		// Get prune on consumer 0 and ack
+		_, res, err = next()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Prune, res.Type())
+		assert.NoError(t, res.Ack(true))
+
+		// Get prune on 2nd consumer and skip ack
+		_, res, err = next()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Prune, res.Type())
+		resPendingAck := res
+
+		cancel()
+
+		// Confirm consumer group a doesn't get an EOF before consumer 1 acks prune
+		for i := range 2 {
+			ctx, cancel = newTimer()
+			res, err = consumers_group_a[i].Next(ctx)
+			cancel()
+			assert.Error(t, err)
+		}
+
+		// Get prune on lone consumer
+		ctx, cancel = newTimer()
+		res, err = consumer_group_b.Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Prune, res.Type())
+		assert.NoError(t, res.Ack(true))
+		cancel()
+
+		// Confirm consumer group a still doesn't get an EOF before consumer 1 acks prune. Despite group b being pruned
+		for i := range 2 {
+			ctx, cancel = newTimer()
+			res, err = consumers_group_a[i].Next(ctx)
+			cancel()
+			assert.Error(t, err)
+		}
+
+		// Get EOF on lone consumer
+		ctx, cancel = newTimer()
+		res, err = consumer_group_b.Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, res.Type())
+		assert.NoError(t, res.Ack(true))
+		cancel()
+
+		// Ack prune of consumer 1
+		assert.NoError(t, resPendingAck.Ack(true))
+
+		next, ctx, cancel = readTwoConsumers(t, consumers_group_a)
+
+		_, res, err = next()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, res.Type())
+		assert.NoError(t, res.Ack(true))
+
+		_, res, err = next()
+		assert.Error(t, err)
+
+		cancel()
+	})
+
+}
+
+func readTwoConsumers(t *testing.T, consumers_group_a []middleware.Receiver[*Ball]) (func() (int, middleware.Envelope[*Ball], error), context.Context, context.CancelFunc) {
+	cases := make([]reflect.SelectCase, 2)
+	ctx, cancel := newTimer()
+	for i, receiver := range consumers_group_a {
+		handle := make(chan NextAsyncRes)
+		cases[i] = reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(handle),
+		}
+		go func() {
+			received, err := receiver.Next(ctx)
+			handle <- NextAsyncRes{received, err}
+		}()
+	}
+	return func() (int, middleware.Envelope[*Ball], error) {
+		i, value, ok := reflect.Select(cases)
+		assert.True(t, ok)
+		asyncRes := value.Interface().(NextAsyncRes)
+		return i, asyncRes.received, asyncRes.err
+	}, ctx, cancel
+}
+
+func newFunction(t *testing.T, cases []reflect.SelectCase) (int, NextAsyncRes) {
+	firstReceiver, value, ok := reflect.Select(cases)
+	assert.True(t, ok)
+	asyncRes := value.Interface().(NextAsyncRes)
+	return firstReceiver, asyncRes
 }
 
 type NextAsyncRes struct {

@@ -96,7 +96,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		return nil, fmt.Errorf("failed to create output channel: %w", err)
 	}
 
-	partialResultName := partialResultName(name)
+	partialResultName := partialResultName(input, name)
 	connPartialResult := rabbitmq.NewMiddleware[A](connector, middlewareLogger)
 	partialResultIn, err := connPartialResult.ConsumeFrom(partialResultName, name, count, 1)
 	if err != nil {
@@ -107,7 +107,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		return nil, fmt.Errorf("failed to create accumulator output channel: %w", err)
 	}
 
-	finalReuceName := finalReduceName(name)
+	finalReuceName := finalReduceName(input, name)
 	connFinalReduce := rabbitmq.NewMiddleware[A](connector, middlewareLogger)
 	var finalReduceInP *middleware.Receiver[A] = nil
 	if id == "1" {
@@ -142,12 +142,12 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	}, nil
 }
 
-func partialResultName(name string) string {
-	return name + "_acc"
+func partialResultName(input string, name string) string {
+	return fmt.Sprintf("%s->%s:partial_accumulators", input, name)
 }
 
-func finalReduceName(name string) string {
-	return name + "_finacc"
+func finalReduceName(input string, name string) string {
+	return fmt.Sprintf("%s->%s:final_reduce", input, name)
 }
 
 type MapReduce[T, A, R any] interface {
