@@ -524,10 +524,11 @@ func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Q4", expectedOutputQ4, removeQ4, false)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Q4", expectedOutputQ4, removeQ4, true)
 }
 
 // reducing batch: failed to process close notification: failed to decode item: failed to decode map length: failed to read data: EOF
+// Received message from input: {Acknowledger:0xc0000a6a20 Headers:map[cid:1 type:normal] ContentType:application/message ContentEncoding: DeliveryMode:0 Priority:0 CorrelationId: ReplyTo: Expiration: MessageId: Timestamp:0001-01-01 00:00:00 +0000 UTC Type: UserId: AppId: ConsumerTag:ctag-/map_reducer-3 MessageCount:0 DeliveryTag:1 Redelivered:false Exchange:joiner_credits->reduce_by_actor:partial_accumulators RoutingKey: Body:[]} in receiver reduce_by_actor
 
 func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
 	expectedOutputQ5 := []*model.Row{
@@ -537,7 +538,7 @@ func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q5", expectedOutputQ5, removeQ5, true)
 }
 
-func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row], queryNumber string, expectedOutput []*model.Row, remove func([]*model.Row, *model.Row, *logger.ConsoleLogger) []*model.Row, lastQuery bool) {
+func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row], queryNumber string, expectedOutput []*model.Row, remove func([]*model.Row, *model.Row, *logger.ConsoleLogger, string) []*model.Row, lastQuery bool) {
 	log.Infof("Verifying %s", queryNumber)
 	err := allQuerysToEndpointSender.Send(model.RowQueryName(queryNumber), cid)
 	if err != nil {
@@ -552,7 +553,7 @@ OuterLoop:
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
-			log.Infof("No more rows, EOF arrived")
+			log.Infof("Client %s | Query %s | No more rows , EOF arrived", cid, queryNumber)
 			if lastQuery {
 				allQuerysToEndpointSender.SendEOF(cid)
 			}
@@ -571,44 +572,44 @@ OuterLoop:
 			continue
 		}
 		log.Debugf("Received row debug: %v", receivedRow)
-		expectedOutput = remove(expectedOutput, receivedRow, log)
+		expectedOutput = remove(expectedOutput, receivedRow, log, cid)
 		err = envelope.Ack(false)
 		unwrap(err, "Failed to ack message", log)
 	}
 	if len(expectedOutput) > 0 {
-		log.Errorf("Not all expected rows received. Missing %v", expectedOutput)
+		log.Errorf("Client %s | Query %s | Not all expected rows received. Missing %v", cid, queryNumber, expectedOutput)
 	}
 	if len(expectedOutput) == 0 {
-		log.Infof("All expected rows received")
+		log.Infof("Client %s | Query %s | All expected rows received", cid, queryNumber)
 	}
 }
 
-func removeQ1(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger) []*model.Row {
+func removeQ1(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
 
 	for i, v := range slice {
 		if v.Strings["title"] == movie.Strings["title"] && stringSlicesEqual(v.Arrays["genres"], movie.Arrays["genres"]) {
-			log.Infof("Film matched expected")
+			log.Infof("Client %s | Query Q1 | Film matched expected", cid)
 			return slices.Delete(slice, i, i+1)
 		}
 	}
-	log.Errorf("Film not matched expected")
+	log.Errorf("Client %s | Query Q1 | Film not matched expected", cid)
 	return slice
 }
 
-func removeQ2(slice []*model.Row, country *model.Row, log *logger.ConsoleLogger) []*model.Row {
+func removeQ2(slice []*model.Row, country *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
 
 	for i, v := range slice {
 		if v.Strings["country"] == country.Strings["country"] {
 			if v.Numerics["budget_sum"] == country.Numerics["budget_sum"] {
-				log.Infof("Country matched expected 🟢")
+				log.Infof("Client %s | Query Q2 | Country matched expected 🟢", cid)
 			} else {
-				log.Errorf("Budget sum not matched expected:😔 %d != %d", country.Numerics["budget_sum"], v.Numerics["budget_sum"])
+				log.Errorf("Client %s | Query Q2 | Budget sum not matched expected:😔 %d != %d", cid, country.Numerics["budget_sum"], v.Numerics["budget_sum"])
 			}
 			return slices.Delete(slice, i, i+1)
 
 		}
 	}
-	log.Errorf("Country not matched expected 🛑")
+	log.Errorf("Client %s | Query Q2 | Country not matched expected 🛑", cid)
 	return slice
 }
 
@@ -624,41 +625,41 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
-func removeQ3(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger) []*model.Row {
+func removeQ3(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
 
 	for i, v := range slice {
 		if v.Strings["title"] == movie.Strings["title"] && v.Strings["movieID"] == movie.Strings["movieID"] {
-			log.Infof("Film matched expected")
+			log.Infof("Client %s | Query Q3 |Film matched expected", cid)
 			return slices.Delete(slice, i, i+1)
 		}
 	}
-	log.Errorf("Film not matched expected")
+	log.Errorf("Client %s | Query Q3 | Film not matched expected", cid)
 	return slice
 }
 
-func removeQ4(slice []*model.Row, actor *model.Row, log *logger.ConsoleLogger) []*model.Row {
+func removeQ4(slice []*model.Row, actor *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
 
 	for i, v := range slice {
 		if v.Strings["actor"] == actor.Strings["actor"] {
 			if v.Numerics["count"] == actor.Numerics["count"] {
-				log.Infof("Actor matched expected")
+				log.Infof("Client %s | Query Q4 | Actor matched expected", cid)
 			} else {
 				log.Errorf("Count not matched expected: %d != %d", actor.Numerics["count"], v.Numerics["count"])
 			}
 			return slices.Delete(slice, i, i+1)
 		}
 	}
-	log.Errorf("Actor not matched expected")
+	log.Errorf("Client %s | Query Q4 | Actor not matched expected", cid)
 	return slice
 }
 
-func removeQ5(expectedOutputQ5 []*model.Row, receivedSentiment *model.Row, log *logger.ConsoleLogger) []*model.Row {
+func removeQ5(expectedOutputQ5 []*model.Row, receivedSentiment *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
 	for i, v := range expectedOutputQ5 {
 		if v.Strings["sentiment"] == receivedSentiment.Strings["sentiment"] {
 			if v.Floats["avg_rate"]-receivedSentiment.Floats["avg_rate"] < 0.0001 {
-				log.Infof("Sentiment matched expected")
+				log.Infof("Client %s | Query Q5 | Sentiment matched expected", cid)
 			} else {
-				log.Errorf("Avg rate not matched expected: %f != %f", receivedSentiment.Floats["avg_rate"], v.Floats["avg_rate"])
+				log.Errorf("Client %s | Query Q5 | Avg rate not matched expected: %f != %f", cid, receivedSentiment.Floats["avg_rate"], v.Floats["avg_rate"])
 			}
 			return slices.Delete(expectedOutputQ5, i, i+1)
 		}

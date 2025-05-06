@@ -82,6 +82,7 @@ func (f GenericFilter) ProcessAndSend(envelope middleware.Envelope[*model.Row]) 
 	cid := envelope.Cid()
 	t := envelope.Type()
 	if t == middleware.EOF {
+		log.Infof("sendEOF message to %s from task %s", cid, f.Name())
 		return f.taskSender.SendEOF(cid)
 	} else {
 		output := f.process(row)
@@ -187,7 +188,7 @@ func (f *GenericFilter) Connect(middlewareConnection middleware.Connection[*mode
 				// break
 				// TODO debería hacer el break?
 				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
-				envelope.Ack(true)
+				//envelope.Ack(true)
 			case middleware.Prune:
 				envelope.Ack(true)
 				continue

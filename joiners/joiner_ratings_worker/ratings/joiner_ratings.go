@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
@@ -26,10 +27,12 @@ type JoinerRatings struct {
 	pendingMoviesMu     sync.Mutex
 	subscribers         []string
 	finishedRatings     map[string]bool
+	id                  string
+	log                 *logger.ConsoleLogger
 }
 
-func NewJoinerRatings(inputToProcess task.Task[*model.Row, *model.Row], inputToSave task.Task[*model.Row, *model.Row], subscribers []string) task.JoinerTask[*model.Row, *model.Row] {
-	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, 0, make(map[string]map[string]*model.Row), sync.Mutex{}, subscribers, make(map[string]bool)}
+func NewJoinerRatings(inputToProcess task.Task[*model.Row, *model.Row], inputToSave task.Task[*model.Row, *model.Row], subscribers []string, id string, log *logger.ConsoleLogger) task.JoinerTask[*model.Row, *model.Row] {
+	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, 0, make(map[string]map[string]*model.Row), sync.Mutex{}, subscribers, make(map[string]bool), id, log}
 	return &joiner
 }
 
@@ -50,7 +53,7 @@ func (f *JoinerRatings) ProcessAndSend(env middleware.Envelope[*model.Row]) erro
 	} else if _, ok := row.Floats["avg_rating"]; ok {
 		err = f.processRating(row)
 	} else {
-		Log.Warnf("Received row with no recognizable ID: %+v", row)
+		f.log.Warnf("Received row with no recognizable ID: %+v", row)
 	}
 
 	return err
@@ -60,12 +63,12 @@ func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row) error {
 
 	output, err := f.processMovie(row)
 	if err != nil {
-		//log.Errorf("Failed to process movie: %v", err)
+		//f.log.Errorf("Failed to process movie: %v", err)
 		if err.Error() == "no rating found" {
 			clientID := row.Strings["cid"]
 			_, hasFinished := f.finishedRatings[clientID]
 			if hasFinished {
-				Log.Infof("No rating found for movie %s", row.Strings["movieID"])
+				f.log.Infof("No rating found for movie %s", row.Strings["movieID"])
 				delete(f.pendingMovies[clientID], row.Strings["movieID"])
 				return nil
 			}
@@ -77,10 +80,10 @@ func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row) error {
 			_, ok = f.pendingMovies[clientID][row.Strings["movieID"]]
 			if !ok {
 				f.pendingMovies[clientID][row.Strings["movieID"]] = row
-				Log.Infof("Adding movie %s to pending movies", row.Strings["movieID"])
+				f.log.Infof("Adding movie %s to pending movies", row.Strings["movieID"])
 			} else {
 				delete(f.pendingMovies[clientID], row.Strings["movieID"])
-				Log.Infof("No rating found for movie %s", row.Strings["movieID"])
+				f.log.Infof("No rating found for movie %s", row.Strings["movieID"])
 			}
 			f.pendingMoviesMu.Unlock()
 			return nil
@@ -96,10 +99,10 @@ func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row) error {
 
 func (f *JoinerRatings) sendRating(output *model.Row, cid string) error {
 
-	Log.Infof("Sending rating data: %v", output)
+	f.log.Infof("Sending rating data: %v", output)
 	err := f.taskSender.Send(output, cid)
 	if err != nil {
-		Log.Errorf("Failed to send rating data: %v", err)
+		f.log.Errorf("Failed to send rating data: %v", err)
 		return err
 	}
 
@@ -110,24 +113,24 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 	f.ratingsProcessed++
 	movieID := row.Strings["movieID"]
 	avg_rating := row.Floats["avg_rating"]
-	Log.Infof("Processing rating %v : %v", f.ratingsProcessed, row)
+	f.log.Infof("Processing rating %v : %v", f.ratingsProcessed, row)
 
 	lastDigit := string(movieID[len(movieID)-1])
 
 	clientId := row.Strings["cid"]
 	if err := os.MkdirAll(clientId, os.ModePerm); err != nil {
-		Log.Errorf("Failed to create directory: %s", clientId)
+		f.log.Errorf("Failed to create directory: %s", clientId)
 		return err
 	}
 	dirPath := fmt.Sprintf("%s/joiner_ratings", clientId)
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		Log.Errorf("Failed to create directory: %s", "joiner_ratings")
+		f.log.Errorf("Failed to create directory: %s", "joiner_ratings")
 		return err
 	}
-	dirPath = fmt.Sprintf("%s/joiner%s", dirPath, WORKER_ID)
+	dirPath = fmt.Sprintf("%s/joiner%s", dirPath, f.id)
 
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		Log.Errorf("Failed to create directory: %s", dirPath)
+		f.log.Errorf("Failed to create directory: %s", dirPath)
 		return err
 	}
 
@@ -141,13 +144,13 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 	} else if os.IsNotExist(err) {
 		writeHeader = true
 	} else {
-		Log.Errorf("Error checking file status: %v", err)
+		f.log.Errorf("Error checking file status: %v", err)
 		return err
 	}
 
 	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		Log.Errorf("Failed to open file: %s. Err %s", fileName, err)
+		f.log.Errorf("Failed to open file: %s. Err %s", fileName, err)
 		return err
 	}
 	defer file.Close()
@@ -156,7 +159,7 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 
 	if writeHeader {
 		if err := writer.Write([]string{"movieID", "rating"}); err != nil {
-			Log.Errorf("Failed to write CSV header: %v", err)
+			f.log.Errorf("Failed to write CSV header: %v", err)
 			return err
 		}
 	}
@@ -165,7 +168,7 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 
 	err = writer.Write([]string{movieID, ratingString})
 	if err != nil {
-		Log.Errorf("Failed to write CSV row: %v", err)
+		f.log.Errorf("Failed to write CSV row: %v", err)
 		return err
 	}
 
@@ -178,14 +181,14 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 	if ok {
 		movie, found = f.pendingMovies[clientId][movieID]
 		if found {
-			//log.Infof("Found pending movie: %s in pending movies %v", movieID, f.pendingMovies)
+			//f.log.Infof("Found pending movie: %s in pending movies %v", movieID, f.pendingMovies)
 			delete(f.pendingMovies[clientId], movieID)
 		}
 	}
 	f.pendingMoviesMu.Unlock()
 
 	if found {
-		Log.Infof("Processing pending movie: %s", movieID)
+		f.log.Infof("Processing pending movie: %s", movieID)
 		rowRes := &model.Row{
 			Strings: map[string]string{
 				"movieID": movieID,
@@ -198,7 +201,7 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 		}
 		err = f.sendRating(rowRes, clientId)
 		if err != nil {
-			Log.Errorf("Failed to process pending movie: %v", err)
+			f.log.Errorf("Failed to process pending movie: %v", err)
 		}
 	}
 
@@ -212,16 +215,16 @@ func (f *JoinerRatings) processRating(row *model.Row) error {
 func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, error) {
 	movieID := row.Strings["movieID"]
 	title := row.Strings["title"]
-	Log.Infof("Processing movie: %s", movieID)
+	f.log.Infof("Processing movie: %s", movieID)
 	lastDigit := string(movieID[len(movieID)-1])
 	clientId := row.Strings["cid"]
 
-	dirPath := fmt.Sprintf("%s/joiner_ratings/joiner%s", clientId, WORKER_ID)
+	dirPath := fmt.Sprintf("%s/joiner_ratings/joiner%s", clientId, f.id)
 
 	fileName := fmt.Sprintf("%s/ratings_%s.csv", dirPath, lastDigit)
 	file, err := os.Open(fileName)
 	if err != nil {
-		//log.Errorf("Failed to open file: %s", fileName)
+		//f.log.Errorf("Failed to open file: %s", fileName)
 		return nil, fmt.Errorf("no rating found")
 
 	}
@@ -230,7 +233,7 @@ func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, error) {
 	reader := csv.NewReader(file)
 	_, err = reader.Read()
 	if err != nil {
-		Log.Errorf("Failed to read header: %s", err)
+		f.log.Errorf("Failed to read header: %s", err)
 		return nil, err
 	}
 
@@ -242,7 +245,7 @@ func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, error) {
 			break
 		}
 		if err != nil || len(data) < 2 {
-			Log.Errorf("Invalid ratings row: %v", err)
+			f.log.Errorf("Invalid ratings row: %v", err)
 			continue
 		}
 
@@ -250,11 +253,11 @@ func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, error) {
 			ratingString := data[1]
 			rating, err := strconv.ParseFloat(ratingString, 64)
 			if err != nil {
-				Log.Errorf("Failed to parse rating: %v; rating = %v", err, ratingString)
+				f.log.Errorf("Failed to parse rating: %v; rating = %v", err, ratingString)
 				continue
 
 			}
-			//log.Infof("Adding rating for movie %s, %f", movieID, rating)
+			//f.log.Infof("Adding rating for movie %s, %f", movieID, rating)
 			avg_rating = rating
 			found = true
 			break
@@ -262,10 +265,10 @@ func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, error) {
 	}
 
 	if !found {
-		//log.Infof("No ratings found for movie %s", movieID)
+		//f.log.Infof("No ratings found for movie %s", movieID)
 		return nil, fmt.Errorf("no rating found")
 	}
-	//log.Infof("Average rating for movie %s: %f", movieID, avg)
+	//f.log.Infof("Average rating for movie %s: %f", movieID, avg)
 
 	rowRes := &model.Row{
 		Strings: map[string]string{
@@ -283,13 +286,9 @@ func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, error) {
 
 func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
-	id := WORKER_ID
-	if id == "" {
-		id = "1"
-	}
 	var WORKER_COUNT_STR = os.Getenv("WORKER_COUNT")
 	if WORKER_COUNT_STR == "" {
-		Log.Errorf("WORKER_COUNT environment variable not set. It will be set to 1")
+		f.log.Errorf("WORKER_COUNT environment variable not set. It will be set to 1")
 		WORKER_COUNT_STR = "1"
 	}
 	peers, err := strconv.Atoi(WORKER_COUNT_STR)
@@ -297,7 +296,7 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 		return nil, fmt.Errorf("failed to parse WORKER_COUNT: %w", err)
 	}
 
-	var prefetchStr = os.Getenv("WORKER_COUNT")
+	var prefetchStr = os.Getenv("PREFETCH")
 	if prefetchStr == "" {
 		prefetchStr = "1"
 	}
@@ -306,12 +305,12 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
 	}
 
-	groupQueueName := fmt.Sprintf("joiner_%s_ratings", id)
+	groupQueueName := fmt.Sprintf("joiner_%s_ratings", f.id)
 	f.taskReceiverRatings, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, uint(peers), prefetch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue clean_ratings for task %s", f.Name())
 	}
-	Log.Infof("Created read queue exchange %s with groupName %s", f.Name(), groupQueueName)
+	f.log.Infof("Created read queue exchange %s with groupName %s", f.Name(), groupQueueName)
 
 	f.taskReceiverMovies, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), uint(peers), prefetch)
 	if err != nil {
@@ -334,15 +333,15 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 			envelope, err := f.taskReceiverRatings.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
-					Log.Infof("Channel for ratings closed from task: %v", f.Name())
+					f.log.Infof("Channel for ratings closed from task: %v", f.Name())
 					break
 				}
-				Log.Errorf("Error reading from middleware (joiner_ratings): %v", err)
+				f.log.Errorf("Error reading from middleware (joiner_ratings): %v", err)
 				continue
 			}
 			// if !ok {
 			// 	if envelope == nil || envelope.Type() != middleware.EOF {
-			// 		Log.Infof("Channel closed (ratings): %v", f.Name())
+			// 		f.log.Infof("Channel closed (ratings): %v", f.Name())
 
 			// 		break
 			// 	}
@@ -360,15 +359,15 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 			envelope, err := f.taskReceiverMovies.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
-					Log.Infof("Channel for movies closed from task: %v", f.Name())
+					f.log.Infof("Channel for movies closed from task: %v", f.Name())
 					break
 				}
-				Log.Errorf("Error reading from middleware: %v", err)
+				f.log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
 			// if !ok {
 			// 	if envelope == nil || envelope.Type() != middleware.EOF {
-			// 		Log.Infof("Channel closed (movies): %v", f.Name())
+			// 		f.log.Infof("Channel closed (movies): %v", f.Name())
 
 			// 		break
 			// 	}
@@ -394,16 +393,16 @@ func (f *JoinerRatings) Finish() error {
 	if err := f.taskSender.Close(); err != nil {
 		return fmt.Errorf("failed to close task sender: %w", err)
 	}
-	Log.Infof("Closed task %s", f.Name())
+	f.log.Infof("Closed task %s", f.Name())
 	return nil
 }
 
 func (f *JoinerRatings) ProcessPendingMovies(clientID string) error {
-	Log.Infof("Processing pending movies for client %s", clientID)
+	f.log.Infof("Processing pending movies for client %s", clientID)
 	f.pendingMoviesMu.Lock()
 	pendings, ok := f.pendingMovies[clientID]
 	if !ok {
-		Log.Infof("No pending movies for client %s", clientID)
+		f.log.Infof("No pending movies for client %s", clientID)
 		f.pendingMoviesMu.Unlock()
 		return nil
 	}
@@ -423,15 +422,26 @@ func (f *JoinerRatings) ProcessPendingMovies(clientID string) error {
 	return nil
 }
 
-func (f *JoinerRatings) FinishProcessingClient(clientID string) error {
+func (f *JoinerRatings) FinishProcessingClient(clientID string, sendFinish bool) error {
 	f.ProcessPendingMovies(clientID)
-	dirPath := fmt.Sprintf("%s/joiner_ratings/joiner%s", clientID, WORKER_ID)
+	dirPath := fmt.Sprintf("%s/joiner_ratings/joiner%s", clientID, f.id)
 	err := os.RemoveAll(dirPath)
 	if err != nil {
 		return err
 	} else {
-		Log.Infof("Removed directory: %s", dirPath)
+		f.log.Infof("Removed directory: %s", dirPath)
 	}
-	f.taskSender.SendEOF(clientID)
+	if sendFinish {
+		f.log.Infof("Sending EOF to client %s", clientID)
+		f.taskSender.SendEOF(clientID)
+	}
 	return nil
+}
+
+func (f *JoinerRatings) Id() string {
+	return f.id
+}
+
+func (f *JoinerRatings) Logger() *logger.ConsoleLogger {
+	return f.log
 }

@@ -3,6 +3,7 @@ package joiner
 import (
 	"strings"
 
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/joiners/joiner_credits_worker/credits"
 	"github.com/ptourne/sistemas-distribuidos-1/joiners/joiner_ratings_worker/ratings"
@@ -25,6 +26,7 @@ const (
 )
 
 func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
+	log := w.Tasks.Logger()
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 
 	inputChannels, err := w.Tasks.Connect(middlewareConnection, middlewareConnection)
@@ -38,6 +40,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 	var envelope middleware.Envelope[*model.Row]
 	var ok bool
 	currentTask := w.Tasks
+	id := currentTask.Id()
 	for {
 		select {
 		case envelope, ok = <-inputChannels[0]:
@@ -48,6 +51,8 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 					eofMsg = []middleware.Envelope[*model.Row]{}
 				}
 				clientsFinished[envelope.Cid()] = append(eofMsg, envelope)
+			} else if envelope != nil && envelope.Type() == middleware.Prune {
+				log.Infof("Movies: Received prune message for client %s", envelope.Cid())
 			} else if !ok {
 				log.Infof("Channel closed 0, exiting...")
 				closed++
@@ -62,6 +67,8 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 				}
 				clientsFinished[envelope.Cid()] = append(eofMsg, envelope)
 				currentTask.ProcessPendingMovies(envelope.Cid())
+			} else if envelope != nil && envelope.Type() == middleware.Prune {
+				log.Infof("Credits: Received prune message for client %s", envelope.Cid())
 			} else if !ok {
 				log.Infof("Channel closed 1, exiting...")
 				inputChannels[1] = nil
@@ -85,9 +92,9 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 			if len(clientsPrune[envelope.Cid()]) == 2 {
 				log.Infof("Client %s prune", envelope.Cid())
 				for _, pruneMsg := range clientsPrune[envelope.Cid()] {
-					log.Infof("ack Prune message")
+					log.Infof("ack Prune message for client %s", envelope.Cid())
 					err = pruneMsg.Ack(false)
-					unwrap(err, "Failed to ack prune message")
+					unwrap(err, "Failed to ack prune message", log)
 				}
 				delete(clientsPrune, envelope.Cid())
 			}
@@ -103,7 +110,12 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 			if len(eofMsgs) == 2 {
 				log.Infof("Client %s finished", envelope.Cid())
 				delete(clientsFinished, envelope.Cid())
-				err = currentTask.FinishProcessingClient(envelope.Cid())
+
+				if id == "1" {
+					err = currentTask.FinishProcessingClient(envelope.Cid(), true)
+				} else {
+					err = currentTask.FinishProcessingClient(envelope.Cid(), false)
+				}
 				if err != nil {
 					log.Errorf("Failed to finish processing client %s: %v", envelope.Cid(), err)
 					continue
@@ -124,12 +136,12 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 		}
 		log.Debugf("TO ACK msg %v worker", envelope.Msg())
 		err = envelope.Ack(false)
-		unwrap(err, "Failed to ack message")
+		unwrap(err, "Failed to ack message", log)
 	}
 	currentTask.Finish()
 }
 
-func unwrap(err error, msg string) {
+func unwrap(err error, msg string, log *logger.ConsoleLogger) {
 	if err != nil {
 		if strings.Contains(err.Error(), "channel/connection is not open") {
 			log.Warnf("%s: %s", msg, err)
@@ -168,22 +180,21 @@ func (t *SourceTask[O]) Connect(_ middleware.Connection[*model.Row], _ middlewar
 	return nil, nil
 }
 
-func NewCreditsWorker(subscribers []string) Worker {
+func NewCreditsWorker(subscribers []string, id string, workerLogger *logger.ConsoleLogger) Worker {
 	movies := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
 	clean_credits := NewSourceTask[*model.Row]("clean_credits")
-
-	joiner_credits := credits.NewJoinerCredits(movies, clean_credits, subscribers)
+	joiner_credits := credits.NewJoinerCredits(movies, clean_credits, subscribers, id, workerLogger)
 
 	return Worker{
 		Tasks: joiner_credits,
 	}
 }
 
-func NewRatingsWorker(subscribers []string) Worker {
+func NewRatingsWorker(subscribers []string, id string, workerLogger *logger.ConsoleLogger) Worker {
 	movies_metadata := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
 	filter_avg_rating := NewSourceTask[*model.Row]("filter_avg_rating")
 
-	joiner_ratings := ratings.NewJoinerRatings(movies_metadata, filter_avg_rating, subscribers)
+	joiner_ratings := ratings.NewJoinerRatings(movies_metadata, filter_avg_rating, subscribers, id, workerLogger)
 
 	return Worker{
 		Tasks: joiner_ratings,

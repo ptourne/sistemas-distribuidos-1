@@ -2,23 +2,32 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/joiners_ratings_workers/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
-	"github.com/ptourne/sistemas-distribuidos-1/joiners/joiner_credits_worker/credits"
 )
 
+func GetEnv(key, defaultValue string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return defaultValue
+}
+
+var WORKER_ID = GetEnv("WORKER_ID", "1")
+
 func main() {
-	worker := joiner.NewCreditsWorker([]string{"reduce_by_actor"})
+	workerLogger := logger.NewConsoleLogger(fmt.Sprintf("joiner_%s", WORKER_ID), logger.Info)
+	worker := joiner.NewCreditsWorker([]string{"reduce_by_actor"}, WORKER_ID, workerLogger)
 	connector, err := rabbitmq.Connector()
 	if err != nil {
-		credits.Log.Fatalf("Failed to connect to middleware: %s", err)
+		workerLogger.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	id := credits.WORKER_ID
-	middlewareLogger := logger.NewConsoleLogger(fmt.Sprintf("middleware_%s", id), logger.Info)
+	middlewareLogger := logger.NewConsoleLogger(fmt.Sprintf("middleware_%s", WORKER_ID), logger.Info)
 	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector, middlewareLogger)
 	defer middlewareConnection.Close()
 

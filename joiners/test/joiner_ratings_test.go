@@ -3,6 +3,7 @@ package test
 import (
 	"testing"
 
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/joiners_ratings_workers/joiner"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
@@ -121,7 +122,8 @@ func configTestJoinerRatings(t *testing.T, output string, middlewareConnection m
 	assert.NoError(t, err)
 	inputCredits, err := middlewareConnection.WriteTo(filter_ratings.Name(), []string{"joiner_1_ratings"})
 	assert.NoError(t, err)
-	worker := joiner.NewRatingsWorker([]string{output})
+	workerLogger := logger.NewConsoleLogger("joiner_1", logger.Debug)
+	worker := joiner.NewRatingsWorker([]string{output}, "1", workerLogger)
 	currentTask := worker.Tasks
 	outputJoiner, err := middlewareConnection.ConsumeFrom(currentTask.Name(), output, 1, 20)
 	assert.NoError(t, err)

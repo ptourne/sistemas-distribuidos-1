@@ -37,6 +37,7 @@ func (f CleanMovies) ProcessAndSend(envelope middleware.Envelope[*model.Row]) er
 	t := envelope.Type()
 
 	if t == middleware.EOF {
+		log.Infof("sendEOF message to %s from task %s", cid, f.Name())
 		return f.taskSender.SendEOF(cid)
 	} else {
 		output := f.process(row)
@@ -165,7 +166,7 @@ func (f *CleanMovies) Connect(inputMiddleware middleware.Connection[*model.Row],
 			case middleware.EOF:
 				// log.Infof("Channel closed: %v", f.Name())
 				// break
-				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
+				log.Infof("finish arrived for cid: %s from clean_movies", envelope.Cid())
 			case middleware.Prune:
 				envelope.Ack(true)
 				continue
