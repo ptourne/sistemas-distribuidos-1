@@ -757,8 +757,12 @@ func TestRabbitMQMiddleware(t *testing.T) {
 			err = sender1.Send(sentMsg, cid)
 			assert.NoError(t, err)
 		}
+		ref := time.Now()
+		emptyDuration := time.Since(ref)
 		err = sender1.Prune(cid)
+		fin := time.Since(ref) - emptyDuration
 		assert.NoError(t, err)
+		log.Infof("Prune duration: %s", fin)
 		err = sender2.SendEOF(cid)
 		assert.NoError(t, err)
 

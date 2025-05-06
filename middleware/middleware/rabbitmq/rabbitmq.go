@@ -91,6 +91,7 @@ type TypeMsgInternal int
 const (
 	normal TypeMsgInternal = iota
 	eofCid
+	prune
 )
 
 func (t TypeMsgInternal) String() string {
@@ -99,6 +100,8 @@ func (t TypeMsgInternal) String() string {
 		return "normal"
 	case eofCid:
 		return "eofCid"
+	case prune:
+		return "prune"
 	default:
 		return "Unknown TypeMsg"
 	}
@@ -110,6 +113,8 @@ func FromStringTypeMsgInternal(s string) (TypeMsgInternal, error) {
 		return normal, nil
 	case "eofCid":
 		return eofCid, nil
+	case "prune":
+		return prune, nil
 	default:
 		return -1, fmt.Errorf("unknown TypeMsg: %s", s)
 	}
@@ -129,11 +134,9 @@ type Metadata struct {
 }
 
 type SenderChannel[T codec.Serializable[T]] struct {
-	exchangeName  string
-	ch            *amqp.Channel
-	confirmations chan amqp.Confirmation
-	LastSent      map[string]Metadata
-	Log           *logger.ConsoleLogger
+	exchangeName string
+	ch           *amqp.Channel
+	Log          *logger.ConsoleLogger
 }
 
 func (s *SenderChannel[T]) Close() {
@@ -276,7 +279,6 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err = ch.Confirm(false); err != nil {
 		return SenderChannel[I]{}, fmt.Errorf("failed to enable publisher confirms: %v", err)
 	}
-	confirmations := ch.NotifyPublish(make(chan amqp.Confirmation))
 	err = ch.ExchangeDeclare(
 		readExchangeName, // name
 		t,                // type
@@ -290,11 +292,9 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 		return SenderChannel[I]{}, err
 	}
 	newVar := SenderChannel[I]{
-		exchangeName:  readExchangeName,
-		ch:            ch,
-		confirmations: confirmations,
-		LastSent:      map[string]Metadata{},
-		Log:           m.Log,
+		exchangeName: readExchangeName,
+		ch:           ch,
+		Log:          m.Log,
 	}
 	return newVar, nil
 }
@@ -362,10 +362,6 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	buf, err := msg.Encode()
 	if err != nil {
 		return fmt.Errorf("failed to encode message: %v", err)
-	}
-	s.LastSent[cid] = Metadata{
-		Acked: false,
-		Seqno: s.ch.GetNextPublishSeqNo(),
 	}
 	err = s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
@@ -487,7 +483,11 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 						delete(r.prefetchCids, prefetchCid)
 					}
 				}
-				if t == eofCid {
+				switch t {
+				case prune:
+					r.Log.Debugf("ignoring prune msg")
+					continue
+				case eofCid:
 					// We set de listener for finishDones send on ack of prune msgs
 					r.finishCids[cid] = struct {
 						finishDonePending uint
@@ -547,11 +547,14 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	if !ok {
 		return false, true, nil, fmt.Errorf("read channel was closed")
 	}
-	_, cid, notification, tag, err := unpackMsg[*CloseNotification](msg)
+	t, cid, notification, tag, err := unpackMsg[*CloseNotification](msg)
 	if err != nil {
 		return false, true, nil, fmt.Errorf("failed to process close notification: %v", err)
 	}
 	defer tag.Ack(true)
+	if t == prune {
+		return true, false, nil, nil
+	}
 
 	switch notification.notificationType {
 	case closeNotificationFinishCidDone:
@@ -657,26 +660,22 @@ func (s *SenderRabbitmq[T]) Prune(cid string) error {
 }
 
 func (s SenderChannel[T]) Prune(cid string) error {
-	meta := s.LastSent[cid]
-	if meta.Acked {
-		delete(s.LastSent, cid)
-		return nil
+	c, err := s.ch.PublishWithDeferredConfirm(s.exchangeName, "", false, false,
+		amqp.Publishing{
+			ContentType: "application/message",
+			Body:        []byte{},
+			Headers: amqp.Table{
+				"cid":  cid,
+				"type": prune.String(),
+			},
+		})
+	if err != nil {
+		return fmt.Errorf("failed to send prune")
 	}
-	for {
-		confirmation := <-s.confirmations
-		if confirmation.DeliveryTag >= meta.Seqno {
-			for cida, metadata := range s.LastSent {
-				if confirmation.DeliveryTag >= metadata.Seqno {
-					s.LastSent[cida] = Metadata{
-						Acked: true,
-						Seqno: metadata.Seqno,
-					}
-				}
-			}
-			delete(s.LastSent, cid)
-			return nil
-		}
+	if ok := c.Wait(); !ok {
+		return fmt.Errorf("Failed to wait for prune reception")
 	}
+	return nil
 }
 
 func (m *middlewareRabbitmq[T]) createQueue(exchangeName string, groupName string) (*amqp.Queue, *amqp.Channel, error) {
