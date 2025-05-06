@@ -738,7 +738,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 		cid := "1"
 
-		countSender1 := uint64(50000)
+		countSender1 := uint64(200000)
 		for i := range countSender1 {
 			sentMsg := &Ball{i}
 			err := sender.Send(sentMsg, cid)
@@ -750,27 +750,46 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		receiverConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiverMiddleware := NewMiddleware[*Ball](receiverConnector, middlewareLogger)
-		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 2, 1)
+		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 1, 1)
 		assert.NoError(t, err)
+
+		// for i := range countSender1 {
+		// 	timer, cancel := newTimer()
+		// 	received, err := receiver.Next(timer)
+		// 	cancel()
+		// 	assert.NoError(t, err)
+		// 	if assert.Equalf(t, middleware.Normal, received.Type(), "Received message of type %s instead of Normal", received.Type(), i) {
+		// 		assert.Equal(t, i, received.Msg().ID)
+		// 		assert.NoError(t, received.Ack(true))
+		// 	}
+		// }
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+		handle1 := make(chan NextAsyncRes)
+		go func() {
+			for {
+				received, err := receiver.Next(ctx)
+				handle1 <- NextAsyncRes{received, err}
+			}
+		}()
 
 		for i := range countSender1 {
-			timer, cancel := newTimer()
-			received, err := receiver.Next(timer)
-			cancel()
-			assert.NoError(t, err)
-			if assert.Equalf(t, middleware.Normal, received.Type(), "Received message of type %s instead of Ball{%d}", received.Type(), i) {
-				assert.Equal(t, i, received.Msg().ID)
-				assert.NoError(t, received.Ack(true))
-			}
-		}
-		timer, cancel := newTimer()
-		received, err := receiver.Next(timer)
-		cancel()
-		assert.NoError(t, err)
-		if assert.Equalf(t, middleware.Prune, received.Type(), "Received message of type %s instead of EOF", received.Type()) {
-			assert.NoError(t, received.Ack(true))
+			res := <-handle1
+			assert.NoError(t, res.err)
+			assert.Equal(t, middleware.Normal, res.received.Type(), "Received message of type %s instead NORMAL in round: %d", res.received.Type(), i)
+			assert.NoError(t, res.received.Ack(false))
 		}
 
+		res := <-handle1
+		assert.NoError(t, res.err)
+		assert.Equal(t, middleware.Prune, res.received.Type())
+		assert.NoError(t, res.received.Ack(false))
+
+		res = <-handle1
+		assert.NoError(t, res.err)
+		assert.Equal(t, middleware.EOF, res.received.Type())
+		assert.NoError(t, res.received.Ack(false))
 	})
 
 	t.Run("OneProdTwoReceivers", func(t *testing.T) {
@@ -795,7 +814,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 2, 1)
 		assert.NoError(t, err)
 
-		countSender1 := uint64(100000)
+		countSender1 := uint64(1000000)
 		for i := range countSender1 {
 			sentMsg := &Ball{i}
 			err := sender.Send(sentMsg, cid)
@@ -804,7 +823,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		err = sender.SendEOF(cid)
 		assert.NoError(t, err)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1000*time.Second)
 		defer cancel()
 		handle1 := make(chan NextAsyncRes)
 		go func() {

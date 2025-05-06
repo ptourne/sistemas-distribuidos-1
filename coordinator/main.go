@@ -72,12 +72,12 @@ func main() {
 			channelsCid.input <- envelope
 		}
 	}()
+	// wg.Add(1)
+	// go nextQueue(ctx, config.ReceiverQueueTest, config.ReceiverTest, log, inputsChannelMap, GetTest, &inputChannelMapLock, &wg, true)
 	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQueueTest, config.ReceiverTest, log, inputsChannelMap, GetTest, &inputChannelMapLock, &wg, true)
-	// wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, true)
-	// wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, true) //TODO deberia ser SOLO EN Q5
+	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, true) //TODO deberia ser SOLO EN Q5
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -107,7 +107,6 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 		if !exists {
 			log.Errorf("Channel not found: %v", cid)
 			panic("Channel not found")
-			// break
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
@@ -258,9 +257,9 @@ OuterLoop:
 	}
 	log.Infof("CSV processing completed")
 
-	verifyingQtest(log, allQuerysToEndpointSender, cid, channelsCid.qtest)
-	// verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
-	// verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+	// verifyingQtest(log, allQuerysToEndpointSender, cid, channelsCid.qtest)
+	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
+	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
 	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
 	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
 	// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
@@ -516,7 +515,7 @@ func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q1", expectedOutputQ1, removeQ1, true)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q1", expectedOutputQ1, removeQ1, false)
 }
 
 func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {

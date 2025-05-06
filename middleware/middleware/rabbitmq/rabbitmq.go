@@ -231,7 +231,6 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 	if err != nil {
 		return nil, err
 	}
-	input.amqpCh.Qos(prefetch, 0, false)
 
 	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "", "fanout", "")
 	if err != nil {
@@ -287,6 +286,7 @@ func createConsumerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err != nil {
 		return ReceiverChannel[I]{}, nil
 	}
+	inputCh.Qos(1, 0, false) //TODO CAMBIAR A PREFECTH
 	msgs, err := inputCh.Consume(
 		inputQueue.Name, // queue
 		"",              // consumer
@@ -489,7 +489,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					r.Log.Debugf("return prune callback envelope")
 					continue
 				} else {
-					r.Log.Infof("Received NORMAL message for cid: %s in %s", cid, r.input.queueName)
+					r.Log.Debugf("Received NORMAL message for cid: %s in %s", cid, r.input.queueName)
 				}
 				r.Log.Debugf("return normal envelope")
 				return newNormalEnvelope(cid, msgbody, tag), nil
