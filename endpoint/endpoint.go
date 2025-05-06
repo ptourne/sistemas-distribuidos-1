@@ -185,7 +185,7 @@ OuterLoop:
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
-			log.Infof("No more querys")
+			log.Infof("No more querys with cid %s and ip %s", cid, ip)
 			bufAck := []byte("FinishQuerys")
 			err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), model.FinishQuerys)
 			if err != nil {
@@ -197,7 +197,7 @@ OuterLoop:
 			}
 			break OuterLoop
 		case middleware.Prune:
-			log.Infof("Prune arrived for cid: %s", envelope.Cid())
+			log.Infof("Prune arrived for cid: %s with ip %s", envelope.Cid(), ip)
 			err = envelope.Ack(false)
 			if err != nil {
 				return fmt.Errorf("failed to ack message in endpoint %s", err)
@@ -216,6 +216,7 @@ OuterLoop:
 			}
 		}
 
+		log.Infof("Writing to conn: %s (client %s)", ip, cid)
 		err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), receivedMovie.Type)
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)

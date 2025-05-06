@@ -80,8 +80,8 @@ func (a *Acc) Merge(b *Acc) {
 }
 
 func (a Acc) Encode() ([]byte, error) {
-	codec.MapEncode(a.Count, codec.Uint64Encode)
-	return nil, nil
+	return codec.MapEncode(a.Count, codec.Uint64Encode)
+	//return nil, nil
 }
 
 func (a *Acc) Decode(data []byte) (*Acc, error) {

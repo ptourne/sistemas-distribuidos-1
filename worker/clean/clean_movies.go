@@ -178,7 +178,7 @@ func (f *CleanMovies) Connect(inputMiddleware middleware.Connection[*model.Row],
 			}
 			switch envelope.Type() {
 			case middleware.EOF:
-				// log.Infof("finish arrived for cid: YESS %s in %s", envelope.Cid(), f.Name())
+				// log.Infof("finish arrived for cid: %s from clean_movies", envelope.Cid())
 			case middleware.Prune:
 				// log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), f.Name())
 				envelope.Ack(false)

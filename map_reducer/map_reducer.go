@@ -232,7 +232,7 @@ func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 						err = fmt.Errorf("error sending partial result: %w", err)
 						return
 					}
-					mr.log.Debugf("input : %s | Sent partial result", envelope.Cid())
+					mr.log.Debugf("input : %s | Sent partial result %+v", envelope.Cid(), a)
 				}
 				envelope.Ack(false)
 			case middleware.EOF:
@@ -274,6 +274,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess(ctx context.Context) <-chan error
 					err = nil
 					mr.log.Infof("reduc : Received termination signal")
 				}
+				mr.log.Debugf("reduc : err in next: %s", err)
 				return
 			}
 			switch e.Type() {
@@ -302,6 +303,8 @@ func (mr *MapReducer[I, A, R]) reduceBattchess(ctx context.Context) <-chan error
 				}
 				e.Ack(true)
 			case middleware.Prune:
+				mr.log.Debugf("reduc: %s | Received Prune", e.Cid())
+
 				err = mr.Prune(e.Cid())
 				if err != nil {
 					mr.log.Errorf("reduc : %s | Prune failed: %s", e.Cid(), err)

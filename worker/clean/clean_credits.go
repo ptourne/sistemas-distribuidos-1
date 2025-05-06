@@ -36,6 +36,7 @@ func (f CleanCredits) ProcessAndSend(envelope middleware.Envelope[*model.Row]) e
 	cid := envelope.Cid()
 	t := envelope.Type()
 	if t == middleware.EOF {
+		// log.Infof("sendEOF message to %s from task %s", cid, f.Name())
 		return f.taskSender.SendEOF(cid)
 	} else {
 		output := f.process(row)
@@ -118,7 +119,7 @@ func (f *CleanCredits) Connect(inputMiddleware middleware.Connection[*model.Row]
 			}
 			switch envelope.Type() {
 			case middleware.EOF:
-				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
+				// log.Infof("finish arrived for cid: %s from clean_credits", envelope.Cid())
 			case middleware.Prune:
 				envelope.Ack(true)
 				continue

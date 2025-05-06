@@ -8,7 +8,10 @@ replace github.com/ptourne/sistemas-distribuidos-1/middleware => ../middleware
 
 require github.com/ptourne/sistemas-distribuidos-1/common v0.0.0-00010101000000-000000000000
 
-require github.com/ptourne/sistemas-distribuidos-1/middleware v0.0.0-00010101000000-000000000000
+require (
+	github.com/ptourne/sistemas-distribuidos-1/middleware v0.0.0-00010101000000-000000000000
+	github.com/stretchr/testify v1.10.0
+)
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
@@ -31,6 +34,7 @@ require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3 // indirect
 	github.com/klauspost/compress v1.17.4 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
@@ -51,7 +55,6 @@ require (
 	github.com/rabbitmq/amqp091-go v1.10.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/stretchr/testify v1.10.0 // indirect
 	github.com/testcontainers/testcontainers-go v0.37.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
@@ -63,5 +66,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250428153025-10db94c68c34 // indirect
+	google.golang.org/grpc v1.70.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

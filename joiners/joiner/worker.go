@@ -1,0 +1,202 @@
+package joiner
+
+import (
+	"strings"
+
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/joiners/joiner_credits_worker/credits"
+	"github.com/ptourne/sistemas-distribuidos-1/joiners/joiner_ratings_worker/ratings"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
+	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
+)
+
+const MIDDLEWARE = "rabbitmq"
+
+type Worker struct {
+	Tasks task.JoinerTask[*model.Row, *model.Row]
+}
+
+type TType int
+
+const (
+	Bin TType = iota
+	Row
+)
+
+func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
+	log := w.Tasks.Logger()
+	log.Infof("Connected to middleware: %s", MIDDLEWARE)
+
+	inputChannels, err := w.Tasks.Connect(middlewareConnection, middlewareConnection)
+	if err != nil {
+		log.Fatalf("Failed to create channel for task %s: %s", w.Tasks.Name(), err)
+	}
+	log.Infof("Connected to task %s", w.Tasks.Name())
+	closed := 0
+	clientsFinished := make(map[string][]middleware.Envelope[*model.Row])
+	clientsPrune := make(map[string][]middleware.Envelope[*model.Row])
+	var envelope middleware.Envelope[*model.Row]
+	var ok bool
+	currentTask := w.Tasks
+	id := currentTask.Id()
+	for {
+		select {
+		case envelope, ok = <-inputChannels[0]:
+			if envelope != nil && envelope.Type() == middleware.EOF {
+				log.Infof("Movies: EOF message received from %s", envelope.Cid())
+				eofMsg, exists := clientsFinished[envelope.Cid()]
+				if !exists {
+					eofMsg = []middleware.Envelope[*model.Row]{}
+				}
+				clientsFinished[envelope.Cid()] = append(eofMsg, envelope)
+			} else if envelope != nil && envelope.Type() == middleware.Prune {
+				log.Infof("Movies: Received prune message for client %s", envelope.Cid())
+			} else if !ok {
+				log.Infof("Channel closed 0, exiting...")
+				closed++
+				inputChannels[0] = nil
+			}
+		case envelope, ok = <-inputChannels[1]:
+			if envelope != nil && envelope.Type() == middleware.EOF {
+				log.Infof("Credits: EOF message received from %s", envelope.Cid())
+				eofMsg, exists := clientsFinished[envelope.Cid()]
+				if !exists {
+					eofMsg = []middleware.Envelope[*model.Row]{}
+				}
+				clientsFinished[envelope.Cid()] = append(eofMsg, envelope)
+				currentTask.ProcessPendingMovies(envelope.Cid())
+			} else if envelope != nil && envelope.Type() == middleware.Prune {
+				log.Infof("Credits: Received prune message for client %s", envelope.Cid())
+			} else if !ok {
+				log.Infof("Channel closed 1, exiting...")
+				inputChannels[1] = nil
+				closed++
+			}
+		}
+
+		if closed == 2 {
+			break
+		}
+		if !ok && (envelope == nil || envelope.Type() == middleware.Normal) {
+			continue
+		}
+
+		if envelope != nil && envelope.Type() == middleware.Prune {
+			_, exists := clientsPrune[envelope.Cid()]
+			if !exists {
+				clientsPrune[envelope.Cid()] = []middleware.Envelope[*model.Row]{}
+			}
+			clientsPrune[envelope.Cid()] = append(clientsPrune[envelope.Cid()], envelope)
+			if len(clientsPrune[envelope.Cid()]) == 2 {
+				log.Infof("Client %s prune", envelope.Cid())
+				for _, pruneMsg := range clientsPrune[envelope.Cid()] {
+					log.Infof("ack Prune message for client %s", envelope.Cid())
+					err = pruneMsg.Ack(false)
+					unwrap(err, "Failed to ack prune message", log)
+				}
+				delete(clientsPrune, envelope.Cid())
+			}
+			continue
+		}
+
+		if envelope != nil && envelope.Type() == middleware.EOF {
+			eofMsgs, exists := clientsFinished[envelope.Cid()]
+			if !exists {
+				log.Errorf("Client %s finished but not registered", envelope.Cid())
+				continue
+			}
+			if len(eofMsgs) == 2 {
+				log.Infof("Client %s finished", envelope.Cid())
+				delete(clientsFinished, envelope.Cid())
+
+				if id == "1" {
+					err = currentTask.FinishProcessingClient(envelope.Cid(), true)
+				} else {
+					err = currentTask.FinishProcessingClient(envelope.Cid(), false)
+				}
+				if err != nil {
+					log.Errorf("Failed to finish processing client %s: %v", envelope.Cid(), err)
+					continue
+				}
+				log.Infof("Finished processing client %s", envelope.Cid())
+				for _, msg := range eofMsgs {
+					msg.Ack(false)
+				}
+			}
+			continue
+
+		}
+
+		result := currentTask.ProcessAndSend(envelope)
+		if result != nil {
+			log.Errorf("Failed to process row: %v by task: %v", envelope.Msg(), currentTask.Name())
+			continue
+		}
+		log.Debugf("TO ACK msg %v worker", envelope.Msg())
+		err = envelope.Ack(false)
+		unwrap(err, "Failed to ack message", log)
+	}
+	currentTask.Finish()
+}
+
+func unwrap(err error, msg string, log *logger.ConsoleLogger) {
+	if err != nil {
+		if strings.Contains(err.Error(), "channel/connection is not open") {
+			log.Warnf("%s: %s", msg, err)
+		} else {
+			log.Fatalf("%s: %s", msg, err)
+			panic(err)
+		}
+	}
+}
+
+type SourceTask[O codec.Serializable[O]] struct {
+	name string
+}
+
+func NewSourceTask[O codec.Serializable[O]](name string) task.Task[*model.Row, O] {
+	return &SourceTask[O]{name}
+}
+
+func (t *SourceTask[O]) ProcessAndSend(r middleware.Envelope[*model.Row]) error {
+	return nil
+}
+
+func (t *SourceTask[O]) Name() string {
+	return t.name
+}
+
+func (t *SourceTask[O]) Input() string {
+	return ""
+}
+
+func (t *SourceTask[O]) Finish() error {
+	return nil
+}
+
+func (t *SourceTask[O]) Connect(_ middleware.Connection[*model.Row], _ middleware.Connection[O]) ([]chan middleware.Envelope[*model.Row], error) {
+	return nil, nil
+}
+
+func NewCreditsWorker(subscribers []string, id string, workerLogger *logger.ConsoleLogger) Worker {
+	movies := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
+	clean_credits := NewSourceTask[*model.Row]("clean_credits")
+	joiner_credits := credits.NewJoinerCredits(movies, clean_credits, subscribers, id, workerLogger)
+
+	return Worker{
+		Tasks: joiner_credits,
+	}
+}
+
+func NewRatingsWorker(subscribers []string, id string, workerLogger *logger.ConsoleLogger) Worker {
+	movies_metadata := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
+	filter_avg_rating := NewSourceTask[*model.Row]("filter_avg_rating")
+
+	joiner_ratings := ratings.NewJoinerRatings(movies_metadata, filter_avg_rating, subscribers, id, workerLogger)
+
+	return Worker{
+		Tasks: joiner_ratings,
+	}
+}
