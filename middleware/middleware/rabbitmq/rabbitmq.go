@@ -234,7 +234,7 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 	if err != nil {
 		return nil, err
 	}
-	input.amqpCh.Qos(prefetch, 0, false)
+	//input.amqpCh.Qos(prefetch, 0, false)
 
 	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "", "fanout", "")
 	if err != nil {
@@ -291,6 +291,8 @@ func createConsumerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err != nil {
 		return ReceiverChannel[I]{}, nil
 	}
+	inputCh.Qos(1, 0, false)
+
 	msgs, err := inputCh.Consume(
 		inputQueue.Name, // queue
 		"",              // consumer
