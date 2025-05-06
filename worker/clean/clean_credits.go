@@ -40,7 +40,7 @@ func (f CleanCredits) ProcessAndSend(envelope middleware.Envelope[*model.Row]) e
 	} else {
 		output := f.process(row)
 		if output == nil {
-			log.Infof("Row dropped: %+v by cleaner", row)
+			log.Debugf("Row dropped: %+v by cleaner", row)
 			return nil
 		}
 		return f.taskSender.Send(output, cid)
@@ -118,15 +118,12 @@ func (f *CleanCredits) Connect(inputMiddleware middleware.Connection[*model.Row]
 			}
 			switch envelope.Type() {
 			case middleware.EOF:
-				// log.Infof("Channel closed: %v", f.Name())
-				// break
 				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
 			case middleware.Prune:
 				envelope.Ack(true)
 				continue
 			}
 			inputChannel <- envelope
-			// TODO falta un ack?
 		}
 		close(inputChannel)
 	}()

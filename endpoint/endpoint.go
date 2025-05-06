@@ -108,6 +108,7 @@ func (e *Endpoint) Run() error {
 				delete(e.clientsConn, envelope.Cid())
 				e.lockClientsConn.Unlock()
 			case middleware.Prune:
+				log.Infof("Prune arrived for cid: %s", envelope.Cid())
 				err = envelope.Ack(false)
 				if err != nil {
 					log.Errorf("failed to ack message in endpoint %s", err)
@@ -196,6 +197,7 @@ OuterLoop:
 			}
 			break OuterLoop
 		case middleware.Prune:
+			log.Infof("Prune arrived for cid: %s", envelope.Cid())
 			err = envelope.Ack(false)
 			if err != nil {
 				return fmt.Errorf("failed to ack message in endpoint %s", err)

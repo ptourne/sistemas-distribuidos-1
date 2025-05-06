@@ -36,14 +36,29 @@ func (f CleanMovies) ProcessAndSend(envelope middleware.Envelope[*model.Row]) er
 	cid := envelope.Cid()
 	t := envelope.Type()
 
-	if t == middleware.EOF {
-		return f.taskSender.SendEOF(cid)
-	} else {
+	switch t {
+	case middleware.EOF:
+		// log.Infof("EOF arrived for cid: %s in %s", cid, f.Name())
+
+		err := f.taskSender.SendEOF(cid)
+		if err != nil {
+			return fmt.Errorf("failed to send EOF: %w", err)
+		}
+		return nil
+	case middleware.Prune:
+		// log.Infof("Prune arrived for cid: %s in %s movieID: %s", cid, f.Name(), row.Strings["movieID"])
+		return nil
+	default:
+		// log.Infof("NORMAL arrived for cid: %s in %s movieID: %s", cid, f.Name(), row.Strings["movieID"])
 		output := f.process(row)
 		if output == nil {
 			return nil
 		}
-		return f.taskSender.Send(output, cid)
+		err := f.taskSender.Send(output, cid)
+		if err != nil {
+			return fmt.Errorf("failed to send message: %w", err)
+		}
+		return nil
 	}
 }
 
@@ -163,15 +178,15 @@ func (f *CleanMovies) Connect(inputMiddleware middleware.Connection[*model.Row],
 			}
 			switch envelope.Type() {
 			case middleware.EOF:
-				// log.Infof("Channel closed: %v", f.Name())
-				// break
-				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
+				// log.Infof("finish arrived for cid: YESS %s in %s", envelope.Cid(), f.Name())
 			case middleware.Prune:
-				envelope.Ack(true)
+				// log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), f.Name())
+				envelope.Ack(false)
 				continue
+			default:
+				// log.Infof("NORMAL arrived for cid: %s in %s", envelope.Cid(), f.Name())
 			}
 			inputChannel <- envelope
-			// TODO falta un ack?
 		}
 		close(inputChannel)
 	}()

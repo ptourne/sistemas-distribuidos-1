@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
+
+var log2 = logger.NewConsoleLogger("envelope", logger.Info)
 
 func newNormalEnvelope[T codec.Serializable[T]](cid string, msgbody T, tag *amqp.Delivery) middleware.Envelope[T] {
 	return &EnvelopeRabbitmq[T]{
@@ -121,6 +124,7 @@ func (r *prune2EnvelopeRabbitmq[T]) Type() middleware.TypeMsg {
 }
 
 func (r *prune2EnvelopeRabbitmq[T]) Ack(multiple bool) error {
+	log2.Infof("Acking prune2 envelope for cid: %s, sending finishdone", r.cid)
 	if err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, r.cid); err != nil {
 		return fmt.Errorf("failed to ack message in close notification: %v", err)
 	}

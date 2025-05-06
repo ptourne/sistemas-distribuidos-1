@@ -64,7 +64,8 @@ func main() {
 			switch envelope.Type() {
 			case middleware.EOF:
 			case middleware.Prune:
-				err = envelope.Ack(true)
+				log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), config.ReadFileByteQueue)
+				err = envelope.Ack(false)
 				unwrap(err, "Failed to ack message", log)
 				continue
 			}
@@ -73,9 +74,9 @@ func main() {
 	}()
 
 	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
-	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, true)
+	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, true)
+	// wg.Add(1)
+	// go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, true) //TODO deberia ser SOLO EN Q5
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -108,16 +109,15 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
-			if lastQuery { //TODO deberia ser SOLO EN Q5
+			if lastQuery {
 				log.Infof("cid %s finished receiving", cid)
 				inputChannelMapLock.Lock()
 				delete(inputsChannelMap, envelope.Cid())
 				inputChannelMapLock.Unlock()
-				// err = envelope.Ack(false)
-				// unwrap(err, "Failed to ack message", log)
 			}
 		case middleware.Prune:
-			err = envelope.Ack(true)
+			log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), channelString)
+			err = envelope.Ack(false)
 			unwrap(err, "Failed to ack message", log)
 			continue
 		}
@@ -257,7 +257,7 @@ OuterLoop:
 	log.Infof("CSV processing completed")
 
 	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
-	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+	// verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
 	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
 	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
 	// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
@@ -489,7 +489,7 @@ func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q1", expectedOutputQ1, removeQ1, false)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q1", expectedOutputQ1, removeQ1, true)
 }
 
 func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
@@ -558,7 +558,8 @@ OuterLoop:
 			unwrap(err, "Failed to ack message", log)
 			break OuterLoop
 		case middleware.Prune:
-			err = envelope.Ack(true)
+			log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), queryNumber)
+			err = envelope.Ack(false)
 			unwrap(err, "Failed to ack message", log)
 			continue
 		}

@@ -4,7 +4,7 @@ import subprocess
 # Variables globales
 file_name = "./docker-compose.yml"
 number_of_workers = "2"
-number_of_lean_workers = "2"
+number_of_lean_workers = "1"
 number_of_joiners_ratings = "1"
 number_of_reduce_by_country_sum_budgets = "1"
 number_of_reduce_top_5_by_budgets = "1"
