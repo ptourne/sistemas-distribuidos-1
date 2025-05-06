@@ -72,9 +72,10 @@ func main() {
 			channelsCid.input <- envelope
 		}
 	}()
-
 	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, true)
+	go nextQueue(ctx, config.ReceiverQueueTest, config.ReceiverTest, log, inputsChannelMap, GetTest, &inputChannelMapLock, &wg, true)
+	// wg.Add(1)
+	// go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, true)
 	// wg.Add(1)
 	// go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, true) //TODO deberia ser SOLO EN Q5
 
@@ -105,7 +106,8 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 		channelsCid, exists := inputsChannelMap[cid]
 		if !exists {
 			log.Errorf("Channel not found: %v", cid)
-			break
+			panic("Channel not found")
+			// break
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
@@ -256,7 +258,8 @@ OuterLoop:
 	}
 	log.Infof("CSV processing completed")
 
-	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
+	verifyingQtest(log, allQuerysToEndpointSender, cid, channelsCid.qtest)
+	// verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
 	// verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
 	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
 	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
@@ -280,6 +283,7 @@ type ConfigCoordinator struct {
 	Q3Output                    string
 	Q4Output                    string
 	Q5Output                    string
+	ReceiverTest                string
 	AllQuerysToEndpointName     string
 	ReceiverFileByte            middleware.Receiver[*common.PackageFile]
 	ReceiverQ1                  middleware.Receiver[*model.Row]
@@ -287,6 +291,7 @@ type ConfigCoordinator struct {
 	ReceiverQ3                  middleware.Receiver[*model.Row]
 	ReceiverQ4                  middleware.Receiver[*model.Row]
 	ReceiverQ5                  middleware.Receiver[*model.Row]
+	ReceiverQueueTest           middleware.Receiver[*model.Row]
 	ReceiverAllQuerysToEndpoint middleware.Receiver[*model.Row]
 }
 
@@ -311,6 +316,7 @@ func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQCon
 	config.AllQuerysToEndpointName = "all_querys_to_endpoint"
 	config.CoordinatorsCant = 1
 	config.CoordinatorPrefetch = 1
+	config.ReceiverTest = "clean_movies"
 
 	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, config.CoordinatorsCant, config.CoordinatorPrefetch)
 	if err != nil {
@@ -347,6 +353,12 @@ func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQCon
 		unwrap(err, "Failed to create read queue", log)
 	}
 	config.ReceiverQ5 = q5Receiver
+
+	qTest, err := middlewareChan.ConsumeFrom(config.ReceiverTest, "qtest", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	if err != nil {
+		unwrap(err, "Failed to create read queue", log)
+	}
+	config.ReceiverQueueTest = qTest
 	return &config
 }
 
@@ -387,6 +399,10 @@ func (c *ConfigCoordinator) Close() {
 		(c.ReceiverQ5).Close()
 		c.ReceiverQ5 = nil
 	}
+	if c.ReceiverQueueTest != nil {
+		(c.ReceiverQueueTest).Close()
+		c.ReceiverQueueTest = nil
+	}
 }
 
 type ChannelsCid struct {
@@ -396,6 +412,7 @@ type ChannelsCid struct {
 	q3    chan middleware.Envelope[*model.Row]
 	q4    chan middleware.Envelope[*model.Row]
 	q5    chan middleware.Envelope[*model.Row]
+	qtest chan middleware.Envelope[*model.Row]
 }
 
 func NewChannelsCid() *ChannelsCid {
@@ -412,6 +429,8 @@ func NewChannelsCid() *ChannelsCid {
 		q4: make(chan middleware.Envelope[*model.Row], 0),
 		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
 		q5: make(chan middleware.Envelope[*model.Row], 0),
+		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
+		qtest: make(chan middleware.Envelope[*model.Row], 0),
 	}
 }
 
@@ -432,6 +451,9 @@ func GetQ4(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
 }
 func GetQ5(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
 	return c.q5
+}
+func GetTest(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
+	return c.qtest
 }
 
 func (c *ChannelsCid) Close() {
@@ -460,6 +482,11 @@ func (c *ChannelsCid) Close() {
 		c.q5 = nil
 	}
 
+}
+
+func verifyingQtest(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row]) {
+	expectedOutputQtest := []*model.Row{}
+	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Qtest", expectedOutputQtest, removeQtest, true)
 }
 
 func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
@@ -580,6 +607,10 @@ OuterLoop:
 	if len(expectedOutput) == 0 {
 		log.Infof("All expected rows received")
 	}
+}
+
+func removeQtest(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger) []*model.Row {
+	return slice
 }
 
 func removeQ1(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger) []*model.Row {
