@@ -123,10 +123,17 @@ type SenderRabbitmq[T codec.Serializable[T]] struct {
 	Log          *logger.ConsoleLogger
 }
 
+type Metadata struct {
+	Acked bool
+	Seqno uint64
+}
+
 type SenderChannel[T codec.Serializable[T]] struct {
-	exchangeName string
-	ch           *amqp.Channel
-	Log          *logger.ConsoleLogger
+	exchangeName  string
+	ch            *amqp.Channel
+	confirmations chan amqp.Confirmation
+	LastSent      map[string]Metadata
+	Log           *logger.ConsoleLogger
 }
 
 func (s *SenderChannel[T]) Close() {
@@ -266,6 +273,10 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err != nil {
 		return SenderChannel[I]{}, fmt.Errorf("failed to open a channel: %v", err)
 	}
+	if err = ch.Confirm(false); err != nil {
+		return SenderChannel[I]{}, fmt.Errorf("failed to enable publisher confirms: %v", err)
+	}
+	confirmations := ch.NotifyPublish(make(chan amqp.Confirmation))
 	err = ch.ExchangeDeclare(
 		readExchangeName, // name
 		t,                // type
@@ -278,7 +289,13 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err != nil {
 		return SenderChannel[I]{}, err
 	}
-	newVar := SenderChannel[I]{readExchangeName, ch, m.Log}
+	newVar := SenderChannel[I]{
+		exchangeName:  readExchangeName,
+		ch:            ch,
+		confirmations: confirmations,
+		LastSent:      map[string]Metadata{},
+		Log:           m.Log,
+	}
 	return newVar, nil
 }
 
@@ -345,6 +362,10 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	buf, err := msg.Encode()
 	if err != nil {
 		return fmt.Errorf("failed to encode message: %v", err)
+	}
+	s.LastSent[cid] = Metadata{
+		Acked: false,
+		Seqno: s.ch.GetNextPublishSeqNo(),
 	}
 	err = s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
@@ -480,6 +501,10 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCid}, cid)
 					if err != nil {
 						return nil, fmt.Errorf("failed to ack message in close notification: %v", err)
+					}
+					err = r.closeSender.Prune(cid)
+					if err != nil {
+						return nil, fmt.Errorf("failed to send message in close notification: %v", err)
 					}
 					r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
 
@@ -618,6 +643,40 @@ func (s *SenderRabbitmq[T]) SendRK(row T, routingKey string, cid string) error {
 	}
 	cancel()
 	return nil
+}
+
+func (s *SenderRabbitmq[T]) Prune(cid string) error {
+	if s.exchangeName == "" {
+		return fmt.Errorf("write exchange is not initialized")
+	}
+	err := s.output.Prune(cid)
+	if err != nil {
+		return fmt.Errorf("failed to prune a message: %v in chan %s", err, s.exchangeName)
+	}
+	return nil
+}
+
+func (s SenderChannel[T]) Prune(cid string) error {
+	meta := s.LastSent[cid]
+	if meta.Acked {
+		delete(s.LastSent, cid)
+		return nil
+	}
+	for {
+		confirmation := <-s.confirmations
+		if confirmation.DeliveryTag >= meta.Seqno {
+			for cida, metadata := range s.LastSent {
+				if confirmation.DeliveryTag >= metadata.Seqno {
+					s.LastSent[cida] = Metadata{
+						Acked: true,
+						Seqno: metadata.Seqno,
+					}
+				}
+			}
+			delete(s.LastSent, cid)
+			return nil
+		}
+	}
 }
 
 func (m *middlewareRabbitmq[T]) createQueue(exchangeName string, groupName string) (*amqp.Queue, *amqp.Channel, error) {
