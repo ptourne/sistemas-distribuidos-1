@@ -104,7 +104,7 @@ func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string) e
 		if r == nil {
 			continue
 		}
-		Log.Infof("Sending actor %+v", r)
+		//Log.Infof("Sending actor %+v", r)
 		err = f.taskSender.Send(r, cid)
 		if err != nil {
 			Log.Errorf("Failed to send actor data: %v", err)

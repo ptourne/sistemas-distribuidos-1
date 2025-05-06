@@ -354,13 +354,14 @@ compose_sentiment_server() {
 compose_reduce_top_10_by_actor() {
     local worker_id=$1
     echo "    reduce_top_10_by_actor$worker_id:
-        container_name: reduce_top_10_by_actort$worker_id
+        container_name: reduce_top_10_by_actor$worker_id
         build:
             context: .
             dockerfile: map_reducer/main/reduce_top_10_by_actor/Dockerfile
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=$worker_id
+            - WORKER_COUNT=$number_of_reduce_top_10_by_actor
         networks:
             - local_net
         depends_on:
@@ -380,6 +381,7 @@ compose_reduce_by_movieId() {
         environment:
             - WORKER_ID=$worker_id
             - WORKER_CONDI=1
+            WORKER_COUNT=$number_of_reduce_by_movieId
         networks:
             - local_net
         depends_on:

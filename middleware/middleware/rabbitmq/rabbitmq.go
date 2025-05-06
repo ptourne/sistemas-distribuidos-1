@@ -343,6 +343,7 @@ func (s *SenderChannel[T]) Publish(ctx context.Context, msg T, cid string) error
 
 func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey string, cid string) error {
 	buf, err := msg.Encode()
+	s.Log.Debugf("Publish msg %+v as %x", msg, buf)
 	if err != nil {
 		return fmt.Errorf("failed to encode message: %v", err)
 	}
@@ -453,7 +454,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				if !ok {
 					return nil, fmt.Errorf("read channel was closed")
 				}
-				//r.Log.Infof("Received message %+v", msg)
+				//r.Log.Infof("Received message from input: %+v in receiver %s", msg, r.input.queueName)
 				t, cid, msgbody, tag, err := unpackMsg[T](msg)
 				if err != nil {
 					return nil, fmt.Errorf("failed to process close notification: %v", err)
@@ -524,6 +525,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	if !ok {
 		return false, true, nil, fmt.Errorf("read channel was closed")
 	}
+	//r.Log.Infof("Received message from in handle finish notifification: %+v", msg.Body)
 	_, cid, notification, tag, err := unpackMsg[*CloseNotification](msg)
 	if err != nil {
 		return false, true, nil, fmt.Errorf("failed to process close notification: %v", err)

@@ -232,7 +232,7 @@ func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 						err = fmt.Errorf("error sending partial result: %w", err)
 						return
 					}
-					mr.log.Debugf("input : %s | Sent partial result", envelope.Cid())
+					mr.log.Debugf("input : %s | Sent partial result %+v", envelope.Cid(), a)
 				}
 				envelope.Ack(false)
 			case middleware.EOF:
