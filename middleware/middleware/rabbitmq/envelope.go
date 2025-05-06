@@ -127,6 +127,11 @@ func (r *prune2EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	log2.Infof("Acking prune2 envelope for cid: %s, sending finishdone", r.cid)
 	if err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, r.cid); err != nil {
 		return fmt.Errorf("failed to ack message in close notification: %v", err)
+	} else {
+		err := r.closeSender.Prune(r.cid)
+		if err != nil {
+			return fmt.Errorf("failed to send message in close notification: %v", err)
+		}
 	}
 	return nil
 }

@@ -76,6 +76,7 @@ func FromStringTypeMsg(s string) (TypeMsg, error) {
 
 type Sender[T codec.Serializable[T]] interface {
 	Send(row T, cid string) error
+	Prune(cid string) error
 	SendRK(row T, routingKey string, cid string) error
 	SendEOF(cid string) error
 	SendEOFRK(routingKey string, cid string) error
