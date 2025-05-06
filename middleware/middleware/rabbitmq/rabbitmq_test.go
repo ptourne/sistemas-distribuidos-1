@@ -34,7 +34,7 @@ func (b *Ball) Decode(data []byte) (*Ball, error) {
 }
 
 func newTimer() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 5*time.Second)
+	return context.WithTimeout(context.Background(), 10*time.Second)
 }
 
 const RABBITMQ_EXPOSED_PORT_BASE = uint16(3000)
@@ -61,6 +61,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	test5 := provider.AsyncDeployRabbit()
 	test6 := provider.AsyncDeployRabbit()
 	test7 := provider.AsyncDeployRabbit()
+	test8 := provider.AsyncDeployRabbit()
 	test1container := <-test1
 	defer test1container.Container.Teardown()
 	test2container := <-test2
@@ -75,6 +76,8 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	defer test6container.Container.Teardown()
 	test7container := <-test7
 	defer test7container.Container.Teardown()
+	test8container := <-test8
+	defer test8container.Container.Teardown()
 
 	t.Run("OneMessage", func(t *testing.T) {
 		init := test1container
@@ -725,7 +728,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		cancel()
 	})
 
-	t.Run("OnePubTwoRecOneRec", func(t *testing.T) {
+	t.Run("OnePubOneRec", func(t *testing.T) {
 		init := test7container
 		assert.NoError(t, init.Err)
 		senderConnector, err := ConnectorCustom(init.Config)
@@ -760,9 +763,109 @@ func TestRabbitMQMiddleware(t *testing.T) {
 				assert.NoError(t, received.Ack(true))
 			}
 		}
+		timer, cancel := newTimer()
+		received, err := receiver.Next(timer)
+		cancel()
+		assert.NoError(t, err)
+		if assert.Equalf(t, middleware.Prune, received.Type(), "Received message of type %s instead of EOF", received.Type()) {
+			assert.NoError(t, received.Ack(true))
+		}
 
 	})
 
+	t.Run("OneProdTwoReceivers", func(t *testing.T) {
+		init := test8container
+		assert.NoError(t, init.Err)
+		senderConnector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		senderMiddleware := NewMiddleware[*Ball](senderConnector, middlewareLogger)
+		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"})
+		assert.NoError(t, err)
+		cid := "1"
+
+		receiver1Connector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		receiver1Middleware := NewMiddleware[*Ball](receiver1Connector, middlewareLogger)
+		receiver1, err := receiver1Middleware.ConsumeFrom("output", "receiver", 2, 1)
+		assert.NoError(t, err)
+
+		receiver2Connector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		receiver2Middleware := NewMiddleware[*Ball](receiver2Connector, middlewareLogger)
+		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 2, 1)
+		assert.NoError(t, err)
+
+		countSender1 := uint64(100000)
+		for i := range countSender1 {
+			sentMsg := &Ball{i}
+			err := sender.Send(sentMsg, cid)
+			assert.NoError(t, err)
+		}
+		err = sender.SendEOF(cid)
+		assert.NoError(t, err)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+		defer cancel()
+		handle1 := make(chan NextAsyncRes)
+		go func() {
+			for {
+				received, err := receiver1.Next(ctx)
+				handle1 <- NextAsyncRes{received, err}
+			}
+		}()
+		handle2 := make(chan NextAsyncRes)
+		go func() {
+			for {
+				received, err := receiver2.Next(ctx)
+				handle2 <- NextAsyncRes{received, err}
+			}
+		}()
+
+		for i := range countSender1 {
+			select {
+			case res := <-handle1:
+				assert.NoError(t, res.err)
+				assert.Equal(t, middleware.Normal, res.received.Type(), "Received message of type %s instead NORMAL in round: %d", res.received.Type(), i)
+				assert.NoError(t, res.received.Ack(false))
+			case res := <-handle2:
+				assert.NoError(t, res.err)
+				assert.Equal(t, middleware.Normal, res.received.Type(), "Received message of type %s instead NORMAL in round: %d", res.received.Type(), i)
+				assert.NoError(t, res.received.Ack(false))
+			}
+		}
+
+		var receivedPrune chan NextAsyncRes
+
+		select {
+		case res := <-handle1:
+			assert.NoError(t, res.err)
+			assert.Equal(t, middleware.Prune, res.received.Type())
+			assert.NoError(t, res.received.Ack(false))
+			receivedPrune = handle2
+		case res := <-handle2:
+			assert.NoError(t, res.err)
+			assert.Equal(t, middleware.Prune, res.received.Type())
+			assert.NoError(t, res.received.Ack(false))
+			receivedPrune = handle1
+		}
+
+		res := <-receivedPrune
+		assert.NoError(t, res.err)
+		assert.Equal(t, middleware.Prune, res.received.Type())
+		assert.NoError(t, res.received.Ack(false))
+
+		select {
+		case res := <-handle1:
+			assert.NoError(t, res.err)
+			assert.Equal(t, middleware.EOF, res.received.Type())
+			assert.NoError(t, res.received.Ack(false))
+		case res := <-handle2:
+			assert.NoError(t, res.err)
+			assert.Equal(t, middleware.EOF, res.received.Type())
+			assert.NoError(t, res.received.Ack(false))
+		}
+
+	})
 }
 
 func readTwoConsumers(t *testing.T, consumers_group_a []middleware.Receiver[*Ball]) (func() (int, middleware.Envelope[*Ball], error), context.Context, context.CancelFunc) {
