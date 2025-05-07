@@ -11,21 +11,19 @@ RUN mkdir -p /build/common
 RUN mkdir -p /build/middleware
 RUN mkdir -p /build/worker
 RUN mkdir -p /build/nlp
-WORKDIR /build/worker
+WORKDIR /build/nlp
 
 COPY ./common /build/common
 COPY ./middleware /build/middleware
-COPY ./nlp /build/nlp
-COPY ./worker/go.mod ./worker/go.sum ./
+COPY ./worker /build/worker
+COPY ./nlp/go.mod ./nlp/go.sum ./
 RUN go mod download
 
-COPY ./worker .
-
-RUN CI=BUILD go test -v ./...
+COPY ./nlp .
 
 # CGO_ENABLED must be disabled to run go binary in Alpine
-RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/worker github.com/ptourne/sistemas-distribuidos-1/worker
+RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/nlp github.com/ptourne/sistemas-distribuidos-1/nlp
 
 FROM busybox:latest
-COPY --from=builder /build/bin/worker /worker
+COPY --from=builder /build/bin/nlp /nlp
 ENTRYPOINT ["/bin/sh"]

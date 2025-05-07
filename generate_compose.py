@@ -3,17 +3,18 @@ import subprocess
 
 # Variables globales
 file_name = "./docker-compose.yml"
-number_of_workers = "10"
-number_of_lean_workers = "1"
-number_of_joiners_credits= "4"
-number_of_joiners_ratings = "1"
-number_of_reduce_by_country_sum_budgets = "1"
-number_of_reduce_top_5_by_budgets = "1"
-number_of_reduce_by_sentiment = "1"
-number_of_reduce_by_actor = "1"
-number_of_reduce_top_10_by_actor = "1"
-number_of_reduce_top_bottom_avg_ratings = "1"
-number_of_clients = "2"
+number_of_workers = "5"
+number_of_lean_workers = "0"
+number_of_joiners_credits= "0"
+number_of_joiners_ratings = "0"
+number_of_reduce_by_country_sum_budgets = "0"
+number_of_reduce_top_5_by_budgets = "0"
+number_of_reduce_by_sentiment = "3"
+number_of_reduce_by_actor = "0"
+number_of_reduce_top_10_by_actor = "0"
+number_of_reduce_top_bottom_avg_ratings = "0"
+number_of_clients = "1"
+number_of_nlp_workers = "10"
 
 # Ejecutar el script con todas las variables en orden
 subprocess.run([
@@ -30,4 +31,5 @@ subprocess.run([
     number_of_reduce_top_10_by_actor,
     number_of_reduce_top_bottom_avg_ratings,
     number_of_clients,
+    number_of_nlp_workers
 ])

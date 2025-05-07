@@ -4,8 +4,7 @@ import (
 	"context"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
-	pb "github.com/ptourne/sistemas-distribuidos-1/worker/nlp/proto"
-
+	pb "github.com/ptourne/sistemas-distribuidos-1/nlp/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -41,6 +40,8 @@ func (m *SentimentAndRateMap) Transform(row *model.Row, output *model.Row) error
 	if revenueOk && budgetOk && budget != 0 {
 		output.Floats["rate"] = float64(revenue) / float64(budget)
 	}
+
+	log.Infof("Rate %f and sentimenr %s", output.Floats["rate"], output.Strings["sentiment"])
 
 	return nil
 }

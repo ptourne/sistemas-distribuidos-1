@@ -2,7 +2,7 @@ package filter
 
 import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
-	nlp "github.com/ptourne/sistemas-distribuidos-1/worker/nlp/go_client" // Add this import
+	nlp "github.com/ptourne/sistemas-distribuidos-1/nlp/go_client"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 

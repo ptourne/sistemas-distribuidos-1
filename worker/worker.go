@@ -238,9 +238,6 @@ func NewWorker() Worker {
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"})
 	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
 
-	grpcAddress := os.Getenv("NLP_GRPC_ADDR")
-
-	map_nlp := filter.NewFilterSentimentAndRate(movies_metadata_clean.Name(), []string{"reduce_by_sentiment"}, grpcAddress)
 	filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
 
 	// n_worker, err = strconv.Atoi(os.Getenv("N_JOINERS_RATINGS"))
@@ -260,7 +257,6 @@ func NewWorker() Worker {
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
 			filter_one_production_country,
-			map_nlp,
 			filter_avg_rate,
 			// filter_avg_rating,
 		},

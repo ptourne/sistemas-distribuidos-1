@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [ "$#" -eq 11 ]; then
+if [ "$#" -eq 12 ]; then
     file_name=./docker-compose.yml
     number_of_workers=$1
     number_of_lean_workers=$2
@@ -13,8 +13,9 @@ if [ "$#" -eq 11 ]; then
     number_of_reduce_top_10_by_actor=$9
     number_of_reduce_top_bottom_avg_ratings=${10}
     number_of_clients=${11}
+    number_of_nlp_workers=${12}
 
-elif [ "$#" -eq 12 ]; then
+elif [ "$#" -eq 13 ]; then
     file_name=$1
     number_of_workers=$2
     number_of_lean_workers=$3
@@ -27,12 +28,13 @@ elif [ "$#" -eq 12 ]; then
     number_of_reduce_top_10_by_actor=${10}
     number_of_reduce_top_bottom_avg_ratings=${11}
     number_of_clients=${12}
+    number_of_nlp_workers=${13}
 else
     echo "Error: Incorrect number of arguments"
     echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_lean_workers>,<number_of_joiners_credits>,<number_of_joiners_ratings>,
     <number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,
     <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>,
-    <number_of_reduce_top_bottom_avg_ratings>, <number_of_clients>"
+    <number_of_reduce_top_bottom_avg_ratings>, <number_of_clients>, <number_of_nlp_workers>"
     exit 1
 fi
 
@@ -84,6 +86,11 @@ fi
 # Verify number_of_clients is a positive integer
 if ! [[ "$number_of_clients" =~ ^[0-9]+$ ]] || [ "$number_of_clients" -le -1 ]; then
     echo "Error: Number of clients must be a positive integer"
+    exit 1
+fi
+
+if ! [[ "$number_of_nlp_workers" =~ ^[0-9]+$ ]] || [ "$number_of_nlp_workers" -le -1 ]; then
+    echo "Error: Number of nlp_workers must be a positive integer"
     exit 1
 fi
 
@@ -150,6 +157,29 @@ compose_workers() {
             - WORKER_ID=$worker_id
             - N_JOINERS_CREDITS=$number_of_joiners_credits
             - N_JOINERS_RATINGS=$number_of_joiners_ratings
+            - N_WORKERS=$number_of_workers
+            - SERVER_PORT=1234
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+"
+}
+
+compose_nlp_workers() {
+    local worker_id=$1
+    echo "    nlp_worker$worker_id:
+        container_name: nlp_worker$worker_id
+        build:
+            context: .
+            dockerfile: nlp/Dockerfile
+        entrypoint: /nlp
+        environment: 
+            - WORKER_ID=$worker_id
             - N_WORKERS=$number_of_workers
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
@@ -333,7 +363,7 @@ compose_sentiment_server() {
         container_name: sentiment_server
         build:
             context: .
-            dockerfile: worker/nlp/python_server/Dockerfile
+            dockerfile: nlp/python_server/Dockerfile
         ports:
             - \"50051:50051\"
         networks:
@@ -396,33 +426,38 @@ compose_coordinator >> $file_name
 for i in $(seq 1 $number_of_workers); do
     compose_workers $i >> $file_name
 done
+
+for i in $(seq 1 $number_of_nlp_workers); do
+    compose_nlp_workers $i >> $file_name
+done
+
 # for i in $(seq 1 $number_of_lean_workers); do
 #     compose_lean_workers $i >> $file_name
 # done
-for i in $(seq 1 $number_of_joiners_credits); do
-    compose_joiner_credits $i $number_of_joiners_credits >> $file_name
-done
+# for i in $(seq 1 $number_of_joiners_credits); do
+#     compose_joiner_credits $i $number_of_joiners_credits >> $file_name
+# done
 # for i in $(seq 1 $number_of_joiners_ratings); do
 #     compose_joiner_rating $i >> $file_name
 # done
-for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
-    compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
-    compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
-done
+# for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
+#     compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
+#     compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
+# done
 # for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
 #     compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
 # done
 for i in $(seq 1 $number_of_reduce_by_sentiment); do
     compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
 done
-for i in $(seq 1 $number_of_reduce_by_actor); do
-    compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
-    compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
-done
+# for i in $(seq 1 $number_of_reduce_by_actor); do
+#     compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
+#     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
+# done
 # NUMBER_OF_REDUCE_BY_MOVIEID=10
 # for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
 #     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
