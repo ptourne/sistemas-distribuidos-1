@@ -94,6 +94,7 @@ type TypeMsgInternal int
 const (
 	normal TypeMsgInternal = iota
 	eofCid
+	prune
 )
 
 func (t TypeMsgInternal) String() string {
@@ -102,6 +103,8 @@ func (t TypeMsgInternal) String() string {
 		return "normal"
 	case eofCid:
 		return "eofCid"
+	case prune:
+		return "prune"
 	default:
 		return "Unknown TypeMsg"
 	}
@@ -113,6 +116,8 @@ func FromStringTypeMsgInternal(s string) (TypeMsgInternal, error) {
 		return normal, nil
 	case "eofCid":
 		return eofCid, nil
+	case "prune":
+		return prune, nil
 	default:
 		return -1, fmt.Errorf("unknown TypeMsg: %s", s)
 	}
@@ -124,6 +129,11 @@ type SenderRabbitmq[T codec.Serializable[T]] struct {
 	isBlocked    atomic.Bool
 	isClosed     atomic.Bool
 	Log          *logger.ConsoleLogger
+}
+
+type Metadata struct {
+	Acked bool
+	Seqno uint64
 }
 
 type SenderChannel[T codec.Serializable[T]] struct {
@@ -269,6 +279,9 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err != nil {
 		return SenderChannel[I]{}, fmt.Errorf("failed to open a channel: %v", err)
 	}
+	if err = ch.Confirm(false); err != nil {
+		return SenderChannel[I]{}, fmt.Errorf("failed to enable publisher confirms: %v", err)
+	}
 	err = ch.ExchangeDeclare(
 		readExchangeName, // name
 		t,                // type
@@ -281,7 +294,11 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err != nil {
 		return SenderChannel[I]{}, err
 	}
-	newVar := SenderChannel[I]{readExchangeName, ch, m.Log}
+	newVar := SenderChannel[I]{
+		exchangeName: readExchangeName,
+		ch:           ch,
+		Log:          m.Log,
+	}
 	return newVar, nil
 }
 
@@ -472,7 +489,15 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 						delete(r.prefetchCids, prefetchCid)
 					}
 				}
-				if t == eofCid {
+				switch t {
+				case prune:
+					err = tag.Ack(false)
+					if err != nil {
+						r.Log.Errorf("failed to ack message in close notification: %v", err)
+					}
+					r.Log.Debugf("ignoring prune msg")
+					continue
+				case eofCid:
 					name := r.input.queueName
 					if strings.Contains(name, "joiner") && name != "joiner_credits" && name != "joiner_ratings" && !strings.Contains(name, "joiner_1") {
 						r.Log.Infof("Ignoring EOF in '%s'", name)
@@ -497,6 +522,10 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					if err != nil {
 						return nil, fmt.Errorf("failed to ack message in close notification: %v", err)
 					}
+					err = r.closeSender.Prune(cid)
+					if err != nil {
+						return nil, fmt.Errorf("failed to send message in close notification: %v", err)
+					}
 					r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
 
 					err = tag.Ack(false)
@@ -505,8 +534,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					}
 					r.Log.Debugf("return prune callback envelope")
 					continue
-				} else {
-					r.Log.Debugf("Received NORMAL message for cid: %s in %s", cid, r.input.queueName)
+
 				}
 				r.Log.Debugf("return normal envelope")
 				return newNormalEnvelope(cid, msgbody, tag), nil
@@ -540,12 +568,14 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	if !ok {
 		return false, true, nil, fmt.Errorf("read channel was closed")
 	}
-	//r.Log.Infof("Received message from in handle finish notifification: %+v", msg.Body)
-	_, cid, notification, tag, err := unpackMsg[*CloseNotification](msg)
+	t, cid, notification, tag, err := unpackMsg[*CloseNotification](msg)
 	if err != nil {
 		return false, true, nil, fmt.Errorf("failed to process close notification: %v", err)
 	}
 	defer tag.Ack(true)
+	if t == prune {
+		return true, false, nil, nil
+	}
 
 	name := r.input.queueName
 
@@ -650,6 +680,36 @@ func (s *SenderRabbitmq[T]) SendRK(row T, routingKey string, cid string) error {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
 	}
 	cancel()
+	return nil
+}
+
+func (s *SenderRabbitmq[T]) Prune(cid string) error {
+	if s.exchangeName == "" {
+		return fmt.Errorf("write exchange is not initialized")
+	}
+	err := s.output.Prune(cid)
+	if err != nil {
+		return fmt.Errorf("failed to prune a message: %v in chan %s", err, s.exchangeName)
+	}
+	return nil
+}
+
+func (s SenderChannel[T]) Prune(cid string) error {
+	c, err := s.ch.PublishWithDeferredConfirm(s.exchangeName, "", false, false,
+		amqp.Publishing{
+			ContentType: "application/message",
+			Body:        []byte{},
+			Headers: amqp.Table{
+				"cid":  cid,
+				"type": prune.String(),
+			},
+		})
+	if err != nil {
+		return fmt.Errorf("failed to send prune")
+	}
+	if ok := c.Wait(); !ok {
+		return fmt.Errorf("Failed to wait for prune reception")
+	}
 	return nil
 }
 
