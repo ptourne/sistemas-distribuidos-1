@@ -379,6 +379,21 @@ services:
             rabbitmq:
                 condition: service_healthy
 
+    reduce_by_sentiment1:
+        container_name: reduce_by_sentiment1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
     reduce_by_actor1:
         container_name: reduce_by_actor1
         build:
@@ -426,36 +441,6 @@ services:
 
     client2:
         container_name: client2
-        build:
-            context: .
-            dockerfile: client/Dockerfile
-        entrypoint: /client
-        environment:
-            - SERVER_PORT=endpoint:9876
-        networks:
-            - local_net
-        depends_on:
-            - endpoint
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
-
-    client3:
-        container_name: client3
-        build:
-            context: .
-            dockerfile: client/Dockerfile
-        entrypoint: /client
-        environment:
-            - SERVER_PORT=endpoint:9876
-        networks:
-            - local_net
-        depends_on:
-            - endpoint
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
-
-    client4:
-        container_name: client4
         build:
             context: .
             dockerfile: client/Dockerfile

@@ -85,9 +85,18 @@ func (a *Acc) Merge(b *Acc) {
 }
 
 func (a Acc) Encode() ([]byte, error) {
-	codec.MapEncode(a.Sums, codec.Float64Encode)
-	codec.MapEncode(a.Count, codec.Uint64Encode)
-	return nil, nil
+	sumsBytes, err := codec.MapEncode(a.Sums, codec.Float64Encode)
+	if err != nil {
+		return nil, err
+	}
+
+	countBytes, err := codec.MapEncode(a.Count, codec.Uint64Encode)
+	if err != nil {
+		return nil, err
+	}
+
+	encoded := append(sumsBytes, countBytes...)
+	return encoded, nil
 }
 
 func (a *Acc) Decode(data []byte) (*Acc, error) {

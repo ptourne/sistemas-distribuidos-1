@@ -414,9 +414,9 @@ done
 # for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
 #     compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
 # done
-# for i in $(seq 1 $number_of_reduce_by_sentiment); do
-#     compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
-# done
+for i in $(seq 1 $number_of_reduce_by_sentiment); do
+    compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
+done
 for i in $(seq 1 $number_of_reduce_by_actor); do
     compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
 done
