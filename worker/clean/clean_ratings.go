@@ -56,7 +56,15 @@ func (f CleanRatings) ProcessAndSend(envelope middleware.Envelope[*model.FileChu
 	cid := envelope.Cid()
 	t := envelope.Type()
 	if t == middleware.EOF {
-		return f.taskSender.SendEOF(cid)
+		for i := range 10 {
+			rk := fmt.Sprintf("%d", i)
+			err := f.taskSender.SendEOFRK(rk, cid)
+			if err != nil {
+				return fmt.Errorf("failed to send EOFRK to %s: %w", rk, err)
+			}
+			log.Infof("Sent EOF to %s with cid: %s", rk, cid)
+		}
+		return nil
 	} else {
 		output := f.process(fileChunk.Bytes) // TODO: this should be a different model
 		if output == nil {

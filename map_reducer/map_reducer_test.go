@@ -117,6 +117,7 @@ func setupReducerPipeline(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, redu
 			[]string{},
 			fmt.Sprintf("%d", id),
 			reducerCount,
+			1,
 		)
 		assert.NoError(t, err)
 

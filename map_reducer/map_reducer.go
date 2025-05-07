@@ -32,6 +32,9 @@ type MapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serial
 	CidPrunnedTwice           map[string]bool
 	timeoutStep               uint
 	timeoutStepFinal          uint
+	shardCount                uint
+	pruneCounter              map[string]uint
+	eofCounter                map[string]uint
 }
 
 type ClientBatch[A codec.Serializable[A]] struct {
@@ -63,6 +66,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	routingKeys []string,
 	id string,
 	count uint,
+	shardCount uint,
 ) (*MapReducer[I, A, R], error) {
 	log := logger.NewConsoleLogger(fmt.Sprintf("worker_%s", id), logger.Debug)
 
@@ -91,12 +95,12 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	}
 	connOut := rabbitmq.NewMiddleware[R](connector, middlewareLogger)
 
-	output, err := connOut.WriteToRK(name, subscribersMap, t)
+	output, err := connOut.WriteTo(name, subscribers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create output channel: %w", err)
 	}
 
-	partialResultName := partialResultName(input, name)
+	partialResultName := partialResultName(input, name, routingKeys[0])
 	connPartialResult := rabbitmq.NewMiddleware[A](connector, middlewareLogger)
 	partialResultIn, err := connPartialResult.ConsumeFrom(partialResultName, name, count, 1)
 	if err != nil {
@@ -139,11 +143,14 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		CidPrunnedTwice:           make(map[string]bool),
 		timeoutStep:               0,
 		timeoutStepFinal:          0,
+		shardCount:                shardCount,
+		pruneCounter:              make(map[string]uint),
+		eofCounter:                make(map[string]uint),
 	}, nil
 }
 
-func partialResultName(input string, name string) string {
-	return fmt.Sprintf("%s->%s:partial_accumulators", input, name)
+func partialResultName(input string, name string, routingKey string) string {
+	return fmt.Sprintf("%s->%s_%s:partial_accumulators", input, name, routingKey)
 }
 
 func finalReduceName(input string, name string) string {
@@ -438,6 +445,20 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 				e.Ack(true)
 			case middleware.EOF:
 				mr.log.Infof("Final : %s | Received EOF", e.Cid())
+				count, ok := mr.eofCounter[e.Cid()]
+				if !ok {
+					mr.log.Infof("Final : %s | Received first EOF", e.Cid())
+					count = mr.shardCount
+				}
+				count--
+				if count > 0 {
+					mr.log.Infof("Final : %s | Received EOF, but not the last one", e.Cid())
+					mr.eofCounter[e.Cid()] = count
+					e.Ack(true)
+					continue
+				}
+				mr.log.Infof("Final : %s | Received last EOF", e.Cid())
+				delete(mr.eofCounter, e.Cid())
 				mr.log.Infof("Final : %s | Sending EOF after sending partial result", e.Cid())
 				err = mr.Output.SendEOF(e.Cid())
 				if err != nil {
@@ -445,7 +466,23 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 					mr.log.Fatalf("Final : error sending EOF after sending partial result: %s", err)
 					panic("Resending EOF not implemented")
 				}
+				e.Ack(true)
 			case middleware.Prune:
+				mr.log.Infof("Final : %s | Received PRUNE", e.Cid())
+				count, ok := mr.pruneCounter[e.Cid()]
+				if !ok {
+					mr.log.Infof("Final : %s | Received first PRUNE", e.Cid())
+					count = mr.shardCount
+				}
+				count--
+				if count > 0 {
+					mr.log.Infof("Final : %s | Received PRUNE, but not the last one", e.Cid())
+					mr.pruneCounter[e.Cid()] = count
+					e.Ack(true)
+					continue
+				}
+				mr.log.Infof("Final : %s | Received last PRUNE", e.Cid())
+				delete(mr.pruneCounter, e.Cid())
 				mr.log.Infof("Final : %s | Pruning final reduce batch", e.Cid())
 				clientBatch, ok := mr.FinalReduceBatches[e.Cid()]
 				if !ok {

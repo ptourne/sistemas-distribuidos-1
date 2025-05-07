@@ -43,6 +43,7 @@ func NewTopMapReducer(
 		[]string{},
 		id,
 		count,
+		1,
 	)
 }
 

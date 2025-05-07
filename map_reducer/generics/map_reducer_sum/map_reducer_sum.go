@@ -36,6 +36,7 @@ func NewMapReducerSum(
 		[]string{},
 		id,
 		count,
+		1,
 	)
 }
 

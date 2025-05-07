@@ -677,7 +677,11 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 
 	queueName := ""
 	if groupName != "" {
-		queueName = fmt.Sprintf("%s->%s", exchangeName, groupName)
+		if routingKey == "" {
+			queueName = fmt.Sprintf("%s->%s", exchangeName, groupName)
+		} else {
+			queueName = fmt.Sprintf("%s->%s[%s]", exchangeName, groupName, routingKey)
+		}
 	}
 	m.Log.Debugf("createQueue: Creating queue '%s' for exchange '%s'", queueName, exchangeName)
 	queue, err := ch.QueueDeclare(

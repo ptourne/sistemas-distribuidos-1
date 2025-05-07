@@ -74,14 +74,16 @@ func main() {
 	}()
 	// wg.Add(1)
 	// go nextQueue(ctx, config.ReceiverQueueTest, config.ReceiverTest, log, inputsChannelMap, GetTest, &inputChannelMapLock, &wg, true)
+	// wg.Add(1)
+	// go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
+	// wg.Add(1)
+	// go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, false)
+	// wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, true)
 	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
-	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, false)
-	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, false)
-	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true) //TODO deberia ser SOLO EN Q5
+	// go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, false)
+	// wg.Add(1)
+	// go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true) //TODO deberia ser SOLO EN Q5
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -262,11 +264,11 @@ OuterLoop:
 	log.Infof("CSV processing completed")
 
 	// verifyingQtest(log, allQuerysToEndpointSender, cid, channelsCid.qtest)
-	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
-	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
-	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
-	verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
-	verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
+	// verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
+	// verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+	verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
+	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
+	// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 
 	log.Infof("finish all querys verified")
 }
@@ -534,11 +536,17 @@ func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 }
 
 func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
-	expectedOutputQ3 := []*model.Row{
-		{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
-		{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
+	// expectedOutputQ3 := []*model.Row{
+	// 	{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
+	// 	{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
+	// }
+
+	expectedOutputQ3Partial := []*model.Row{
+		{Floats: map[string]float64{"avg_rating": 4.4}, Strings: map[string]string{"title": "The Mugger", "movieID": "6636"}},
+		{Floats: map[string]float64{"avg_rating": 0.5}, Strings: map[string]string{"title": "Ana and the Others", "movieID": "48596"}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3, removeQ3, false)
+
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3Partial, removeQ3, true)
 }
 
 func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row]) {

@@ -36,6 +36,7 @@ func NewMapReducerByActor(
 		[]string{},
 		id,
 		count,
+		1,
 	)
 }
 

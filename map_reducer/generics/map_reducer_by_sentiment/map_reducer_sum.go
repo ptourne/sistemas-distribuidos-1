@@ -37,6 +37,7 @@ func NewMapReducerBySentiment(
 		[]string{},
 		id,
 		count,
+		1,
 	)
 }
 

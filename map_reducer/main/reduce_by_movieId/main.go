@@ -22,7 +22,7 @@ func main() {
 	}
 	id := os.Getenv("WORKER_ID")
 	count_str := os.Getenv("WORKER_COUNT")
-	count, err := strconv.Atoi(count_str)
+	count_shard, err := strconv.Atoi(count_str)
 	if err != nil {
 		log.Errorf("failed to parse worker count: %s", err)
 		return
@@ -43,7 +43,8 @@ func main() {
 		2,
 		[]string{"filter_avg_rating"},
 		id,
-		uint(count),
+		uint(1),
+		uint(count_shard),
 	)
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)

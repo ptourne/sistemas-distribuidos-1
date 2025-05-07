@@ -34,6 +34,7 @@ func NewMapReducerByMovieId(
 	subscribers []string,
 	id string,
 	count uint,
+	shardCount uint,
 ) (*MapReducerSum, error) {
 	return NewMapReducer[In, *Acc, Res](
 		connector,
@@ -45,6 +46,7 @@ func NewMapReducerByMovieId(
 		routingKeys,
 		id,
 		count,
+		shardCount,
 	)
 }
 
@@ -104,6 +106,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	routingKeys []string,
 	id string,
 	count uint,
+	shardCount uint,
 ) (*map_reducer.MapReducer[I, A, R], error) {
 	return map_reducer.NewMapReducer(
 		connector,
@@ -115,6 +118,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		routingKeys,
 		id,
 		count,
+		shardCount,
 	)
 	// var t string = "direct"
 	// nameId := fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID)
@@ -178,9 +182,18 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 // }
 
 func (a Acc) Encode() ([]byte, error) {
-	codec.MapEncode(a.Sums, codec.Uint64Encode)
-	codec.MapEncode(a.Count, codec.Uint64Encode)
-	return nil, nil
+	sumsBytes, err := codec.MapEncode(a.Sums, codec.Uint64Encode)
+	if err != nil {
+		return nil, err
+	}
+
+	countBytes, err := codec.MapEncode(a.Count, codec.Uint64Encode)
+	if err != nil {
+		return nil, err
+	}
+
+	encoded := append(sumsBytes, countBytes...)
+	return encoded, nil
 }
 
 func (a *Acc) Decode(data []byte) (*Acc, error) {
