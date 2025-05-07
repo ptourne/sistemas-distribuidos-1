@@ -62,6 +62,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	test6 := provider.AsyncDeployRabbit()
 	test7 := provider.AsyncDeployRabbit()
 	test8 := provider.AsyncDeployRabbit()
+	test9 := provider.AsyncDeployRabbit()
 	test1container := <-test1
 	defer test1container.Container.Teardown()
 	test2container := <-test2
@@ -78,6 +79,8 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	defer test7container.Container.Teardown()
 	test8container := <-test8
 	defer test8container.Container.Teardown()
+	test9container := <-test9
+	defer test9container.Container.Teardown()
 
 	t.Run("OneMessage", func(t *testing.T) {
 		init := test1container
@@ -728,8 +731,78 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		cancel()
 	})
 
-	t.Run("OnePubOneRec", func(t *testing.T) {
+	t.Run("TwoProducers", func(t *testing.T) {
 		init := test7container
+		assert.NoError(t, init.Err)
+
+		sender1Connector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		var middlewareLoggerSender1 *logger.ConsoleLogger = logger.NewConsoleLogger("sender_1", logger.Debug)
+		sender1Middleware := NewMiddleware[*Ball](sender1Connector, middlewareLoggerSender1)
+		sender1, err := sender1Middleware.WriteTo("output", []string{"receiver"})
+		assert.NoError(t, err)
+
+		sender2Connector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		var middlewareLoggerSender2 *logger.ConsoleLogger = logger.NewConsoleLogger("sender_2", logger.Debug)
+		sender2Middleware := NewMiddleware[*Ball](sender2Connector, middlewareLoggerSender2)
+		sender2, err := sender2Middleware.WriteTo("output", []string{"receiver"})
+		assert.NoError(t, err)
+		cid := "1"
+
+		receiverConnector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		var middlewareLoggerReceiver *logger.ConsoleLogger = logger.NewConsoleLogger("receiver", logger.Info)
+		receiverMiddleware := NewMiddleware[*Ball](receiverConnector, middlewareLoggerReceiver)
+		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 1, 30)
+		assert.NoError(t, err)
+
+		const countSender1 = uint64(100000)
+		for i := range countSender1 {
+			sentMsg := &Ball{i}
+			err = sender1.Send(sentMsg, cid)
+			assert.NoError(t, err)
+		}
+		ref := time.Now()
+		emptyDuration := time.Since(ref)
+		err = sender1.Prune(cid)
+		fin := time.Since(ref) - emptyDuration
+		assert.NoError(t, err)
+		log.Infof("Prune duration: %s", fin)
+		err = sender2.SendEOF(cid)
+		assert.NoError(t, err)
+
+		for i := range countSender1 {
+			timer, cancel := newTimer()
+			received, err := receiver.Next(timer)
+			cancel()
+			assert.NoError(t, err)
+			if assert.Equalf(t, middleware.Normal, received.Type(), "Received message of type %s instead of Ball{%d}", received.Type(), i) {
+				assert.Equal(t, i, received.Msg().ID)
+				assert.NoError(t, received.Ack(true))
+			}
+		}
+
+		timer, cancel := newTimer()
+		received, err := receiver.Next(timer)
+		cancel()
+		log.Debugf("received message in close notification: %+v", received)
+		assert.NoError(t, err)
+		assert.Equal(t, cid, received.Cid())
+		assert.Equal(t, middleware.Prune, received.Type())
+		assert.NoError(t, received.Ack(true))
+
+		timer, cancel = newTimer()
+		received, err = receiver.Next(timer)
+		cancel()
+		assert.NoError(t, err)
+		assert.Equal(t, cid, received.Cid())
+		assert.Equal(t, middleware.EOF, received.Type())
+		assert.NoError(t, received.Ack(true))
+	})
+
+	t.Run("OnePubOneRec", func(t *testing.T) {
+		init := test8container
 		assert.NoError(t, init.Err)
 		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
@@ -793,7 +866,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	})
 
 	t.Run("OneProdTwoReceivers", func(t *testing.T) {
-		init := test8container
+		init := test9container
 		assert.NoError(t, init.Err)
 		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
