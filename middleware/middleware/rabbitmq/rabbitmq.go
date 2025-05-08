@@ -224,7 +224,7 @@ func (m *middlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string,
 	if groupName == "" {
 		return nil, fmt.Errorf("groupQueueName is empty, should be a valid name")
 	}
-	return m.createReadQueueRK(sourceName, groupName, "fanout", "", consumerCount, prefetch)
+	return m.createReadQueueRK(sourceName, groupName, "fanout", "", consumerCount, uint(prefetch))
 }
 
 func (m *middlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, t string, routingKey string, consumerCount uint, prefetch int) (middleware.Receiver[T], error) {
@@ -235,17 +235,17 @@ func (m *middlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName strin
 	if groupName == "" {
 		return nil, fmt.Errorf("groupQueueName is empty, should be a valid name")
 	}
-	return m.createReadQueueRK(sourceName, groupName, t, routingKey, consumerCount, prefetch)
+	return m.createReadQueueRK(sourceName, groupName, t, routingKey, consumerCount, uint(prefetch))
 }
 
-func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queueName string, t string, routingKey string, consumerCount uint, prefetch int) (middleware.Receiver[T], error) {
+func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queueName string, t string, routingKey string, consumerCount uint, prefetch uint) (middleware.Receiver[T], error) {
 
-	input, err := createConsumerRK[T, T](m, readExchangeName, queueName, t, routingKey)
+	input, err := createConsumerRK[T, T](m, readExchangeName, queueName, t, routingKey, prefetch)
 	if err != nil {
 		return nil, err
 	}
 
-	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "", "fanout", "")
+	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "", "fanout", "", 1)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +260,7 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 		closeReceiver: closeReceiver,
 		closeSender:   closeSender,
 		consumerCount: consumerCount,
-		prefetch:      prefetch,
+		prefetch:      int(prefetch),
 		finishCids: make(map[string]struct {
 			finishDonePending uint
 			msg               middleware.Envelope[T]
@@ -302,12 +302,13 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	return newVar, nil
 }
 
-func createConsumerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middlewareRabbitmq[T], readExchangeName string, queueName string, t string, routingKey string) (ReceiverChannel[I], error) {
+func createConsumerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middlewareRabbitmq[T], readExchangeName string, queueName string, t string, routingKey string, prefetch uint) (ReceiverChannel[I], error) {
 	inputQueue, inputCh, err := m.createQueueRK(readExchangeName, queueName, t, routingKey)
 	if err != nil {
 		return ReceiverChannel[I]{}, nil
 	}
-	inputCh.Qos(1, 0, false) //TODO CAMBIAR A PREFECTH
+	inputCh.Qos(int(prefetch), 0, false)
+
 	msgs, err := inputCh.Consume(
 		inputQueue.Name, // queue
 		"",              // consumer
@@ -447,7 +448,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 		}
 
 		if !skipResetTimer {
-			timeoutPrefetchCid = time.After(5 * time.Second)
+			timeoutPrefetchCid = time.After(1 * time.Second)
 		}
 		skipResetTimer = false
 

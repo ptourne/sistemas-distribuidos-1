@@ -46,6 +46,11 @@ func (f CleanMovies) ProcessAndSend(envelope middleware.Envelope[*model.Row]) er
 		}
 		return nil
 	case middleware.Prune:
+		err := f.taskSender.Prune(cid)
+		if err != nil {
+			log.Errorf("cid %s | Prune failed in: %s with err:%s", cid, err, f.Name())
+			envelope.Nack(true)
+		}
 		// log.Infof("Prune arrived for cid: %s in %s movieID: %s", cid, f.Name(), row.Strings["movieID"])
 		return nil
 	default:
@@ -181,8 +186,8 @@ func (f *CleanMovies) Connect(inputMiddleware middleware.Connection[*model.Row],
 				// log.Infof("finish arrived for cid: %s from clean_movies", envelope.Cid())
 			case middleware.Prune:
 				// log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), f.Name())
-				envelope.Ack(false)
-				continue
+				// envelope.Ack(false)
+				// continue
 			default:
 				// log.Infof("NORMAL arrived for cid: %s in %s", envelope.Cid(), f.Name())
 			}
