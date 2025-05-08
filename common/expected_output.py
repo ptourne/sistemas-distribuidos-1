@@ -9,7 +9,7 @@ pd.set_option('display.max_colwidth', 100)
 ##credits_df = pd.read_csv('../datasets/credits.csv')
 movies_df = pd.read_csv('../client/datasets/movies_metadata.csv')
 ratings_df = pd.read_csv('../client/datasets/ratings.csv')
-ratings_df = ratings_df.head(200000)
+ratings_df = ratings_df.head(6000000)
 movies_df_columns = ["id", "title", "genres", "release_date", "overview", "production_countries", "spoken_languages", "budget", "revenue"]
 credits_df_columns = ["id", "cast"]
 ratings_df_columns = ["movieId", "rating"]
