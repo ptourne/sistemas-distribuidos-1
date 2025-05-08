@@ -73,7 +73,7 @@ func (e *Endpoint) Run() error {
 	go func() {
 		defer e.wg.Done()
 		allQuerysToEndpointName := "all_querys_to_endpoint"
-		receiverAllQuerysToEndpoint, err := middlewareChanRow.ConsumeFrom(allQuerysToEndpointName, allQuerysToEndpointName, 1, 1)
+		receiverAllQuerysToEndpoint, err := middlewareChanRow.ConsumeFrom(allQuerysToEndpointName, allQuerysToEndpointName, 1, 30)
 		if err != nil {
 			log.Errorf("failed to create read queue %s: %v", allQuerysToEndpointName, err)
 		}
