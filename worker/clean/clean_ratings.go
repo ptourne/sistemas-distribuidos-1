@@ -138,7 +138,6 @@ func (f *CleanRatings) Connect(inputMiddleware middleware.Connection[*model.File
 			case middleware.Prune:
 			}
 			inputChannel <- envelope
-			// TODO falta un ack?
 		}
 		close(inputChannel)
 	}()

@@ -135,7 +135,7 @@ compose_coordinator() {
             - NUMBER_OF_WORKERS=$number_of_workers
             - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=$number_of_reduce_by_country_sum_budgets
             - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=$number_of_reduce_top_5_by_budgets
-            - PREFETCH=1
+            - PREFETCH=1 # Potential optimization
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -159,7 +159,7 @@ compose_workers() {
             - N_JOINERS_RATINGS=$number_of_joiners_ratings
             - N_WORKERS=$number_of_workers
             - SERVER_PORT=1234
-            - PREFETCH=1
+            - PREFETCH=1 # Potential optimization
         networks:
             - local_net
         depends_on:
@@ -183,7 +183,7 @@ compose_nlp_workers() {
             - N_WORKERS=$number_of_nlp_workers
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
-            - PREFETCH=1
+            - PREFETCH=1 # Potential optimization
         networks:
             - local_net
         depends_on:
@@ -206,7 +206,7 @@ compose_lean_workers() {
             - WORKER_ID=$worker_id
             - SERVER_PORT=1234
             - N_WORKERS=$number_of_lean_workers
-            - PREFETCH=1
+            - PREFETCH=30 # Potential optimization
         networks:
             - local_net
         depends_on:

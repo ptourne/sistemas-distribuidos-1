@@ -1,9 +1,9 @@
 package common
 
 import (
-	"bytes"
 
 	// "github.com/ptourne/sistemas-distribuidos-1/common/logger"
+
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 )
@@ -31,18 +31,11 @@ func (p PackageFile) Encode() ([]byte, error) {
 }
 
 func (p *PackageFile) Decode(data []byte) (*PackageFile, error) {
-	r := bytes.NewReader(data)
-	val, err := codec.Uint8Decode(r)
-	if err != nil {
-		return nil, err
-	}
-	// log.Infof("PackageFile Decode: %d", val)
-	// log.Infof("PackageFile Decode TYPE: %d", TypePackage(val))
-
+	val := uint8(data[0])
 	packageFile := &PackageFile{}
 	packageFile.PackageType = TypePackage(val)
 	var bufNul model.FileChunk
-	buf, err := bufNul.DecodeReader(r)
+	buf, err := bufNul.Decode(data[1:])
 	if err != nil {
 		return nil, err
 	}

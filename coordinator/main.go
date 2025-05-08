@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/csv"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -318,7 +319,13 @@ func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQCon
 	config.Q5Output = "filter_avg_rate"
 	config.AllQuerysToEndpointName = "all_querys_to_endpoint"
 	config.CoordinatorsCant = 1
-	config.CoordinatorPrefetch = 3000
+	prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
+	if err != nil {
+		log.Errorf("failed to parse PREFETCH: %v", err)
+		prefetch = 1
+	}
+	log.Debugf("Coordinator: prefetch: %d", prefetch)
+	config.CoordinatorPrefetch = prefetch
 	config.ReceiverTest = "clean_movies"
 
 	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, config.CoordinatorsCant, config.CoordinatorPrefetch)
@@ -357,11 +364,6 @@ func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQCon
 	}
 	config.ReceiverQ5 = q5Receiver
 
-	qTest, err := middlewareChan.ConsumeFrom(config.ReceiverTest, "qtest", config.CoordinatorsCant, config.CoordinatorPrefetch)
-	if err != nil {
-		unwrap(err, "Failed to create read queue", log)
-	}
-	config.ReceiverQueueTest = qTest
 	return &config
 }
 
@@ -415,7 +417,6 @@ type ChannelsCid struct {
 	q3    chan middleware.Envelope[*model.Row]
 	q4    chan middleware.Envelope[*model.Row]
 	q5    chan middleware.Envelope[*model.Row]
-	qtest chan middleware.Envelope[*model.Row]
 }
 
 func NewChannelsCid() *ChannelsCid {
@@ -432,8 +433,6 @@ func NewChannelsCid() *ChannelsCid {
 		q4: make(chan middleware.Envelope[*model.Row], 0),
 		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
 		q5: make(chan middleware.Envelope[*model.Row], 0),
-		//lint:ignore S1019 Ignoring suggestion to simplify channel creation
-		qtest: make(chan middleware.Envelope[*model.Row], 0),
 	}
 }
 
@@ -454,9 +453,6 @@ func GetQ4(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
 }
 func GetQ5(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
 	return c.q5
-}
-func GetTest(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
-	return c.qtest
 }
 
 func (c *ChannelsCid) Close() {
@@ -485,11 +481,6 @@ func (c *ChannelsCid) Close() {
 		c.q5 = nil
 	}
 
-}
-
-func verifyingQtest(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row]) {
-	expectedOutputQtest := []*model.Row{}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Qtest", expectedOutputQtest, removeQtest, true)
 }
 
 func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
@@ -539,17 +530,12 @@ func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 	// 	{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
 	// }
 
-	expectedOutputQ3_200k := []*model.Row{
-		{Floats: map[string]float64{"avg_rating": 4.4}, Strings: map[string]string{"title": "The Mugger", "movieID": "6636"}},
-		{Floats: map[string]float64{"avg_rating": 0.5}, Strings: map[string]string{"title": "Ana and the Others", "movieID": "48596"}},
+	expectedOutputQ3_6M := []*model.Row{
+		{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
+		{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
 	}
 
-	// expectedOutputQ3_6mill := []*model.Row{
-	// 	{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
-	// 	{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
-	// }
-
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3_200k, removeQ3, true)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3_6M, removeQ3, true)
 }
 
 func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row]) {
@@ -632,10 +618,6 @@ OuterLoop:
 	if len(expectedOutput) == 0 {
 		log.Infof("CLIENT %s | QUERY %s | ALL EXPECTED ROWS RECEIVED 🟢", cid, queryNumber)
 	}
-}
-
-func removeQtest(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
-	return slice
 }
 
 func removeQ1(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
