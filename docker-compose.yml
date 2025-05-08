@@ -43,10 +43,10 @@ services:
         networks:
             - local_net
         environment:
-            - NUMBER_OF_WORKERS=3
+            - NUMBER_OF_WORKERS=8
             - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=2
             - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=2
-            - PREFETCH=1
+            - PREFETCH=1 # Potential optimization
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -63,9 +63,9 @@ services:
             - WORKER_ID=1
             - N_JOINERS_CREDITS=1
             - N_JOINERS_RATINGS=1
-            - N_WORKERS=3
+            - N_WORKERS=8
             - SERVER_PORT=1234
-            - PREFETCH=1
+            - PREFETCH=1 # Potential optimization
         networks:
             - local_net
         depends_on:
@@ -84,9 +84,9 @@ services:
             - WORKER_ID=2
             - N_JOINERS_CREDITS=1
             - N_JOINERS_RATINGS=1
-            - N_WORKERS=3
+            - N_WORKERS=8
             - SERVER_PORT=1234
-            - PREFETCH=1
+            - PREFETCH=1 # Potential optimization
         networks:
             - local_net
         depends_on:
@@ -105,9 +105,9 @@ services:
             - WORKER_ID=3
             - N_JOINERS_CREDITS=1
             - N_JOINERS_RATINGS=1
-            - N_WORKERS=3
+            - N_WORKERS=8
             - SERVER_PORT=1234
-            - PREFETCH=1
+            - PREFETCH=1 # Potential optimization
         networks:
             - local_net
         depends_on:
@@ -116,74 +116,19 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    lean_worker1:
-        container_name: lean_worker1
+    worker4:
+        container_name: worker4
         build:
             context: .
-            dockerfile: lean_worker/Dockerfile
-        entrypoint: /lean_worker
-        environment:
-            - WORKER_ID=1
-            - SERVER_PORT=1234
-            - N_WORKERS=7
-            - PREFETCH=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    lean_worker2:
-        container_name: lean_worker2
-        build:
-            context: .
-            dockerfile: lean_worker/Dockerfile
-        entrypoint: /lean_worker
-        environment:
-            - WORKER_ID=2
-            - SERVER_PORT=1234
-            - N_WORKERS=7
-            - PREFETCH=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    lean_worker3:
-        container_name: lean_worker3
-        build:
-            context: .
-            dockerfile: lean_worker/Dockerfile
-        entrypoint: /lean_worker
-        environment:
-            - WORKER_ID=3
-            - SERVER_PORT=1234
-            - N_WORKERS=7
-            - PREFETCH=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    lean_worker4:
-        container_name: lean_worker4
-        build:
-            context: .
-            dockerfile: lean_worker/Dockerfile
-        entrypoint: /lean_worker
-        environment:
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment: 
             - WORKER_ID=4
+            - N_JOINERS_CREDITS=1
+            - N_JOINERS_RATINGS=1
+            - N_WORKERS=8
             - SERVER_PORT=1234
-            - N_WORKERS=7
-            - PREFETCH=1
+            - PREFETCH=1 # Potential optimization
         networks:
             - local_net
         depends_on:
@@ -192,17 +137,19 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    lean_worker5:
-        container_name: lean_worker5
+    worker5:
+        container_name: worker5
         build:
             context: .
-            dockerfile: lean_worker/Dockerfile
-        entrypoint: /lean_worker
-        environment:
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment: 
             - WORKER_ID=5
+            - N_JOINERS_CREDITS=1
+            - N_JOINERS_RATINGS=1
+            - N_WORKERS=8
             - SERVER_PORT=1234
-            - N_WORKERS=7
-            - PREFETCH=1
+            - PREFETCH=1 # Potential optimization
         networks:
             - local_net
         depends_on:
@@ -211,17 +158,19 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    lean_worker6:
-        container_name: lean_worker6
+    worker6:
+        container_name: worker6
         build:
             context: .
-            dockerfile: lean_worker/Dockerfile
-        entrypoint: /lean_worker
-        environment:
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment: 
             - WORKER_ID=6
+            - N_JOINERS_CREDITS=1
+            - N_JOINERS_RATINGS=1
+            - N_WORKERS=8
             - SERVER_PORT=1234
-            - N_WORKERS=7
-            - PREFETCH=1
+            - PREFETCH=1 # Potential optimization
         networks:
             - local_net
         depends_on:
@@ -230,17 +179,40 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    lean_worker7:
-        container_name: lean_worker7
+    worker7:
+        container_name: worker7
         build:
             context: .
-            dockerfile: lean_worker/Dockerfile
-        entrypoint: /lean_worker
-        environment:
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment: 
             - WORKER_ID=7
+            - N_JOINERS_CREDITS=1
+            - N_JOINERS_RATINGS=1
+            - N_WORKERS=8
             - SERVER_PORT=1234
-            - N_WORKERS=7
-            - PREFETCH=1
+            - PREFETCH=1 # Potential optimization
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+
+    worker8:
+        container_name: worker8
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment: 
+            - WORKER_ID=8
+            - N_JOINERS_CREDITS=1
+            - N_JOINERS_RATINGS=1
+            - N_WORKERS=8
+            - SERVER_PORT=1234
+            - PREFETCH=1 # Potential optimization
         networks:
             - local_net
         depends_on:

@@ -478,7 +478,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				if !ok {
 					return nil, fmt.Errorf("read channel was closed")
 				}
-				//r.Log.Infof("Received message from input: %+v in receiver %s", msg, r.input.queueName)
+				r.Log.Debugf("Received message from input in receiver %s", r.input.queueName)
 				t, cid, msgbody, tag, err := unpackMsg[T](msg)
 				if err != nil {
 					return nil, fmt.Errorf("failed to process close notification: %v", err)
@@ -571,6 +571,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	if !ok {
 		return false, true, nil, fmt.Errorf("read channel was closed")
 	}
+	r.Log.Debugf("Received message from close receiver '%s'", r.closeReceiver.exchangeName)
 	t, cid, notification, tag, err := unpackMsg[*CloseNotification](msg)
 	if err != nil {
 		return false, true, nil, fmt.Errorf("failed to process close notification: %v", err)

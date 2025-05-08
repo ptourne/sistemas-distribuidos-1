@@ -2,6 +2,7 @@ package map_reducer_sentiment
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"os"
 
@@ -16,7 +17,7 @@ var WORKER_ID = os.Getenv("WORKER_ID")
 
 var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID), logger.Info)
 
-type In = *model.Row
+type In = *model.Rating
 type Acc struct {
 	Sums  map[string]uint64
 	Count map[string]uint64
@@ -56,8 +57,8 @@ type SumMapReduce struct {
 }
 
 func (r SumMapReduce) Map(in In) []*Acc {
-	rating := in.Numerics["rating"]
-	movieId := in.Strings["movieID"]
+	rating := uint64(in.Rating)
+	movieId := fmt.Sprintf("%d", in.Id)
 
 	return []*Acc{
 		{Sums: map[string]uint64{movieId: rating},
@@ -211,4 +212,24 @@ func (a *Acc) Decode(data []byte) (*Acc, error) {
 		return nil, err
 	}
 	return &Acc{Sums: sums, Count: counts}, nil
+}
+
+type Rating struct {
+	Id     uint32
+	Rating uint8
+}
+
+func (r *Rating) Encode() []byte {
+	buf := make([]byte, 5)
+	binary.BigEndian.PutUint32(buf, r.Id)
+	buf[4] = r.Rating
+	return buf
+}
+
+func (r *Rating) Decode(data []byte) {
+	if len(data) < 5 {
+		return
+	}
+	r.Id = binary.BigEndian.Uint32(data[:4])
+	r.Rating = data[4]
 }

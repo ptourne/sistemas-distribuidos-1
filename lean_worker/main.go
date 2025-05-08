@@ -1,6 +1,6 @@
 package main
 
-func main() {
-	worker := NewWorker()
-	worker.Run()
-}
+// func main() {
+// 	worker := NewWorker()
+// 	worker.Run()
+// }

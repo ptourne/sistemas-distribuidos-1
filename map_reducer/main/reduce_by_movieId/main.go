@@ -38,7 +38,7 @@ func main() {
 	mapReducer, err := map_reducer_movieId.NewMapReducerByMovieId(
 		connector,
 		"reduce_by_movieId",
-		"clean_ratings",
+		"ratings",
 		rkString,
 		[]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
 		2,

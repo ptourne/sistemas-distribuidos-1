@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/csv"
 	"fmt"
 	"os"
@@ -71,8 +70,6 @@ func main() {
 			channelsCid.input <- envelope
 		}
 	}()
-	// wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQueueTest, config.ReceiverTest, log, inputsChannelMap, GetTest, &inputChannelMapLock, &wg, true)
 	// wg.Add(1)
 	// go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
 	// wg.Add(1)
@@ -145,7 +142,10 @@ func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator, wg
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
 	}
-	ratingsSender, err := (*c.MiddlewareChanByte).WriteTo(c.RatingsName, []string{"clean_ratings"})
+	subscribers := map[string][]string{
+		"reduce_by_movieId": []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
+	}
+	ratingsSender, err := (*c.MiddlewareChanByte).WriteToRK(c.RatingsName, subscribers, "direct")
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
 	}
@@ -216,7 +216,14 @@ OuterLoop:
 						if fileName != c.RatingsName {
 							sender.SendEOF(cid)
 						} else {
-							ratingsSender.SendEOF(cid)
+							for i := range 10 {
+								rk := fmt.Sprintf("%d", i)
+								err := ratingsSender.SendEOFRK(rk, cid)
+								if err != nil {
+									log.Errorf("failed to send EOFRK to %s: %v", rk, err)
+								}
+								log.Infof("Sent EOF to %s with cid: %s", rk, cid)
+							}
 						}
 						break
 					}
@@ -231,7 +238,8 @@ OuterLoop:
 					row := create(data)
 					sender.Send(row, cid)
 				} else {
-					num, err := strconv.Atoi(data[1])
+					movieId := data[1]
+					num, err := strconv.Atoi(movieId)
 					unwrap(err, "Failed to convert string to int", log)
 					digits := strings.Split(data[2], ".")
 					dec, err := strconv.Atoi(digits[0])
@@ -239,12 +247,12 @@ OuterLoop:
 					unit, err := strconv.Atoi(digits[1])
 					unwrap(err, "Failed to convert string to int", log)
 					val := dec*10 + unit
-					rating := RatingB{
+					rating := model.Rating{
 						Id:     uint32(num),
 						Rating: uint8(val),
 					}
-					v := rating.Encode()
-					ratingsSender.Send(&model.FileChunk{Bytes: v}, cid)
+					routingKey := string(movieId[len(movieId)-1])
+					ratingsSender.SendRK(&rating, routingKey, cid)
 				}
 
 			}
@@ -262,7 +270,6 @@ OuterLoop:
 	}
 	log.Infof("CSV processing completed")
 
-	// verifyingQtest(log, allQuerysToEndpointSender, cid, channelsCid.qtest)
 	// verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
 	// verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
 	verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
@@ -276,7 +283,7 @@ type ConfigCoordinator struct {
 	CoordinatorsCant            uint
 	CoordinatorPrefetch         int
 	MiddlewareChan              *middleware.Connection[*model.Row]
-	MiddlewareChanByte          *middleware.Connection[*model.FileChunk]
+	MiddlewareChanByte          *middleware.Connection[*model.Rating]
 	MiddlewareChanPackageByte   *middleware.Connection[*common.PackageFile]
 	ReadFileByteQueue           string
 	MoviesMetadataName          string
@@ -303,7 +310,7 @@ func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQCon
 	config := ConfigCoordinator{}
 	middlewareChan := rabbitmq.NewMiddleware[*model.Row](connector, log)
 	middlewareChanPackageByte := rabbitmq.NewMiddleware[*common.PackageFile](connector, log)
-	middlewareChanByte := rabbitmq.NewMiddleware[*model.FileChunk](connector, log)
+	middlewareChanByte := rabbitmq.NewMiddleware[*model.Rating](connector, log)
 	config.MiddlewareChan = &middlewareChan
 	config.MiddlewareChanByte = &middlewareChanByte
 	config.MiddlewareChanPackageByte = &middlewareChanPackageByte
@@ -788,24 +795,4 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 	}
 	msgEnvelope.Ack(false)
 	return n, err
-}
-
-type RatingB struct {
-	Id     uint32
-	Rating uint8
-}
-
-func (r *RatingB) Encode() []byte {
-	buf := make([]byte, 5)
-	binary.BigEndian.PutUint32(buf, r.Id)
-	buf[4] = r.Rating
-	return buf
-}
-
-func (r *RatingB) Decode(data []byte) {
-	if len(data) < 5 {
-		return
-	}
-	r.Id = binary.BigEndian.Uint32(data[:4])
-	r.Rating = data[4]
 }

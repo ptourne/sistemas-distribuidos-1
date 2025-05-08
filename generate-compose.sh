@@ -1,37 +1,35 @@
 #!/bin/bash
 
-if [ "$#" -eq 12 ]; then
+if [ "$#" -eq 11 ]; then
     file_name=./docker-compose.yml
     number_of_workers=$1
-    number_of_lean_workers=$2
+    number_of_joiners_credits=$2
+    number_of_joiners_ratings=$3
+    number_of_reduce_by_country_sum_budgets=$4
+    number_of_reduce_top_5_by_budgets=$5
+    number_of_reduce_by_sentiment=$6
+    number_of_reduce_by_actor=$7
+    number_of_reduce_top_10_by_actor=$8
+    number_of_reduce_top_bottom_avg_ratings=${9}
+    number_of_clients=${10}
+    number_of_nlp_workers=${11}
+
+elif [ "$#" -eq 12 ]; then
+    file_name=$1
+    number_of_workers=$2
     number_of_joiners_credits=$3
     number_of_joiners_ratings=$4
     number_of_reduce_by_country_sum_budgets=$5
     number_of_reduce_top_5_by_budgets=$6
     number_of_reduce_by_sentiment=$7
     number_of_reduce_by_actor=$8
-    number_of_reduce_top_10_by_actor=$9
+    number_of_reduce_top_10_by_actor=${9}
     number_of_reduce_top_bottom_avg_ratings=${10}
     number_of_clients=${11}
     number_of_nlp_workers=${12}
-
-elif [ "$#" -eq 13 ]; then
-    file_name=$1
-    number_of_workers=$2
-    number_of_lean_workers=$3
-    number_of_joiners_credits=$4
-    number_of_joiners_ratings=$5
-    number_of_reduce_by_country_sum_budgets=$6
-    number_of_reduce_top_5_by_budgets=$7
-    number_of_reduce_by_sentiment=$8
-    number_of_reduce_by_actor=$9
-    number_of_reduce_top_10_by_actor=${10}
-    number_of_reduce_top_bottom_avg_ratings=${11}
-    number_of_clients=${12}
-    number_of_nlp_workers=${13}
 else
     echo "Error: Incorrect number of arguments"
-    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_lean_workers>,<number_of_joiners_credits>,<number_of_joiners_ratings>,
+    echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_joiners_credits>,<number_of_joiners_ratings>,
     <number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,
     <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>,
     <number_of_reduce_top_bottom_avg_ratings>, <number_of_clients>, <number_of_nlp_workers>"
@@ -41,11 +39,6 @@ fi
 # Verify number_of_workers is a positive integer
 if ! [[ "$number_of_workers" =~ ^[0-9]+$ ]] || [ "$number_of_workers" -le -1 ]; then
     echo "Error: Number of workers must be a positive integer"
-    exit 1
-fi
-# Verify number_of_lean_workers is a positive integer
-if ! [[ "$number_of_lean_workers" =~ ^[0-9]+$ ]] || [ "$number_of_lean_workers" -le -1 ]; then
-    echo "Error: Number of lean workers must be a positive integer"
     exit 1
 fi
 
@@ -194,28 +187,28 @@ compose_nlp_workers() {
 "
 }
 
-compose_lean_workers() {
-    local worker_id=$1
-    echo "    lean_worker$worker_id:
-        container_name: lean_worker$worker_id
-        build:
-            context: .
-            dockerfile: lean_worker/Dockerfile
-        entrypoint: /lean_worker
-        environment:
-            - WORKER_ID=$worker_id
-            - SERVER_PORT=1234
-            - N_WORKERS=$number_of_lean_workers
-            - PREFETCH=30 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-"
-}
+#compose_lean_workers() {
+#    local worker_id=$1
+#    echo "    lean_worker$worker_id:
+#        container_name: lean_worker$worker_id
+#        build:
+#            context: .
+#            dockerfile: lean_worker/Dockerfile
+#        entrypoint: /lean_worker
+#        environment:
+#            - WORKER_ID=$worker_id
+#            - SERVER_PORT=1234
+#            - N_WORKERS=$number_of_lean_workers
+#            - PREFETCH=30 # Potential optimization
+#        networks:
+#            - local_net
+#        depends_on:
+#            rabbitmq:
+#                condition: service_healthy
+#            sentiment_server:
+#                condition: service_healthy
+#"
+#}
 
 compose_joiner_rating() {
     local worker_id=$1
@@ -429,9 +422,9 @@ done
 # for i in $(seq 1 $number_of_nlp_workers); do
 #     compose_nlp_workers $i >> $file_name
 # done
-for i in $(seq 1 $number_of_lean_workers); do
-    compose_lean_workers $i >> $file_name
-done
+#for i in $(seq 1 $number_of_lean_workers); do
+#    compose_lean_workers $i >> $file_name
+#done
 # for i in $(seq 1 $number_of_joiners_credits); do
 #     compose_joiner_credits $i $number_of_joiners_credits >> $file_name
 # done

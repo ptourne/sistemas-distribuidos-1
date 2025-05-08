@@ -16,7 +16,7 @@ import (
 )
 
 var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_top_bottom_avg_rating_%s", WORKER_ID), logger.Info)
+var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_top_bottom_avg_rating_%s", WORKER_ID), logger.Debug)
 
 type Movie struct {
 	ID     string
@@ -73,6 +73,7 @@ func main() {
 type TopBottomReduce struct{}
 
 func (r TopBottomReduce) Map(in In) []*Acc {
+
 	log.Infof("Map: %v", in)
 	acc := []*Acc{{
 		Top: Movie{
