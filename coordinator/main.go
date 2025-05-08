@@ -524,17 +524,17 @@ func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 }
 
 func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
-	expectedOutputQ3 := []*model.Row{
+	// expectedOutputQ3 := []*model.Row{
+	// 	{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
+	// 	{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
+	// }
+
+	expectedOutputQ3_6M := []*model.Row{
 		{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
 		{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
 	}
 
-	// expectedOutputQ3Partial := []*model.Row{
-	// 	{Floats: map[string]float64{"avg_rating": 4.4}, Strings: map[string]string{"title": "The Mugger", "movieID": "6636"}},
-	// 	{Floats: map[string]float64{"avg_rating": 0.5}, Strings: map[string]string{"title": "Ana and the Others", "movieID": "48596"}},
-	// }
-
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3, removeQ3, false)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3_6M, removeQ3, false)
 }
 
 func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row]) {
