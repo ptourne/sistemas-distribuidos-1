@@ -13,7 +13,7 @@ number_of_reduce_by_sentiment = "1"
 number_of_reduce_by_actor = "2"
 number_of_reduce_top_10_by_actor = "2"
 number_of_reduce_top_bottom_avg_ratings = "1"
-number_of_clients = "2"
+number_of_clients = "3"
 number_of_nlp_workers = "4"
 # Ejecutar el script con todas las variables en orden
 subprocess.run([
