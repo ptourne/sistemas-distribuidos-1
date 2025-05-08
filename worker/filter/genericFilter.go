@@ -169,10 +169,11 @@ func (f GenericFilter) String() string {
 
 func (f *GenericFilter) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
-	prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
-	}
+	// prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
+	prefetch := 1000
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
+	// }
 	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse N_WORKERS: %w", err)

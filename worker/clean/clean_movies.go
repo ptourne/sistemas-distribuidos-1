@@ -149,10 +149,11 @@ func (f CleanMovies) process(row *model.Row) *model.Row {
 
 func (f *CleanMovies) Connect(inputMiddleware middleware.Connection[*model.Row], outputMiddleware middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
-	prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
-	}
+	// prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
+	// }
+	prefetch := 1000
 	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse N_WORKERS: %w", err)

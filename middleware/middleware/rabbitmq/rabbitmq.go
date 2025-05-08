@@ -245,7 +245,7 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 		return nil, err
 	}
 
-	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName, routingKey), "", "fanout", "", 1)
+	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName, routingKey), "", "fanout", "", 100)
 	if err != nil {
 		return nil, err
 	}
@@ -304,9 +304,11 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 
 func createConsumerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middlewareRabbitmq[T], readExchangeName string, queueName string, t string, routingKey string, prefetch uint) (ReceiverChannel[I], error) {
 	inputQueue, inputCh, err := m.createQueueRK(readExchangeName, queueName, t, routingKey)
+
 	if err != nil {
 		return ReceiverChannel[I]{}, nil
 	}
+	m.Log.Infof("PREFETCH %d with queuename: %s", prefetch, queueName)
 	inputCh.Qos(int(prefetch), 0, false)
 
 	msgs, err := inputCh.Consume(

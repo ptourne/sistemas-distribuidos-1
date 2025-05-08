@@ -426,36 +426,36 @@ compose_coordinator >> $file_name
 for i in $(seq 1 $number_of_workers); do
     compose_workers $i >> $file_name
 done
-for i in $(seq 1 $number_of_nlp_workers); do
-    compose_nlp_workers $i >> $file_name
-done
+# for i in $(seq 1 $number_of_nlp_workers); do
+#     compose_nlp_workers $i >> $file_name
+# done
 for i in $(seq 1 $number_of_lean_workers); do
     compose_lean_workers $i >> $file_name
 done
-for i in $(seq 1 $number_of_joiners_credits); do
-    compose_joiner_credits $i $number_of_joiners_credits >> $file_name
-done
+# for i in $(seq 1 $number_of_joiners_credits); do
+#     compose_joiner_credits $i $number_of_joiners_credits >> $file_name
+# done
 for i in $(seq 1 $number_of_joiners_ratings); do
     compose_joiner_rating $i >> $file_name
 done
-for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
-    compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
-    compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
-done
+# for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
+#     compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
+#     compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
+# done
 for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
     compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
 done
-for i in $(seq 1 $number_of_reduce_by_sentiment); do
-    compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_by_actor); do
-    compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
-    compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
-done
+# for i in $(seq 1 $number_of_reduce_by_sentiment); do
+#     compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_by_actor); do
+#     compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
+# done
+# for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
+#     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
+# done
 NUMBER_OF_REDUCE_BY_MOVIEID=10
 for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name

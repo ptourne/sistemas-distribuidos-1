@@ -99,7 +99,7 @@ OuterLoop:
 }
 
 func (c *Client) SendFiles() error {
-	filesNames := []string{"movies_metadata", "ratings", "credits"}
+	filesNames := []string{"movies_metadata", "ratings6.csv"}
 	log.Infof("Sending files")
 	for _, fileName := range filesNames {
 		log.Infof("sending file: %s", fileName)

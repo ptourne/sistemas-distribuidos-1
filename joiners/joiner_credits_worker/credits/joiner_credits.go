@@ -89,7 +89,6 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row) error {
 			f.pendingMoviesMu.Unlock()
 			return nil
 		}
-		//f.log.Errorf("Failed to process movie: %v", err)
 		return err
 	}
 	return f.sendActors(output, err, row.Strings["cid"])
@@ -97,7 +96,6 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row) error {
 
 func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string) error {
 	if err != nil {
-		//f.log.Errorf("Failed to process movie: %v", err)
 		return err
 	}
 	if len(output) == 0 {
@@ -107,7 +105,6 @@ func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string) e
 		if r == nil {
 			continue
 		}
-		//f.log.Infof("Sending actor %+v", r)
 		err = f.taskSender.Send(r, cid)
 		if err != nil {
 			f.log.Errorf("Failed to send actor data: %v", err)
@@ -121,10 +118,6 @@ func (f *JoinerCredits) processCredit(row *model.Row) error {
 	f.creditsProcessed++
 	movieID := row.Strings["ID"]
 	cast := row.Arrays["cast"]
-	//f.log.Infof("Processing credit %v", f.creditsProcessed)
-	// if f.creditsProcessed == 45476 && len(cast) == 0 { //TODO
-	// 	f.processPendingMovies()
-	// }
 	if len(cast) == 0 {
 		return nil
 	}
@@ -225,7 +218,6 @@ func (f *JoinerCredits) processMovie(row *model.Row) ([]*model.Row, error) {
 	fileName := fmt.Sprintf("%s/credits_%s.csv", dirPath, lastDigit)
 	file, err := os.Open(fileName)
 	if err != nil {
-		//f.log.Errorf("Failed to open file: %s", fileName)
 		return nil, fmt.Errorf("no cast found") //err
 
 	}
@@ -251,14 +243,12 @@ func (f *JoinerCredits) processMovie(row *model.Row) ([]*model.Row, error) {
 		}
 
 		if data[0] == movieID {
-			//f.log.Infof("Found cast for %s", movieID)
 			cast = data[1]
 			break
 		}
 	}
 
 	if cast == "" || cast == "null" {
-		//f.log.Infof("No cast found for %s", movieID)
 		return nil, fmt.Errorf("no cast found")
 	}
 
@@ -306,10 +296,11 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 	if prefetchStr == "" {
 		prefetchStr = "1"
 	}
-	prefetch, err := strconv.Atoi(prefetchStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
-	}
+	// prefetch, err := strconv.Atoi(prefetchStr)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
+	// }
+	prefetch := 500
 	groupQueueName := fmt.Sprintf("joiner_%s_credits", f.id)
 	f.taskReceiverCredits, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, uint(peers), prefetch)
 	if err != nil {
@@ -340,16 +331,8 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 					f.log.Infof("Channel for credits closed from task: %v", f.Name())
 					break
 				}
-				//f.log.Errorf("Error reading from middleware (joiner_credits): %v", err)
 				continue
 			}
-			// if !ok {
-			// 	if envelope == nil || envelope.Type() != middleware.EOF {
-			// 		f.log.Infof("Channel closed (credits): %v", f.Name())
-
-			// 		break
-			// 	}
-			// }
 			inputChannelCredits <- envelope
 		}
 
@@ -367,15 +350,9 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 					f.log.Infof("Channel for movies closed from task: %v", f.Name())
 					break
 				}
-				//f.log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
-			// if !ok {
-			// 	if envelope == nil || envelope.Type() != middleware.EOF {
-			// 		f.log.Infof("Channel closed (movies): %v", f.Name())
-			// 		break
-			// 	}
-			// }
+
 			inputChannelMovies <- envelope
 		}
 		close(inputChannelMovies)

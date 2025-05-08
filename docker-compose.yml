@@ -14,7 +14,7 @@ services:
             timeout: 10s
             retries: 10
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
     sentiment_server:
         container_name: sentiment_server
@@ -43,9 +43,9 @@ services:
         networks:
             - local_net
         environment:
-            - NUMBER_OF_WORKERS=5
-            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=0
-            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=0
+            - NUMBER_OF_WORKERS=3
+            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=2
+            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=2
             - PREFETCH=1
         depends_on:
             rabbitmq:
@@ -61,9 +61,9 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=1
-            - N_JOINERS_CREDITS=0
-            - N_JOINERS_RATINGS=0
-            - N_WORKERS=5
+            - N_JOINERS_CREDITS=1
+            - N_JOINERS_RATINGS=1
+            - N_WORKERS=3
             - SERVER_PORT=1234
             - PREFETCH=1
         networks:
@@ -82,9 +82,9 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=2
-            - N_JOINERS_CREDITS=0
-            - N_JOINERS_RATINGS=0
-            - N_WORKERS=5
+            - N_JOINERS_CREDITS=1
+            - N_JOINERS_RATINGS=1
+            - N_WORKERS=3
             - SERVER_PORT=1234
             - PREFETCH=1
         networks:
@@ -103,9 +103,9 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=3
-            - N_JOINERS_CREDITS=0
-            - N_JOINERS_RATINGS=0
-            - N_WORKERS=5
+            - N_JOINERS_CREDITS=1
+            - N_JOINERS_RATINGS=1
+            - N_WORKERS=3
             - SERVER_PORT=1234
             - PREFETCH=1
         networks:
@@ -116,59 +116,16 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    worker4:
-        container_name: worker4
+    lean_worker1:
+        container_name: lean_worker1
         build:
             context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment: 
-            - WORKER_ID=4
-            - N_JOINERS_CREDITS=0
-            - N_JOINERS_RATINGS=0
-            - N_WORKERS=5
-            - SERVER_PORT=1234
-            - PREFETCH=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    worker5:
-        container_name: worker5
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment: 
-            - WORKER_ID=5
-            - N_JOINERS_CREDITS=0
-            - N_JOINERS_RATINGS=0
-            - N_WORKERS=5
-            - SERVER_PORT=1234
-            - PREFETCH=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    nlp_worker1:
-        container_name: nlp_worker1
-        build:
-            context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
+        environment:
             - WORKER_ID=1
-            - N_WORKERS=5
-            - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - N_WORKERS=7
             - PREFETCH=1
         networks:
             - local_net
@@ -178,17 +135,16 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    nlp_worker2:
-        container_name: nlp_worker2
+    lean_worker2:
+        container_name: lean_worker2
         build:
             context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
+        environment:
             - WORKER_ID=2
-            - N_WORKERS=5
-            - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - N_WORKERS=7
             - PREFETCH=1
         networks:
             - local_net
@@ -198,17 +154,16 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    nlp_worker3:
-        container_name: nlp_worker3
+    lean_worker3:
+        container_name: lean_worker3
         build:
             context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
+        environment:
             - WORKER_ID=3
-            - N_WORKERS=5
-            - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - N_WORKERS=7
             - PREFETCH=1
         networks:
             - local_net
@@ -218,17 +173,16 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    nlp_worker4:
-        container_name: nlp_worker4
+    lean_worker4:
+        container_name: lean_worker4
         build:
             context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
+        environment:
             - WORKER_ID=4
-            - N_WORKERS=5
-            - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - N_WORKERS=7
             - PREFETCH=1
         networks:
             - local_net
@@ -238,17 +192,16 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    nlp_worker5:
-        container_name: nlp_worker5
+    lean_worker5:
+        container_name: lean_worker5
         build:
             context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
+        environment:
             - WORKER_ID=5
-            - N_WORKERS=5
-            - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - N_WORKERS=7
             - PREFETCH=1
         networks:
             - local_net
@@ -258,17 +211,16 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    nlp_worker6:
-        container_name: nlp_worker6
+    lean_worker6:
+        container_name: lean_worker6
         build:
             context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
+        environment:
             - WORKER_ID=6
-            - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
-            - N_WORKERS=5
+            - N_WORKERS=7
             - PREFETCH=1
         networks:
             - local_net
@@ -278,17 +230,16 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    nlp_worker7:
-        container_name: nlp_worker7
+    lean_worker7:
+        container_name: lean_worker7
         build:
             context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
+            dockerfile: lean_worker/Dockerfile
+        entrypoint: /lean_worker
+        environment:
             - WORKER_ID=7
-            - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
-            - N_WORKERS=5
+            - N_WORKERS=7
             - PREFETCH=1
         networks:
             - local_net
@@ -298,17 +249,16 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    nlp_worker8:
-        container_name: nlp_worker8
+    joiner_rating1:
+        container_name: joiner_rating1
         build:
             context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
-            - WORKER_ID=8
-            - NLP_GRPC_ADDR=sentiment_server:50051
+            dockerfile: joiners/joiner_ratings_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=1
             - SERVER_PORT=1234
-            - N_WORKERS=5
+            - WORKER_COUNT=
             - PREFETCH=1
         networks:
             - local_net
@@ -318,85 +268,15 @@ services:
             sentiment_server:
                 condition: service_healthy
 
-    nlp_worker9:
-        container_name: nlp_worker9
+    reduce_top_bottom_avg_rating1:
+        container_name: reduce_top_bottom_avg_rating1
         build:
             context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
-            - WORKER_ID=9
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-            - N_WORKERS=5
-            - PREFETCH=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    nlp_worker10:
-        container_name: nlp_worker10
-        build:
-            context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
-            - WORKER_ID=10
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-            - N_WORKERS=5
-            - PREFETCH=1
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    reduce_by_sentiment1:
-        container_name: reduce_by_sentiment1
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+            dockerfile: map_reducer/main/reduce_top_bottom_avg_rating/Dockerfile
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-            - WORKER_COUNT=3
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_by_sentiment2:
-        container_name: reduce_by_sentiment2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
-            - WORKER_COUNT=3
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_by_sentiment3:
-        container_name: reduce_by_sentiment3
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=3
-            - WORKER_COUNT=3
+            - WORKER_COUNT=1
         networks:
             - local_net
         depends_on:
@@ -586,7 +466,22 @@ services:
         depends_on:
             - endpoint
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/client/datasets:/datasets
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+
+    client2:
+        container_name: client2
+        build:
+            context: .
+            dockerfile: client/Dockerfile
+        entrypoint: /client
+        environment:
+            - SERVER_PORT=endpoint:9876
+        networks:
+            - local_net
+        depends_on:
+            - endpoint
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
 
     endpoint:
         container_name: endpoint
