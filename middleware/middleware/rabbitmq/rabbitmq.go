@@ -245,12 +245,12 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 		return nil, err
 	}
 
-	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "", "fanout", "", 1)
+	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName, routingKey), "", "fanout", "", 1)
 	if err != nil {
 		return nil, err
 	}
 
-	closeSender, err := CreateProducerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "fanout")
+	closeSender, err := CreateProducerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName, routingKey), "fanout")
 	if err != nil {
 		return nil, err
 	}
@@ -771,12 +771,15 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 	return &queue, ch, nil
 }
 
-func closeExchangeName(readExchangeName string, queueName string) string {
+func closeExchangeName(readExchangeName string, queueName string, routingKey string) string {
 	if strings.Contains(queueName, "joiner") && strings.Contains(queueName, "credits") {
 		queueName = "joiner_credits"
 	}
 	if strings.Contains(queueName, "joiner") && strings.Contains(queueName, "ratings") {
 		queueName = "joiner_ratings"
 	}
-	return fmt.Sprintf("%s->%s:close", readExchangeName, queueName)
+	if routingKey == "" {
+		return fmt.Sprintf("%s->%s:close", readExchangeName, queueName)
+	}
+	return fmt.Sprintf("%s->%s[%s]:close", readExchangeName, queueName, routingKey)
 }

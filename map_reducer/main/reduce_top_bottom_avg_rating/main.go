@@ -52,6 +52,7 @@ func main() {
 		2,
 		&TopBottomReduce{},
 		[]string{"q3"},
+		"",
 		[]string{},
 		id,
 		uint(count),
