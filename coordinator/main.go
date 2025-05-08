@@ -63,27 +63,25 @@ func main() {
 			}
 			switch envelope.Type() {
 			case middleware.EOF:
+				panic("EOF arrived in coordinator")
 			case middleware.Prune:
-				log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), config.ReadFileByteQueue)
-				err = envelope.Ack(false)
-				unwrap(err, "Failed to ack message", log)
-				continue
+				panic("Prune arrived in coordinator")
 			}
 			channelsCid.input <- envelope
 		}
 	}()
 	// wg.Add(1)
 	// go nextQueue(ctx, config.ReceiverQueueTest, config.ReceiverTest, log, inputsChannelMap, GetTest, &inputChannelMapLock, &wg, true)
-	// wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
-	// wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, false)
-	// wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, true)
 	wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, false)
+	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, false)
 	// wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true) //TODO deberia ser SOLO EN Q5
+	// go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, true)
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, true)
+	// wg.Add(1)
+	// go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true)
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -123,10 +121,10 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 				inputChannelMapLock.Unlock()
 			}
 		case middleware.Prune:
-			log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), channelString)
-			err = envelope.Ack(false)
-			unwrap(err, "Failed to ack message", log)
-			continue
+			// log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), channelString)
+			// err = envelope.Ack(false)
+			// unwrap(err, "Failed to ack message", log)
+			// continue
 		}
 
 		queue := getFuc(channelsCid)
@@ -264,11 +262,11 @@ OuterLoop:
 	log.Infof("CSV processing completed")
 
 	// verifyingQtest(log, allQuerysToEndpointSender, cid, channelsCid.qtest)
-	// verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
-	// verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
-	verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
-	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
-	// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
+	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
+	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
+	verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
+	verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 
 	log.Infof("finish all querys verified")
 }
@@ -562,7 +560,7 @@ func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Q4", expectedOutputQ4, removeQ4, false)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Q4", expectedOutputQ4, removeQ4, true)
 }
 
 // reducing batch: failed to process close notification: failed to decode item: failed to decode map length: failed to read data: EOF
@@ -600,6 +598,14 @@ OuterLoop:
 			break OuterLoop
 		case middleware.Prune:
 			log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), queryNumber)
+			// err = envelope.Ack(false)
+			// unwrap(err, "Failed to ack message", log)
+			// continue
+			err := allQuerysToEndpointSender.Prune(cid)
+			if err != nil {
+				log.Errorf("cid %s | Prune failed in: %s with err:%s", cid, err, queryNumber)
+				envelope.Nack(true)
+			}
 			err = envelope.Ack(false)
 			unwrap(err, "Failed to ack message", log)
 			continue

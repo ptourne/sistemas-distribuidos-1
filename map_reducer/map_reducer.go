@@ -253,7 +253,12 @@ func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 				mr.log.Debugf("input : %s | Sent EOF", envelope.Cid())
 				envelope.Ack(true)
 			case middleware.Prune:
-				mr.log.Infof("input : %s | Received prune: nothing to do", envelope.Cid())
+				mr.log.Infof("input : %s | Received prune: prunning output", envelope.Cid())
+				err := mr.PartialResultSender.Prune(envelope.Cid())
+				if err != nil {
+					mr.log.Errorf("input : %s | Prune failed: %s", envelope.Cid(), err)
+					envelope.Nack(true)
+				}
 				envelope.Ack(true)
 			}
 		}
@@ -317,6 +322,16 @@ func (mr *MapReducer[I, A, R]) reduceBattchess(ctx context.Context) <-chan error
 					mr.log.Errorf("reduc : %s | Prune failed: %s", e.Cid(), err)
 					e.Nack(true)
 					return
+				}
+				err := mr.PartialResultSender.Prune(e.Cid())
+				if err != nil {
+					mr.log.Errorf("input : %s | Prune failed: %s", e.Cid(), err)
+					e.Nack(true)
+				}
+				err = mr.FinalReduceSender.Prune(e.Cid())
+				if err != nil {
+					mr.log.Errorf("input : %s | Prune failed: %s", e.Cid(), err)
+					e.Nack(true)
 				}
 				e.Ack(true)
 			}
@@ -505,6 +520,11 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 					e.Nack(true)
 					err = fmt.Errorf("error sending partial result: %w", err)
 					return
+				}
+				err := mr.Output.Prune(e.Cid())
+				if err != nil {
+					mr.log.Errorf("input : %s | Prune failed: %s", e.Cid(), err)
+					e.Nack(true)
 				}
 
 				delete(mr.FinalReduceBatches, e.Cid())

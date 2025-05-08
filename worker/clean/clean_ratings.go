@@ -55,7 +55,8 @@ func (f CleanRatings) ProcessAndSend(envelope middleware.Envelope[*model.FileChu
 	fileChunk := envelope.Msg()
 	cid := envelope.Cid()
 	t := envelope.Type()
-	if t == middleware.EOF {
+	switch t {
+	case middleware.EOF:
 		for i := range 10 {
 			rk := fmt.Sprintf("%d", i)
 			err := f.taskSender.SendEOFRK(rk, cid)
@@ -65,7 +66,14 @@ func (f CleanRatings) ProcessAndSend(envelope middleware.Envelope[*model.FileChu
 			log.Infof("Sent EOF to %s with cid: %s", rk, cid)
 		}
 		return nil
-	} else {
+	case middleware.Prune:
+		err := f.taskSender.Prune(cid)
+		if err != nil {
+			log.Errorf("cid %s | Prune failed in: %s with err:%s", cid, err, f.Name())
+			envelope.Nack(true)
+		}
+		return nil
+	default:
 		output := f.process(fileChunk.Bytes) // TODO: this should be a different model
 		if output == nil {
 			return nil
@@ -127,12 +135,7 @@ func (f *CleanRatings) Connect(inputMiddleware middleware.Connection[*model.File
 			}
 			switch envelope.Type() {
 			case middleware.EOF:
-				// log.Infof("Channel closed: %v", f.Name())
-				// break
-				log.Infof("finish arrived for cid: YESS %s", envelope.Cid())
 			case middleware.Prune:
-				envelope.Ack(true)
-				continue
 			}
 			inputChannel <- envelope
 			// TODO falta un ack?
