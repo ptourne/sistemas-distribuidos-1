@@ -266,9 +266,9 @@ services:
         entrypoint: /nlp
         environment: 
             - WORKER_ID=6
-            - N_WORKERS=5
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - N_WORKERS=5
             - PREFETCH=1
         networks:
             - local_net
@@ -286,9 +286,9 @@ services:
         entrypoint: /nlp
         environment: 
             - WORKER_ID=7
-            - N_WORKERS=5
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - N_WORKERS=5
             - PREFETCH=1
         networks:
             - local_net
@@ -306,9 +306,9 @@ services:
         entrypoint: /nlp
         environment: 
             - WORKER_ID=8
-            - N_WORKERS=5
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - N_WORKERS=5
             - PREFETCH=1
         networks:
             - local_net
@@ -326,9 +326,9 @@ services:
         entrypoint: /nlp
         environment: 
             - WORKER_ID=9
-            - N_WORKERS=5
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - N_WORKERS=5
             - PREFETCH=1
         networks:
             - local_net
@@ -346,9 +346,9 @@ services:
         entrypoint: /nlp
         environment: 
             - WORKER_ID=10
-            - N_WORKERS=5
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
+            - N_WORKERS=5
             - PREFETCH=1
         networks:
             - local_net
@@ -397,6 +397,176 @@ services:
         environment:
             - WORKER_ID=3
             - WORKER_COUNT=3
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid1:
+        container_name: reduce_by_movieid1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_CONDI=1
+            - WORKER_COUNT=10
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid2:
+        container_name: reduce_by_movieid2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_CONDI=1
+            - WORKER_COUNT=10
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid3:
+        container_name: reduce_by_movieid3
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=3
+            - WORKER_CONDI=1
+            - WORKER_COUNT=10
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid4:
+        container_name: reduce_by_movieid4
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=4
+            - WORKER_CONDI=1
+            - WORKER_COUNT=10
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid5:
+        container_name: reduce_by_movieid5
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=5
+            - WORKER_CONDI=1
+            - WORKER_COUNT=10
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid6:
+        container_name: reduce_by_movieid6
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=6
+            - WORKER_CONDI=1
+            - WORKER_COUNT=10
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid7:
+        container_name: reduce_by_movieid7
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=7
+            - WORKER_CONDI=1
+            - WORKER_COUNT=10
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid8:
+        container_name: reduce_by_movieid8
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=8
+            - WORKER_CONDI=1
+            - WORKER_COUNT=10
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid9:
+        container_name: reduce_by_movieid9
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=9
+            - WORKER_CONDI=1
+            - WORKER_COUNT=10
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid10:
+        container_name: reduce_by_movieid10
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=10
+            - WORKER_CONDI=1
+            - WORKER_COUNT=10
+            - PREFETCH=1
         networks:
             - local_net
         depends_on:

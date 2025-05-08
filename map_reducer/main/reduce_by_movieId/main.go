@@ -22,7 +22,7 @@ func main() {
 	}
 	id := os.Getenv("WORKER_ID")
 	count_str := os.Getenv("WORKER_COUNT")
-	count, err := strconv.Atoi(count_str)
+	count_shard, err := strconv.Atoi(count_str)
 	if err != nil {
 		log.Errorf("failed to parse worker count: %s", err)
 		return
@@ -39,11 +39,13 @@ func main() {
 		connector,
 		"reduce_by_movieId",
 		"clean_ratings",
-		[]string{rkString},
+		rkString,
+		[]string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
 		2,
 		[]string{"filter_avg_rating"},
 		id,
-		uint(count),
+		uint(1),
+		uint(count_shard),
 	)
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)

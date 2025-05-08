@@ -240,15 +240,15 @@ func NewWorker() Worker {
 
 	filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
 
-	// n_worker, err = strconv.Atoi(os.Getenv("N_JOINERS_RATINGS"))
-	// if err != nil {
-	// 	log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
-	// }
-	// var joiner_ratings_subscribers []string
-	// for i := range n_worker {
-	// 	joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
-	// }
-	// filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers)
+	n_worker_ratings, err := strconv.Atoi(os.Getenv("N_JOINERS_RATINGS"))
+	if err != nil {
+		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
+	}
+	var joiner_ratings_subscribers []string
+	for i := range n_worker_ratings {
+		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
+	}
+	filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers)
 
 	return Worker{
 		Tasks: []task.Task[*model.Row, *model.Row]{
@@ -258,7 +258,7 @@ func NewWorker() Worker {
 			filter_release_date_l_2010_and_include_es,
 			filter_one_production_country,
 			filter_avg_rate,
-			// filter_avg_rating,
+			filter_avg_rating,
 		},
 	}
 }

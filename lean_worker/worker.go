@@ -37,8 +37,8 @@ func (w *Worker) Run() {
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector)
-	middlewareConnectionBin := rabbitmq.NewMiddleware[*model.FileChunk](connector)
+	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector, log)
+	middlewareConnectionBin := rabbitmq.NewMiddleware[*model.FileChunk](connector, log)
 	if err != nil {
 		unwrap(err, "Failed to create middleware")
 	}
@@ -59,10 +59,10 @@ func (w *Worker) Run() {
 			currentTask.Finish()
 			break
 		}
-		row := envelope.Msg()
-		result := currentTask.ProcessAndSend(row)
+
+		result := currentTask.ProcessAndSend(envelope)
 		if result != nil {
-			log.Errorf("Failed to process row: %v by task: %v", row, currentTask.Name())
+			log.Errorf("Failed to process row: %v by task: %v", envelope.Msg(), currentTask.Name())
 			continue
 		}
 		err = envelope.Ack(false)
@@ -89,7 +89,7 @@ func NewSourceTask[O codec.Serializable[O]](name string) task.Task[*model.Row, O
 	return &SourceTask[O]{name}
 }
 
-func (t *SourceTask[O]) ProcessAndSend(r *model.Row) error {
+func (t *SourceTask[O]) ProcessAndSend(e middleware.Envelope[*model.Row]) error {
 	return nil
 }
 
@@ -112,16 +112,7 @@ func (t *SourceTask[O]) Connect(_ middleware.Connection[*model.Row], _ middlewar
 func NewWorker() Worker {
 	ratings := NewSourceTask[*model.FileChunk]("ratings")
 	subscribers := map[string][]string{
-		"reduce_by_movieId_1":  []string{"0"},
-		"reduce_by_movieId_2":  []string{"1"},
-		"reduce_by_movieId_3":  []string{"2"},
-		"reduce_by_movieId_4":  []string{"3"},
-		"reduce_by_movieId_5":  []string{"4"},
-		"reduce_by_movieId_6":  []string{"5"},
-		"reduce_by_movieId_7":  []string{"6"},
-		"reduce_by_movieId_8":  []string{"7"},
-		"reduce_by_movieId_9":  []string{"8"},
-		"reduce_by_movieId_10": []string{"9"},
+		"reduce_by_movieId": []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
 	}
 	ratings_clean := clean.NewCleanRatings(ratings, subscribers)
 	return Worker{

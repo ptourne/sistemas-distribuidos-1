@@ -35,10 +35,24 @@ func (f CleanCredits) ProcessAndSend(envelope middleware.Envelope[*model.Row]) e
 	row := envelope.Msg()
 	cid := envelope.Cid()
 	t := envelope.Type()
-	if t == middleware.EOF {
-		// log.Infof("sendEOF message to %s from task %s", cid, f.Name())
-		return f.taskSender.SendEOF(cid)
-	} else {
+	switch t {
+	case middleware.EOF:
+		// log.Infof("EOF arrived for cid: %s in %s", cid, f.Name())
+
+		err := f.taskSender.SendEOF(cid)
+		if err != nil {
+			return fmt.Errorf("failed to send EOF: %w", err)
+		}
+		return nil
+	case middleware.Prune:
+		// log.Infof("Prune arrived for cid: %s in %s movieID: %s", cid, f.Name(), row.Strings["movieID"])
+		err := f.taskSender.Prune(cid)
+		if err != nil {
+			log.Errorf("cid %s | Prune failed in: %s with err:%s", cid, err, f.Name())
+			envelope.Nack(true)
+		}
+		return nil
+	default:
 		output := f.process(row)
 		if output == nil {
 			log.Debugf("Row dropped: %+v by cleaner", row)
@@ -121,8 +135,8 @@ func (f *CleanCredits) Connect(inputMiddleware middleware.Connection[*model.Row]
 			case middleware.EOF:
 				// log.Infof("finish arrived for cid: %s from clean_credits", envelope.Cid())
 			case middleware.Prune:
-				envelope.Ack(true)
-				continue
+				// envelope.Ack(true)
+				// continue
 			}
 			inputChannel <- envelope
 		}

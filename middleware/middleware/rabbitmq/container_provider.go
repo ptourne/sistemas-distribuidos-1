@@ -44,8 +44,8 @@ func (cp *ContainerProvider) DeployRabbitmq() (*Container, Configuration, error)
 	config.Port += counter
 	req := testcontainers.ContainerRequest{
 		Name:         fmt.Sprintf("rabbitmq-testing-%d", counter),
-		Image:        "rabbitmq:4.1.0",
-		ExposedPorts: []string{fmt.Sprintf("%d:5672", config.Port)},
+		Image:        "rabbitmq:4.1.0-management",
+		ExposedPorts: []string{fmt.Sprintf("%d:5672", config.Port), fmt.Sprintf("%d:15672", config.Port+15670)},
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{

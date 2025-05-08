@@ -33,9 +33,11 @@ func NewMapReducerSum(
 		batchSize,
 		&SumMapReduce{},
 		subscribers,
+		"",
 		[]string{},
 		id,
 		count,
+		1,
 	)
 }
 

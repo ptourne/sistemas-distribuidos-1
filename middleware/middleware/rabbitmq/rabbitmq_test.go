@@ -817,25 +817,20 @@ func TestRabbitMQMiddleware(t *testing.T) {
 			err := sender.Send(sentMsg, cid)
 			assert.NoError(t, err)
 		}
+		ref := time.Now()
+		emptyDuration := time.Since(ref)
+		err = sender.Prune(cid)
+		fin := time.Since(ref) - emptyDuration
+		assert.NoError(t, err)
+		log.Infof("Prune duration: %s", fin)
 		err = sender.SendEOF(cid)
 		assert.NoError(t, err)
 
 		receiverConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiverMiddleware := NewMiddleware[*Ball](receiverConnector, middlewareLogger)
-		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 1, 1)
+		receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", 1, 30)
 		assert.NoError(t, err)
-
-		// for i := range countSender1 {
-		// 	timer, cancel := newTimer()
-		// 	received, err := receiver.Next(timer)
-		// 	cancel()
-		// 	assert.NoError(t, err)
-		// 	if assert.Equalf(t, middleware.Normal, received.Type(), "Received message of type %s instead of Normal", received.Type(), i) {
-		// 		assert.Equal(t, i, received.Msg().ID)
-		// 		assert.NoError(t, received.Ack(true))
-		// 	}
-		// }
 
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 		defer cancel()
@@ -878,13 +873,13 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		receiver1Connector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiver1Middleware := NewMiddleware[*Ball](receiver1Connector, middlewareLogger)
-		receiver1, err := receiver1Middleware.ConsumeFrom("output", "receiver", 2, 1)
+		receiver1, err := receiver1Middleware.ConsumeFrom("output", "receiver", 2, 30)
 		assert.NoError(t, err)
 
 		receiver2Connector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		receiver2Middleware := NewMiddleware[*Ball](receiver2Connector, middlewareLogger)
-		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 2, 1)
+		receiver2, err := receiver2Middleware.ConsumeFrom("output", "receiver", 2, 30)
 		assert.NoError(t, err)
 
 		countSender1 := uint64(1000000)
@@ -893,6 +888,12 @@ func TestRabbitMQMiddleware(t *testing.T) {
 			err := sender.Send(sentMsg, cid)
 			assert.NoError(t, err)
 		}
+		ref := time.Now()
+		emptyDuration := time.Since(ref)
+		err = sender.Prune(cid)
+		fin := time.Since(ref) - emptyDuration
+		assert.NoError(t, err)
+		log.Infof("Prune duration: %s", fin)
 		err = sender.SendEOF(cid)
 		assert.NoError(t, err)
 

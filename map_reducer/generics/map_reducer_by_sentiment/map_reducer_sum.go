@@ -34,9 +34,11 @@ func NewMapReducerBySentiment(
 		batchSize,
 		&SumMapReduce{},
 		subscribers,
+		"",
 		[]string{},
 		id,
 		count,
+		1,
 	)
 }
 
