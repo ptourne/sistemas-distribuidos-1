@@ -251,7 +251,7 @@ func NewWorker() Worker {
 	for i := range n_worker_ratings {
 		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
 	}
-	// filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers)
+	filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers)
 
 	return Worker{
 		Tasks: []task.Task[*model.Row, *model.Row]{
@@ -262,7 +262,7 @@ func NewWorker() Worker {
 			filter_one_production_country,
 			map_nlp,
 			filter_avg_rate,
-			// filter_avg_rating,
+			filter_avg_rating,
 		},
 	}
 }

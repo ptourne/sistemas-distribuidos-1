@@ -76,12 +76,12 @@ func main() {
 	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, false)
-	// wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, true)
 	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, true)
-	// wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true)
+	go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, false)
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, false)
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true)
 
 	wg.Wait()
 	log.Infof("EXITING COORDINATOR")
@@ -264,7 +264,7 @@ OuterLoop:
 	// verifyingQtest(log, allQuerysToEndpointSender, cid, channelsCid.qtest)
 	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
 	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
-	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
+	verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
 	verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
 	verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 
@@ -544,7 +544,7 @@ func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Floats: map[string]float64{"avg_rating": 0.5}, Strings: map[string]string{"title": "Ana and the Others", "movieID": "48596"}},
 	}
 
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3Partial, removeQ3, true)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3Partial, removeQ3, false)
 }
 
 func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row]) {
@@ -560,7 +560,7 @@ func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Q4", expectedOutputQ4, removeQ4, true)
+	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Q4", expectedOutputQ4, removeQ4, false)
 }
 
 // reducing batch: failed to process close notification: failed to decode item: failed to decode map length: failed to read data: EOF

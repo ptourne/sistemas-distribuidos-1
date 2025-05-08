@@ -52,6 +52,7 @@ func main() {
 		2,
 		&TopBottomReduce{},
 		[]string{"q3"},
+		"",
 		[]string{},
 		id,
 		uint(count),
@@ -113,7 +114,7 @@ func (r TopBottomReduce) Output(acc *Acc) []Res {
 	return rows
 }
 
-func (m Movie) Encode() ([]byte, error) {
+func (m *Movie) Encode() ([]byte, error) {
 	id, err := codec.StringEncode(m.ID)
 	if err != nil {
 		return nil, fmt.Errorf("error encoding movie ID: %w", err)
@@ -129,7 +130,7 @@ func (m Movie) Encode() ([]byte, error) {
 	return bytes.Join([][]byte{id, titleBytes, rating}, []byte{}), nil
 }
 
-func (m Movie) Decode(r io.Reader) error {
+func (m *Movie) Decode(r io.Reader) error {
 	id, err := codec.StringDecode(r)
 	if err != nil {
 		return fmt.Errorf("error decoding movie ID: %w", err)
@@ -157,7 +158,8 @@ func (a Acc) Encode() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error encoding bottom movie: %w", err)
 	}
-	return bytes.Join([][]byte{topMovie, bottomMovie}, []byte{}), nil
+	encoded := append(topMovie, bottomMovie...)
+	return encoded, nil
 }
 
 func (a *Acc) Decode(data []byte) (*Acc, error) {
@@ -172,10 +174,11 @@ func (a *Acc) Decode(data []byte) (*Acc, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error decoding bottom movie: %w", err)
 	}
-	return &Acc{
+	accu := &Acc{
 		Top:    *topMovie,
 		Bottom: *bottomMovie,
-	}, nil
+	}
+	return accu, nil
 }
 
 func (a *Acc) Merge(b *Acc) {

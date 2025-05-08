@@ -46,7 +46,6 @@ func (f CleanMovies) ProcessAndSend(envelope middleware.Envelope[*model.Row]) er
 		}
 		return nil
 	case middleware.Prune:
-		// log.Infof("Prune arrived for cid: %s in %s movieID: %s", cid, f.Name(), row.Strings["movieID"])
 		err := f.taskSender.Prune(cid)
 		if err != nil {
 			log.Errorf("cid %s | Prune failed in: %s with err:%s", cid, err, f.Name())

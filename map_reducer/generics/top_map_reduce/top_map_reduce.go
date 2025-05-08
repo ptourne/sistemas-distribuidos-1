@@ -40,6 +40,7 @@ func NewTopMapReducer(
 		batchSize,
 		&TopMapReduce{topSize},
 		subscribers,
+		"",
 		[]string{},
 		id,
 		count,

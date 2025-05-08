@@ -29,6 +29,7 @@ func NewMapReducerByMovieId(
 	connector *rabbitmq.RabbitMQConnector,
 	name string,
 	input string,
+	routingKey string,
 	routingKeys []string,
 	batchSize uint,
 	subscribers []string,
@@ -43,6 +44,7 @@ func NewMapReducerByMovieId(
 		batchSize,
 		&SumMapReduce{},
 		subscribers,
+		routingKey,
 		routingKeys,
 		id,
 		count,
@@ -103,6 +105,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	batchSize uint,
 	mapReducer map_reducer.MapReduce[I, A, R],
 	subscribers []string,
+	routingKey string,
 	routingKeys []string,
 	id string,
 	count uint,
@@ -115,6 +118,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		batchSize,
 		mapReducer,
 		subscribers,
+		routingKey,
 		routingKeys,
 		id,
 		count,
@@ -177,9 +181,9 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	// }, nil
 }
 
-// func accName(name string, routingKey string) string {
-// 	return name + "_acc"
-// }
+func accName(name string, routingKey string) string {
+	return name + "_acc"
+}
 
 func (a Acc) Encode() ([]byte, error) {
 	sumsBytes, err := codec.MapEncode(a.Sums, codec.Uint64Encode)

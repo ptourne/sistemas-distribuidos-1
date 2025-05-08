@@ -427,8 +427,6 @@ NUMBER_OF_REDUCE_BY_MOVIEID=10
 for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
 done
-
-# compose_client >> $file_name
 for i in $(seq 1 $number_of_clients); do
     compose_client $i $number_of_clients >> $file_name
 done

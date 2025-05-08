@@ -33,6 +33,7 @@ func NewMapReducerByActor(
 		batchSize,
 		&SumMapReduce{},
 		subscribers,
+		"",
 		[]string{},
 		id,
 		count,
