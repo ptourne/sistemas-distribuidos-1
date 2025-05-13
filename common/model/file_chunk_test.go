@@ -1,23 +1,36 @@
 package model
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
 
+type Measurement struct {
+	Bytes uint
+	Fast  int64
+	Slow  int64
+}
+
 func TestFileChunkSpeed(t *testing.T) {
 	const count = 100000
 
-	newFunction(t, count, 8)
-	newFunction(t, count, 1024)
-	newFunction(t, count, 1024*10)
-	// newFunction(t, count, 1024*1024)
-
+	measurements := make([]Measurement, 3)
+	measurements[0] = testFileChunkCodec(t, count, 8)
+	measurements[1] = testFileChunkCodec(t, count, 1024)
+	measurements[2] = testFileChunkCodec(t, count, 1024*10)
+	output := `
+| Bytes | Fast (μs) | Slow (μs) | Ratio  |
+|-------|-----------|-----------|--------|`
+	for _, m := range measurements {
+		ratio := float64(m.Slow) / float64(m.Fast)
+		output += fmt.Sprintf("\n| %5d | %9d | %9d | %5.2f |", m.Bytes, m.Fast, m.Slow, ratio)
+	}
+	t.Log(output)
 	t.Fail()
-
 }
 
-func newFunction(t *testing.T, count uint, size uint) {
+func testFileChunkCodec(t *testing.T, count uint, size uint) Measurement {
 	bigChunk := make([]byte, size) // 10 MB
 	fileChunkFast := FileChunk{Bytes: bigChunk}
 	startFast := time.Now()
@@ -27,7 +40,6 @@ func newFunction(t *testing.T, count uint, size uint) {
 		_, _ = nul.Decode(data)
 	}
 	elapsedFast := time.Since(startFast)
-	t.Logf("FileChunk Encode/Decode took %dms", elapsedFast.Microseconds())
 
 	startSlow := time.Now()
 	for range count {
@@ -36,7 +48,5 @@ func newFunction(t *testing.T, count uint, size uint) {
 		_, _ = nul.Decode(data)
 	}
 	elapsedSlow := time.Since(startSlow)
-	t.Logf("FileChunk Encode/Decode took %dms", elapsedSlow.Microseconds())
-	ratio := elapsedSlow.Microseconds() / elapsedFast.Microseconds()
-	t.Logf("FileChunk is %d times slower than FileChunk", ratio)
+	return Measurement{size, elapsedFast.Microseconds(), elapsedSlow.Microseconds()}
 }
