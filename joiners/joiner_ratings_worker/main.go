@@ -23,7 +23,7 @@ var WORKER_ID = GetEnv("WORKER_ID", "1")
 func main() {
 	workerLogger := logger.NewConsoleLogger(fmt.Sprintf("joiner_%s", WORKER_ID), logger.Info)
 	worker := joiner.NewRatingsWorker([]string{"reduce_top_bottom_avg_rating"}, WORKER_ID, workerLogger)
-	connector, err := rabbitmq.Connector()
+	connector, err := rabbitmq.Connector("joiner-ratings-worker")
 	if err != nil {
 		workerLogger.Fatalf("Failed to connect to middleware: %s", err)
 	}

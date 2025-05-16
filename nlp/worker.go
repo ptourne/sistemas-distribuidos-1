@@ -33,7 +33,7 @@ const (
 )
 
 func (w *Worker) Run() {
-	connector, err := rabbitmq.Connector()
+	connector, err := rabbitmq.Connector("reduce-nlp")
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
 	}

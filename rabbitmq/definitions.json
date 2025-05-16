@@ -1,0 +1,18 @@
+{
+  "users": [
+    {
+      "name": "datadog",
+      "password_hash": "7FqBaIzer/xbaN9tGX7MlFf6iG9deFxqBXzP4LrobURLI8o0",
+      "tags": "monitoring"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "datadog",
+      "vhost": "/",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ]
+}

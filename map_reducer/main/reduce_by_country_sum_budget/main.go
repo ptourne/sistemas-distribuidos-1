@@ -15,7 +15,7 @@ var WORKER_ID = os.Getenv("WORKER_ID")
 var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_country_sum_budget_%s", WORKER_ID), logger.Info)
 
 func main() {
-	connector, err := rabbitmq.Connector()
+	connector, err := rabbitmq.Connector("reduce-by-country-sum-budget")
 	if err != nil {
 		log.Errorf("failed to create connector: %s", err)
 		return

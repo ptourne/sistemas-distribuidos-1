@@ -11,12 +11,10 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
 	"github.com/rabbitmq/amqp091-go"
 	amqp "github.com/rabbitmq/amqp091-go"
-
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/ext"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
 const (
@@ -24,14 +22,12 @@ const (
 )
 
 type middlewareRabbitmq[T codec.Serializable[T]] struct {
-	serviceName string
-	Conn        *amqp.Connection
-	Log         *logger.ConsoleLogger
+	Conn *amqp.Connection
+	Log  *logger.ConsoleLogger
 }
 
 type RabbitMQConnector struct {
-	serviceName string
-	Conn        *amqp.Connection
+	Conn *amqp.Connection
 }
 
 // TODO close()
@@ -46,7 +42,6 @@ type ReceiverChannel[T codec.Serializable[T]] struct {
 }
 
 type receiverRabbitmq[T codec.Serializable[T]] struct {
-	serviceName   string
 	input         ReceiverChannel[T]
 	closeReceiver ReceiverChannel[*CloseNotification]
 	closeSender   SenderChannel[*CloseNotification]
@@ -88,7 +83,7 @@ func (c *CloseNotification) Decode(data []byte) (*CloseNotification, error) {
 }
 
 func NewMiddleware[T codec.Serializable[T]](c *RabbitMQConnector, log *logger.ConsoleLogger) middleware.Connection[T] {
-	return &middlewareRabbitmq[T]{serviceName: c.serviceName, Conn: c.Conn, Log: log}
+	return &middlewareRabbitmq[T]{Conn: c.Conn, Log: log}
 }
 
 func (r *ReceiverChannel[T]) Close() {
@@ -134,7 +129,6 @@ func FromStringTypeMsgInternal(s string) (TypeMsgInternal, error) {
 }
 
 type SenderRabbitmq[T codec.Serializable[T]] struct {
-	serviceName     string
 	exchangeName    string
 	output          SenderChannel[T]
 	isBlocked       atomic.Bool
@@ -149,7 +143,6 @@ type Metadata struct {
 }
 
 type SenderChannel[T codec.Serializable[T]] struct {
-	serviceName     string
 	exchangeName    string
 	ch              *amqp.Channel
 	Log             *logger.ConsoleLogger
@@ -209,13 +202,13 @@ func ConnectorCustomWithName(serviceName string, config Configuration) (*RabbitM
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to RabbitMQ: %v", err)
 	}
+	// tracer.Start(
+	// 	tracer.WithEnv("dev"),
+	// 	tracer.WithService(serviceName),
+	// 	tracer.WithAgentAddr("host.docker.internal:8126"),
+	// )
 
-	tracer.Start(
-		tracer.WithServiceName(serviceName),
-		tracer.WithEnv("dev"),      // optional
-		tracer.WithDebugMode(true), // helpful for debugging
-	)
-	return &RabbitMQConnector{serviceName: serviceName, Conn: conn}, nil
+	return &RabbitMQConnector{Conn: conn}, nil
 }
 
 func (m *middlewareRabbitmq[T]) Close() error {
@@ -281,7 +274,6 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 	}
 
 	receiver := &receiverRabbitmq[T]{
-		serviceName:   m.serviceName,
 		input:         input,
 		closeReceiver: closeReceiver,
 		closeSender:   closeSender,
@@ -321,7 +313,6 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 		return SenderChannel[I]{}, err
 	}
 	newVar := SenderChannel[I]{
-		serviceName:  m.serviceName,
 		exchangeName: readExchangeName,
 		ch:           ch,
 		Log:          m.Log,
@@ -382,7 +373,6 @@ func (m *middlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 	output.suscriberQueues = suscriberQueues
 
 	sender := &SenderRabbitmq[T]{
-		serviceName:     m.serviceName,
 		exchangeName:    outputName,
 		output:          output,
 		Log:             m.Log,
@@ -398,32 +388,37 @@ func (s *SenderChannel[T]) Publish(ctx context.Context, msg T, cid string) error
 	return s.PublishRK(ctx, msg, "", cid)
 }
 
+// var consumerSpan tracer.Span
+
 func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey string, cid string) error {
-	span, ctx := tracer.StartSpanFromContext(ctx, "rabbitmq.publish",
-		tracer.SpanType(ext.SpanTypeMessageProducer),
-		tracer.ResourceName(fmt.Sprintf("ex.%s", s.exchangeName)),
-		tracer.Tag(ext.MessagingSystem, "rabbitmq"),
-		// tracer.Tag("service.name", s.serviceName),
-	)
-
-	defer span.Finish()
-
 	buf, err := msg.Encode()
 	s.Log.Debugf("Publish msg %+v as %x", msg, buf)
 	if err != nil {
 		return fmt.Errorf("failed to encode message: %v", err)
 	}
+
+	// producerSpan := tracer.StartSpan("rabbitmq.send",
+	// 	tracer.ChildOf(consumerSpan.Context()),
+	// 	tracer.SpanType("message_producer"),
+	// 	tracer.ResourceName(s.suscriberQueues[0]),
+	// 	tracer.Tag("messaging.system", "rabbitmq"),
+	// 	tracer.Tag("messaging.destination", s.suscriberQueues[0]),
+	// 	tracer.Tag("messaging.destination_kind", "exchange"),
+	// 	tracer.Tag("span.kind", "producer"),
+	// )
+	// defer producerSpan.Finish()
+
+	// // Inject trace context for downstream services
+	// carrierOut := tracer.TextMapCarrier{}
+	// _ = tracer.Inject(producerSpan.Context(), carrierOut)
+
 	headers := amqp091.Table{
 		"cid":  cid,
 		"type": normal.String(),
 	}
-
-	carrier := mapHeaders(headers)
-
-	err = tracer.Inject(span.Context(), tracer.TextMapCarrier(carrier))
-	if err != nil {
-		s.Log.Errorf("failed to inject trace context: %v", err)
-	}
+	// for k, v := range carrierOut {
+	// 	headers[k] = v
+	// }
 
 	err = s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
@@ -440,14 +435,6 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	}
 	s.Log.Debugf("PUBLISHED message in chan %s msg:%v with type %v and cid %v", s.exchangeName, msg, normal.String(), cid)
 	return nil
-}
-
-func mapHeaders(headers amqp.Table) tracer.TextMapCarrier {
-	carrier := tracer.TextMapCarrier{}
-	for k, v := range headers {
-		carrier[k] = fmt.Sprintf("%v", v)
-	}
-	return carrier
 }
 
 func (s *SenderRabbitmq[T]) SendEOF(cid string) error {
@@ -537,30 +524,24 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					return nil, fmt.Errorf("read channel was closed")
 				}
 
-				carrier := tracer.TextMapCarrier(mapHeaders(msg.Headers))
+				// carrier := tracer.TextMapCarrier{}
+				// for k, v := range msg.Headers {
+				// 	if s, ok := v.(string); ok {
+				// 		carrier[k] = s
+				// 	}
+				// }
 
-				// Extract the span context from headers
-				parentCtx, err := tracer.Extract(carrier)
-				var span tracer.Span
-				if err == nil {
-					span = tracer.StartSpan("rabbitmq.consume", tracer.ChildOf(parentCtx),
-						tracer.SpanType(ext.SpanTypeMessageConsumer),
-						tracer.ResourceName(r.input.queueName), // optionally use r.input.queueName
-						tracer.Tag(ext.MessagingSystem, "rabbitmq"),
-						// tracer.Tag("service.name", r.serviceName),
-					)
-				} else {
-					span = tracer.StartSpan("rabbitmq.consume",
-						tracer.SpanType(ext.SpanTypeMessageConsumer),
-						tracer.ResourceName(r.input.queueName),
-						tracer.Tag(ext.MessagingSystem, "rabbitmq"),
-						// tracer.Tag("service.name", r.serviceName),
-					)
-				}
-				defer span.Finish()
-
-				// Create context with span for downstream handlers
-				// ctx := tracer.ContextWithSpan(context.Background(), span)
+				// ctx, _ := tracer.Extract(carrier)
+				// consumerSpan = tracer.StartSpan("rabbitmq.receive",
+				// 	tracer.ChildOf(ctx),
+				// 	tracer.SpanType("message_consumer"),
+				// 	tracer.Tag("messaging.system", "rabbitmq"),
+				// 	tracer.Tag("queue.name", r.input.queueName),
+				// 	tracer.Tag("messaging.destination", r.input.exchangeName),
+				// 	tracer.Tag("messaging.destination_kind", "exchange"),
+				// 	tracer.Tag("span.kind", "consumer"),
+				// )
+				// defer consumerSpan.Finish()
 
 				r.Log.Debugf("Received message from input in receiver %s", r.input.queueName)
 				t, cid, msgbody, tag, err := unpackMsg[T](msg)
@@ -643,6 +624,16 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 			}
 		}
 	}
+}
+
+func mapHeader(headers amqp.Table) tracer.TextMapCarrier {
+	carrier := tracer.TextMapCarrier{}
+	for k, v := range headers {
+		if strVal, ok := v.(string); ok {
+			carrier[k] = strVal
+		}
+	}
+	return carrier
 }
 
 func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Delivery) (

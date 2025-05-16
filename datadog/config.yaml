@@ -1,0 +1,8 @@
+instances:
+  - prometheus_plugin:
+      # Replace <HOST> with your RabbitMQ hostname or service name
+      url: http://rabbitmq:15692
+      # Enable detailed metrics for queues, exchanges, channels, nodes
+      unaggregated_endpoint: detailed?family=queue_coarse_metrics&family=queue_consumer_count&family=channel_exchange_metrics&family=channel_queue_exchange_metrics&family=node_coarse_metrics
+      username: datadog
+      password: password

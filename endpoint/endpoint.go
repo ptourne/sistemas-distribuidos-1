@@ -52,7 +52,7 @@ func NewEndpoint() (*Endpoint, error) {
 }
 
 func (e *Endpoint) Run() error {
-	connector, err := rabbitmq.Connector()
+	connector, err := rabbitmq.Connector("endpoint")
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
 	}

@@ -6,6 +6,7 @@ services:
         ports:
             - "5672:5672"
             - "15672:15672"
+            - "15692:15692"
         networks:
             - local_net
         healthcheck:
@@ -13,8 +14,12 @@ services:
             interval: 10s
             timeout: 10s
             retries: 10
+        environment:
+            - RABBITMQ_LOAD_DEFINITIONS=true
+            - RABBITMQ_DEFINITIONS_FILE=/etc/rabbitmq/definitions.json
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
 
     sentiment_server:
         container_name: sentiment_server
@@ -28,6 +33,10 @@ services:
         environment:
             - GRPC_PORT=50051
             - GRPC_WORKERS=30
+            - DD_SERVICE=sentiment_server
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         healthcheck:
             test: ncat -zv localhost 50051
             interval: 10s
@@ -43,10 +52,14 @@ services:
         networks:
             - local_net
         environment:
-            - NUMBER_OF_WORKERS=8
-            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=2
-            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=2
+            - NUMBER_OF_WORKERS=3
+            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=1
+            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=1
             - PREFETCH=1 # Potential optimization
+            - DD_SERVICE=coordinator
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -59,13 +72,17 @@ services:
             context: .
             dockerfile: worker/Dockerfile
         entrypoint: /worker
-        environment: 
+        environment:
             - WORKER_ID=1
             - N_JOINERS_CREDITS=1
             - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
+            - N_WORKERS=3
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
+            - DD_SERVICE=worker1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -80,13 +97,17 @@ services:
             context: .
             dockerfile: worker/Dockerfile
         entrypoint: /worker
-        environment: 
+        environment:
             - WORKER_ID=2
             - N_JOINERS_CREDITS=1
             - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
+            - N_WORKERS=3
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
+            - DD_SERVICE=worker2
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -101,118 +122,17 @@ services:
             context: .
             dockerfile: worker/Dockerfile
         entrypoint: /worker
-        environment: 
+        environment:
             - WORKER_ID=3
             - N_JOINERS_CREDITS=1
             - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
+            - N_WORKERS=3
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    worker4:
-        container_name: worker4
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment: 
-            - WORKER_ID=4
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    worker5:
-        container_name: worker5
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment: 
-            - WORKER_ID=5
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    worker6:
-        container_name: worker6
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment: 
-            - WORKER_ID=6
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    worker7:
-        container_name: worker7
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment: 
-            - WORKER_ID=7
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    worker8:
-        container_name: worker8
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment: 
-            - WORKER_ID=8
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
+            - DD_SERVICE=worker3
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -227,72 +147,16 @@ services:
             context: .
             dockerfile: nlp/Dockerfile
         entrypoint: /nlp
-        environment: 
+        environment:
             - WORKER_ID=1
-            - N_WORKERS=4
+            - N_WORKERS=1
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    nlp_worker2:
-        container_name: nlp_worker2
-        build:
-            context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
-            - WORKER_ID=2
-            - N_WORKERS=4
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    nlp_worker3:
-        container_name: nlp_worker3
-        build:
-            context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
-            - WORKER_ID=3
-            - N_WORKERS=4
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    nlp_worker4:
-        container_name: nlp_worker4
-        build:
-            context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
-            - WORKER_ID=4
-            - N_WORKERS=4
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
+            - DD_SERVICE=nlp_worker1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -312,6 +176,10 @@ services:
             - SERVER_PORT=1234
             - WORKER_COUNT=1
             - PREFETCH=1
+            - DD_SERVICE=joiner_credits1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -331,6 +199,10 @@ services:
             - SERVER_PORT=1234
             - WORKER_COUNT=
             - PREFETCH=1
+            - DD_SERVICE=joiner_rating1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -347,22 +219,11 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-            - WORKER_COUNT=2
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_by_country_sum_budget2:
-        container_name: reduce_by_country_sum_budget2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
-            - WORKER_COUNT=2
+            - WORKER_COUNT=1
+            - DD_SERVICE=reduce_by_country_sum_budget1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -377,22 +238,11 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-            - WORKER_COUNT=2
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_top_5_by_budget2:
-        container_name: reduce_top_5_by_budget2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
-            - WORKER_COUNT=2
+            - WORKER_COUNT=1
+            - DD_SERVICE=reduce_top_5_by_budget1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -408,6 +258,10 @@ services:
         environment:
             - WORKER_ID=1
             - WORKER_COUNT=1
+            - DD_SERVICE=reduce_top_bottom_avg_rating1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -423,6 +277,10 @@ services:
         environment:
             - WORKER_ID=1
             - WORKER_COUNT=1
+            - DD_SERVICE=reduce_by_sentiment1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -437,22 +295,11 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-            - WORKER_COUNT=2
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_by_actor2:
-        container_name: reduce_by_actor2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_by_actor/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
-            - WORKER_COUNT=2
+            - WORKER_COUNT=1
+            - DD_SERVICE=reduce_by_actor1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -467,22 +314,11 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-            - WORKER_COUNT=2
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-
-    reduce_top_10_by_actor2:
-        container_name: reduce_top_10_by_actor2
-        build:
-            context: .
-            dockerfile: map_reducer/main/reduce_top_10_by_actor/Dockerfile
-        entrypoint: /map_reducer
-        environment:
-            - WORKER_ID=2
-            - WORKER_COUNT=2
+            - WORKER_COUNT=1
+            - DD_SERVICE=reduce_top_10_by_actor1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -500,6 +336,10 @@ services:
             - WORKER_CONDI=1
             - WORKER_COUNT=10
             - PREFETCH=1
+            - DD_SERVICE=reduce_by_movieid1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -517,6 +357,10 @@ services:
             - WORKER_CONDI=1
             - WORKER_COUNT=10
             - PREFETCH=1
+            - DD_SERVICE=reduce_by_movieid2
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -534,6 +378,10 @@ services:
             - WORKER_CONDI=1
             - WORKER_COUNT=10
             - PREFETCH=1
+            - DD_SERVICE=reduce_by_movieid3
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -551,6 +399,10 @@ services:
             - WORKER_CONDI=1
             - WORKER_COUNT=10
             - PREFETCH=1
+            - DD_SERVICE=reduce_by_movieid4
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -568,6 +420,10 @@ services:
             - WORKER_CONDI=1
             - WORKER_COUNT=10
             - PREFETCH=1
+            - DD_SERVICE=reduce_by_movieid5
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -585,6 +441,10 @@ services:
             - WORKER_CONDI=1
             - WORKER_COUNT=10
             - PREFETCH=1
+            - DD_SERVICE=reduce_by_movieid6
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -602,6 +462,10 @@ services:
             - WORKER_CONDI=1
             - WORKER_COUNT=10
             - PREFETCH=1
+            - DD_SERVICE=reduce_by_movieid7
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -619,6 +483,10 @@ services:
             - WORKER_CONDI=1
             - WORKER_COUNT=10
             - PREFETCH=1
+            - DD_SERVICE=reduce_by_movieid8
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -636,6 +504,10 @@ services:
             - WORKER_CONDI=1
             - WORKER_COUNT=10
             - PREFETCH=1
+            - DD_SERVICE=reduce_by_movieid9
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -653,6 +525,10 @@ services:
             - WORKER_CONDI=1
             - WORKER_COUNT=10
             - PREFETCH=1
+            - DD_SERVICE=reduce_by_movieid10
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
@@ -667,42 +543,16 @@ services:
         entrypoint: /client
         environment:
             - SERVER_PORT=endpoint:9876
+            - DD_SERVICE=client1
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
             - endpoint
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
-
-    client2:
-        container_name: client2
-        build:
-            context: .
-            dockerfile: client/Dockerfile
-        entrypoint: /client
-        environment:
-            - SERVER_PORT=endpoint:9876
-        networks:
-            - local_net
-        depends_on:
-            - endpoint
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
-
-    client3:
-        container_name: client3
-        build:
-            context: .
-            dockerfile: client/Dockerfile
-        entrypoint: /client
-        environment:
-            - SERVER_PORT=endpoint:9876
-        networks:
-            - local_net
-        depends_on:
-            - endpoint
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/client/datasets:/datasets
 
     endpoint:
         container_name: endpoint
@@ -712,12 +562,39 @@ services:
         entrypoint: /endpoint
         environment:
             - ENDPOINT_PORT=9876
+            - DD_SERVICE=endpoint
+            - DD_DATA_STREAMS_ENABLED=true
+            - DD_AGENT_HOST=datadog
+            - DD_ENV=dev
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
 
+    datadog:
+        container_name: datadog
+        image: gcr.io/datadoghq/agent:latest
+        environment:
+            - DD_API_KEY=c44b76287a092731d48fee7833c13ac5
+            - DD_SITE=us5.datadoghq.com
+            - DD_APM_ENABLED=true
+            - DD_DOGSTATSD_NON_LOCAL_TRAFFIC=true
+            - DD_LOGS_ENABLED=true
+            - DD_HOSTNAME=test-distribuidos-ds
+        ports:
+            - "8126:8126" # APM traces
+            - "8125:8125/udp" # DogStatsD
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /proc/:/host/proc/
+            - /sys/fs/cgroup/:/host/sys/fs/cgroup
+            - ./datadog/config.yaml:/conf.d/rabbitmq.d/config.yaml
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
 networks:
     local_net:
         name: local_net
@@ -725,4 +602,3 @@ networks:
             driver: default
             config:
                 - subnet: 172.25.125.0/24
-

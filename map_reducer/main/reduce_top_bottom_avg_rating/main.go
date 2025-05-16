@@ -33,7 +33,7 @@ type Acc struct {
 type Res = *model.Row
 
 func main() {
-	connector, err := rabbitmq.Connector()
+	connector, err := rabbitmq.Connector("reduce-top-bottom-avg-rating")
 	if err != nil {
 		log.Errorf("failed to create connector: %s", err)
 		return

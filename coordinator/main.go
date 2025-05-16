@@ -21,7 +21,7 @@ import (
 func main() {
 	log := logger.NewConsoleLogger("coordinator", logger.Info)
 	// logMiddleware := logger.NewConsoleLogger("coordinator_mid", logger.Info)
-	connector, err := rabbitmq.Connector()
+	connector, err := rabbitmq.Connector("coordinator")
 	if err != nil {
 		log.Errorf("Failed to connect middleware: %v", err)
 		return

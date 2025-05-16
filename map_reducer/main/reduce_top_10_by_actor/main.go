@@ -15,7 +15,7 @@ var WORKER_ID = os.Getenv("WORKER_ID")
 var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_top_5_by_budget_%s", WORKER_ID), logger.Info)
 
 func main() {
-	connector, err := rabbitmq.Connector()
+	connector, err := rabbitmq.Connector("reduce-top-10-by-actor")
 	if err != nil {
 		log.Errorf("failed to create connector: %s", err)
 		return
