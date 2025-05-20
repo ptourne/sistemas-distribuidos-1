@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
@@ -93,86 +96,106 @@ func (w *Worker) Run() {
 		}
 	}
 	cantBin := len(w.TasksBin)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	for {
 		if len(cases) == 0 {
 			log.Infof("All channels closed")
 			break
 		}
-		i, val, ok := reflect.Select(cases)
-		if i < cantBin {
-			currentTask := taskBinRefs[i]
-			if !ok {
-				log.Infof("Channel closed from task: %s", currentTask.Name())
-				cases = slices.Delete(cases, i, i+1)
-				taskClosedChannels[currentTask.Name()]++
-				taskRefs = slices.Delete(taskRefs, i, i+1)
-				cantBin--
-				if taskClosedChannels[currentTask.Name()] == taskChannelCounts[currentTask.Name()] {
-					log.Infof("All channels closed for task: %s", currentTask.Name())
-					currentTask.Finish()
-					for j, task := range w.Tasks {
-
-						if task.Name() == currentTask.Name() {
-							w.Tasks = slices.Delete(w.Tasks, j, j+1)
-							break
-						}
-					}
-
+		select {
+		case <-ctx.Done():
+			log.Infof("Received termination signal, shutting down gracefully...")
+			for _, task := range w.Tasks {
+				err := task.Finish()
+				if err != nil {
+					log.Errorf("Failed to finish task %s: %s", task.Name(), err)
 				}
-				continue
 			}
-			envelope, ok := val.Interface().(middleware.Envelope[*model.FileChunk])
-			if !ok {
-				panic("Failed to cast to envelope")
-			}
-
-			result := currentTask.ProcessAndSend(envelope)
-			if result != nil {
-				log.Errorf("Failed to process fileChunk: %v by task: %v", envelope, currentTask.Name())
-				continue
-			}
-			// log.Debugf("TO ACK msg %v worker", envelope.Msg())
-			err = envelope.Ack(false)
-			unwrap(err, "Failed to ack message")
-		} else {
-
-			currentTask := taskRefs[i]
-			if !ok {
-
-				log.Infof("Channel closed from task: %s", currentTask.Name())
-				cases = slices.Delete(cases, i, i+1)
-				taskClosedChannels[currentTask.Name()]++
-				taskRefs = slices.Delete(taskRefs, i, i+1)
-				if taskClosedChannels[currentTask.Name()] == taskChannelCounts[currentTask.Name()] {
-					log.Infof("All channels closed for task: %s", currentTask.Name())
-					currentTask.Finish()
-					for j, task := range w.Tasks {
-
-						if task.Name() == currentTask.Name() {
-							w.Tasks = slices.Delete(w.Tasks, j, j+1)
-							break
-						}
-					}
-
+			for _, task := range w.TasksBin {
+				err := task.Finish()
+				if err != nil {
+					log.Errorf("Failed to finish task %s: %s", task.Name(), err)
 				}
-				continue
 			}
+			return
+		default:
+			i, val, ok := reflect.Select(cases)
+			if i < cantBin {
+				currentTask := taskBinRefs[i]
+				if !ok {
+					log.Infof("Channel closed from task: %s", currentTask.Name())
+					cases = slices.Delete(cases, i, i+1)
+					taskClosedChannels[currentTask.Name()]++
+					taskRefs = slices.Delete(taskRefs, i, i+1)
+					cantBin--
+					if taskClosedChannels[currentTask.Name()] == taskChannelCounts[currentTask.Name()] {
+						log.Infof("All channels closed for task: %s", currentTask.Name())
+						currentTask.Finish()
+						for j, task := range w.Tasks {
 
-			log.Debugf("Received message from channel %d", i)
-			envelope, ok := val.Interface().(middleware.Envelope[*model.Row])
-			if !ok {
-				panic("Failed to cast to envelope")
+							if task.Name() == currentTask.Name() {
+								w.Tasks = slices.Delete(w.Tasks, j, j+1)
+								break
+							}
+						}
+
+					}
+					continue
+				}
+				envelope, ok := val.Interface().(middleware.Envelope[*model.FileChunk])
+				if !ok {
+					panic("Failed to cast to envelope")
+				}
+
+				result := currentTask.ProcessAndSend(envelope)
+				if result != nil {
+					log.Errorf("Failed to process fileChunk: %v by task: %v", envelope, currentTask.Name())
+					continue
+				}
+				// log.Debugf("TO ACK msg %v worker", envelope.Msg())
+				err = envelope.Ack(false)
+				unwrap(err, "Failed to ack message")
+			} else {
+
+				currentTask := taskRefs[i]
+				if !ok {
+
+					log.Infof("Channel closed from task: %s", currentTask.Name())
+					cases = slices.Delete(cases, i, i+1)
+					taskClosedChannels[currentTask.Name()]++
+					taskRefs = slices.Delete(taskRefs, i, i+1)
+					if taskClosedChannels[currentTask.Name()] == taskChannelCounts[currentTask.Name()] {
+						log.Infof("All channels closed for task: %s", currentTask.Name())
+						currentTask.Finish()
+						for j, task := range w.Tasks {
+
+							if task.Name() == currentTask.Name() {
+								w.Tasks = slices.Delete(w.Tasks, j, j+1)
+								break
+							}
+						}
+
+					}
+					continue
+				}
+
+				log.Debugf("Received message from channel %d", i)
+				envelope, ok := val.Interface().(middleware.Envelope[*model.Row])
+				if !ok {
+					panic("Failed to cast to envelope")
+				}
+				result := currentTask.ProcessAndSend(envelope)
+				if result != nil {
+					log.Errorf("Failed to process row: %v by task: %v", envelope, currentTask.Name())
+					continue
+				}
+				// log.Debugf("TO ACK msg %v worker", envelope.Msg())
+				err = envelope.Ack(false)
+				unwrap(err, "Failed to ack message")
+				// log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
 			}
-			result := currentTask.ProcessAndSend(envelope)
-			if result != nil {
-				log.Errorf("Failed to process row: %v by task: %v", envelope, currentTask.Name())
-				continue
-			}
-			// log.Debugf("TO ACK msg %v worker", envelope.Msg())
-			err = envelope.Ack(false)
-			unwrap(err, "Failed to ack message")
-			// log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
 		}
 
 	}
@@ -236,9 +259,9 @@ func NewWorker() Worker {
 
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits", "joiner_ratings"})
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"})
-	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
+	// filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
 
-	filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
+	// filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
 
 	n_worker_ratings, err := strconv.Atoi(os.Getenv("N_JOINERS_RATINGS"))
 	if err != nil {
@@ -256,8 +279,8 @@ func NewWorker() Worker {
 			credits_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
-			filter_one_production_country,
-			filter_avg_rate,
+			// filter_one_production_country,
+			// filter_avg_rate,
 			filter_avg_rating,
 		},
 	}

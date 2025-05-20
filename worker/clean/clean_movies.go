@@ -175,7 +175,7 @@ func (f *CleanMovies) Connect(inputMiddleware middleware.Connection[*model.Row],
 			envelope, err := f.taskReceiver.Next(ctx)
 			if err != nil {
 				if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
-					log.Infof("Channel closed: what!! %v", f.Name())
+					log.Infof("Channel closed: %v", f.Name())
 					break
 				}
 				log.Errorf("Error reading from middleware: %v", err)
