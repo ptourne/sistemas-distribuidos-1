@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
@@ -69,50 +72,64 @@ func (w *Worker) Run() {
 		}
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	for {
-		if len(cases) == 0 {
-			log.Infof("All channels closed")
-			break
-		}
-		i, val, ok := reflect.Select(cases)
-
-		currentTask := taskRefs[i]
-		if !ok {
-
-			log.Infof("Channel closed from task: %s", currentTask.Name())
-			cases = slices.Delete(cases, i, i+1)
-			taskClosedChannels[currentTask.Name()]++
-			taskRefs = slices.Delete(taskRefs, i, i+1)
-			if taskClosedChannels[currentTask.Name()] == taskChannelCounts[currentTask.Name()] {
-				log.Infof("All channels closed for task: %s", currentTask.Name())
-				currentTask.Finish()
-				for j, task := range w.Tasks {
-
-					if task.Name() == currentTask.Name() {
-						w.Tasks = slices.Delete(w.Tasks, j, j+1)
-						break
-					}
+		select {
+		case <-ctx.Done():
+			log.Infof("Received termination signal, shutting down gracefully...")
+			for _, task := range w.Tasks {
+				err := task.Finish()
+				if err != nil {
+					log.Errorf("Failed to finish task %s: %s", task.Name(), err)
 				}
-
 			}
-			continue
-		}
+			return
+		default:
+			if len(cases) == 0 {
+				log.Infof("All channels closed")
+				break
+			}
+			i, val, ok := reflect.Select(cases)
 
-		log.Debugf("Received message from channel %d", i)
-		envelope, ok := val.Interface().(middleware.Envelope[*model.Row])
-		if !ok {
-			panic("Failed to cast to envelope")
-		}
-		result := currentTask.ProcessAndSend(envelope)
-		if result != nil {
-			log.Errorf("Failed to process row: %v by task: %v", envelope, currentTask.Name())
-			continue
-		}
-		// log.Debugf("TO ACK msg %v worker", envelope.Msg())
-		err = envelope.Ack(false)
-		unwrap(err, "Failed to ack message")
-		// log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
+			currentTask := taskRefs[i]
+			if !ok {
 
+				log.Infof("Channel closed from task: %s", currentTask.Name())
+				cases = slices.Delete(cases, i, i+1)
+				taskClosedChannels[currentTask.Name()]++
+				taskRefs = slices.Delete(taskRefs, i, i+1)
+				if taskClosedChannels[currentTask.Name()] == taskChannelCounts[currentTask.Name()] {
+					log.Infof("All channels closed for task: %s", currentTask.Name())
+					currentTask.Finish()
+					for j, task := range w.Tasks {
+
+						if task.Name() == currentTask.Name() {
+							w.Tasks = slices.Delete(w.Tasks, j, j+1)
+							break
+						}
+					}
+
+				}
+				continue
+			}
+
+			log.Debugf("Received message from channel %d", i)
+			envelope, ok := val.Interface().(middleware.Envelope[*model.Row])
+			if !ok {
+				panic("Failed to cast to envelope")
+			}
+			result := currentTask.ProcessAndSend(envelope)
+			if result != nil {
+				log.Errorf("Failed to process row: %v by task: %v", envelope, currentTask.Name())
+				continue
+			}
+			// log.Debugf("TO ACK msg %v worker", envelope.Msg())
+			err = envelope.Ack(false)
+			unwrap(err, "Failed to ack message")
+			// log.Debugf("Row processed: %v name: %v", row.Strings["title"], currentTask.Name())
+		}
 	}
 }
 

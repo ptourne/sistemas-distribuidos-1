@@ -100,10 +100,6 @@ func (w *Worker) Run() {
 	defer stop()
 
 	for {
-		if len(cases) == 0 {
-			log.Infof("All channels closed")
-			break
-		}
 		select {
 		case <-ctx.Done():
 			log.Infof("Received termination signal, shutting down gracefully...")
@@ -121,6 +117,10 @@ func (w *Worker) Run() {
 			}
 			return
 		default:
+			if len(cases) == 0 {
+				log.Infof("All channels closed")
+				break
+			}
 			i, val, ok := reflect.Select(cases)
 			if i < cantBin {
 				currentTask := taskBinRefs[i]
@@ -259,9 +259,9 @@ func NewWorker() Worker {
 
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits", "joiner_ratings"})
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"})
-	// filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
+	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
 
-	// filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
+	filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
 
 	n_worker_ratings, err := strconv.Atoi(os.Getenv("N_JOINERS_RATINGS"))
 	if err != nil {
@@ -279,8 +279,8 @@ func NewWorker() Worker {
 			credits_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
-			// filter_one_production_country,
-			// filter_avg_rate,
+			filter_one_production_country,
+			filter_avg_rate,
 			filter_avg_rating,
 		},
 	}
