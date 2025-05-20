@@ -109,32 +109,42 @@ func (f *JoinerRatings) sendRating(output *model.Row, cid string) error {
 	return nil
 }
 
+func (f *JoinerRatings) getFilename(clientId string, movieID string) (string, error) {
+	lastDigit := string(movieID[len(movieID)-1])
+	dirPath := "joiner_ratings"
+
+	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+		f.log.Errorf("Failed to create directory: %s", "joiner_ratings")
+		return "", err
+	}
+
+	dirPath = fmt.Sprintf("%s/joiner%s", dirPath, f.id)
+
+	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+		f.log.Errorf("Failed to create directory: %s", dirPath)
+		return "", err
+	}
+	dirPath = fmt.Sprintf("%s/%s", dirPath, clientId)
+	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+		f.log.Errorf("Failed to create directory: %s", dirPath)
+		return "", err
+	}
+
+	return fmt.Sprintf("%s/ratings_%s.csv", dirPath, lastDigit), nil
+}
+
 func (f *JoinerRatings) processRating(row *model.Row) error {
 	f.ratingsProcessed++
 	movieID := row.Strings["movieID"]
 	avg_rating := row.Floats["avg_rating"]
 	f.log.Infof("Processing rating %v : %v", f.ratingsProcessed, row)
 
-	lastDigit := string(movieID[len(movieID)-1])
-
 	clientId := row.Strings["cid"]
-	if err := os.MkdirAll(clientId, os.ModePerm); err != nil {
-		f.log.Errorf("Failed to create directory: %s", clientId)
+	fileName, err := f.getFilename(clientId, movieID)
+	if err != nil {
+		f.log.Errorf("Failed to get filename: %s", err)
 		return err
 	}
-	dirPath := fmt.Sprintf("%s/joiner_ratings", clientId)
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		f.log.Errorf("Failed to create directory: %s", "joiner_ratings")
-		return err
-	}
-	dirPath = fmt.Sprintf("%s/joiner%s", dirPath, f.id)
-
-	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
-		f.log.Errorf("Failed to create directory: %s", dirPath)
-		return err
-	}
-
-	fileName := fmt.Sprintf("%s/ratings_%s.csv", dirPath, lastDigit)
 
 	writeHeader := false
 	if stat, err := os.Stat(fileName); err == nil {
@@ -219,7 +229,7 @@ func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, error) {
 	lastDigit := string(movieID[len(movieID)-1])
 	clientId := row.Strings["cid"]
 
-	dirPath := fmt.Sprintf("%s/joiner_ratings/joiner%s", clientId, f.id)
+	dirPath := fmt.Sprintf("joiner_ratings/joiner%s/%s", f.id, clientId)
 
 	fileName := fmt.Sprintf("%s/ratings_%s.csv", dirPath, lastDigit)
 	file, err := os.Open(fileName)
@@ -424,7 +434,7 @@ func (f *JoinerRatings) ProcessPendingMovies(clientID string) error {
 
 func (f *JoinerRatings) FinishProcessingClient(clientID string, sendFinish bool) error {
 	f.ProcessPendingMovies(clientID)
-	dirPath := fmt.Sprintf("%s/joiner_ratings/joiner%s", clientID, f.id)
+	dirPath := fmt.Sprintf("joiner_ratings/joiner%s/%s", f.id, clientID)
 	err := os.RemoveAll(dirPath)
 	if err != nil {
 		return err

@@ -1,7 +1,10 @@
 package joiner
 
 import (
+	"context"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
@@ -41,8 +44,15 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 	var ok bool
 	currentTask := w.Tasks
 	id := currentTask.Id()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	for {
 		select {
+		case <-ctx.Done():
+			log.Infof("Received termination signal, shutting down gracefully...")
+			currentTask.Finish()
+			return
 		case envelope, ok = <-inputChannels[0]:
 			if envelope != nil && envelope.Type() == middleware.EOF {
 				log.Infof("Movies: EOF message received from %s", envelope.Cid())
