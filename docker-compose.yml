@@ -14,7 +14,7 @@ services:
             timeout: 10s
             retries: 10
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - /home/sofiagb/Documents/sd1/movies/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
     sentiment_server:
         container_name: sentiment_server
@@ -43,7 +43,7 @@ services:
         networks:
             - local_net
         environment:
-            - NUMBER_OF_WORKERS=8
+            - NUMBER_OF_WORKERS=4
             - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=2
             - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=2
             - PREFETCH=1 # Potential optimization
@@ -61,9 +61,9 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=1
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
+            - N_JOINERS_CREDITS=2
+            - N_JOINERS_RATINGS=2
+            - N_WORKERS=4
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
         networks:
@@ -82,9 +82,9 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=2
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
+            - N_JOINERS_CREDITS=2
+            - N_JOINERS_RATINGS=2
+            - N_WORKERS=4
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
         networks:
@@ -103,9 +103,9 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=3
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
+            - N_JOINERS_CREDITS=2
+            - N_JOINERS_RATINGS=2
+            - N_WORKERS=4
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
         networks:
@@ -124,173 +124,9 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=4
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    worker5:
-        container_name: worker5
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment: 
-            - WORKER_ID=5
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    worker6:
-        container_name: worker6
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment: 
-            - WORKER_ID=6
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    worker7:
-        container_name: worker7
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment: 
-            - WORKER_ID=7
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    worker8:
-        container_name: worker8
-        build:
-            context: .
-            dockerfile: worker/Dockerfile
-        entrypoint: /worker
-        environment: 
-            - WORKER_ID=8
-            - N_JOINERS_CREDITS=1
-            - N_JOINERS_RATINGS=1
-            - N_WORKERS=8
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    nlp_worker1:
-        container_name: nlp_worker1
-        build:
-            context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
-            - WORKER_ID=1
+            - N_JOINERS_CREDITS=2
+            - N_JOINERS_RATINGS=2
             - N_WORKERS=4
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    nlp_worker2:
-        container_name: nlp_worker2
-        build:
-            context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
-            - WORKER_ID=2
-            - N_WORKERS=4
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    nlp_worker3:
-        container_name: nlp_worker3
-        build:
-            context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
-            - WORKER_ID=3
-            - N_WORKERS=4
-            - NLP_GRPC_ADDR=sentiment_server:50051
-            - SERVER_PORT=1234
-            - PREFETCH=1 # Potential optimization
-        networks:
-            - local_net
-        depends_on:
-            rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-
-    nlp_worker4:
-        container_name: nlp_worker4
-        build:
-            context: .
-            dockerfile: nlp/Dockerfile
-        entrypoint: /nlp
-        environment: 
-            - WORKER_ID=4
-            - N_WORKERS=4
-            - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
         networks:
@@ -310,7 +146,7 @@ services:
         environment:
             - WORKER_ID=1
             - SERVER_PORT=1234
-            - WORKER_COUNT=1
+            - WORKER_COUNT=2
             - PREFETCH=1
         networks:
             - local_net
@@ -319,6 +155,29 @@ services:
                 condition: service_healthy
             sentiment_server:
                 condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
+
+    joiner_credits2:
+        container_name: joiner_credits2
+        build:
+            context: .
+            dockerfile: joiners/joiner_credits_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=2
+            - SERVER_PORT=1234
+            - WORKER_COUNT=2
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
 
     joiner_rating1:
         container_name: joiner_rating1
@@ -338,6 +197,29 @@ services:
                 condition: service_healthy
             sentiment_server:
                 condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
+
+    joiner_rating2:
+        container_name: joiner_rating2
+        build:
+            context: .
+            dockerfile: joiners/joiner_ratings_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=2
+            - SERVER_PORT=1234
+            - WORKER_COUNT=
+            - PREFETCH=1
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
 
     reduce_by_country_sum_budget1:
         container_name: reduce_by_country_sum_budget1
@@ -407,22 +289,22 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-            - WORKER_COUNT=1
+            - WORKER_COUNT=2
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
 
-    reduce_by_sentiment1:
-        container_name: reduce_by_sentiment1
+    reduce_top_bottom_avg_rating2:
+        container_name: reduce_top_bottom_avg_rating2
         build:
             context: .
-            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+            dockerfile: map_reducer/main/reduce_top_bottom_avg_rating/Dockerfile
         entrypoint: /map_reducer
         environment:
-            - WORKER_ID=1
-            - WORKER_COUNT=1
+            - WORKER_ID=2
+            - WORKER_COUNT=2
         networks:
             - local_net
         depends_on:
@@ -672,7 +554,7 @@ services:
         depends_on:
             - endpoint
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+            - /home/sofiagb/Documents/sd1/movies/client/datasets:/datasets
 
     client2:
         container_name: client2
@@ -687,7 +569,7 @@ services:
         depends_on:
             - endpoint
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+            - /home/sofiagb/Documents/sd1/movies/client/datasets:/datasets
 
     client3:
         container_name: client3
@@ -702,7 +584,7 @@ services:
         depends_on:
             - endpoint
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+            - /home/sofiagb/Documents/sd1/movies/client/datasets:/datasets
 
     endpoint:
         container_name: endpoint

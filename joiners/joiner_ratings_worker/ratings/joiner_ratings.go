@@ -44,6 +44,10 @@ func (f *JoinerRatings) Name() string {
 	return "joiner_ratings"
 }
 
+func (f *JoinerRatings) NameWithId() string {
+	return fmt.Sprintf("joiner_%s_ratings", f.id)
+}
+
 func (f *JoinerRatings) ProcessAndSend(env middleware.Envelope[*model.Row]) error {
 	var err error
 	row := env.Msg()
@@ -315,8 +319,8 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
 	}
 
-	groupQueueName := fmt.Sprintf("joiner_%s_ratings", f.id)
-	f.taskReceiverRatings, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, uint(peers), prefetch)
+	groupQueueName := f.NameWithId()
+	f.taskReceiverRatings, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, uint(1), prefetch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue clean_ratings for task %s", f.Name())
 	}
@@ -346,7 +350,7 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 					f.log.Infof("Channel for ratings closed from task: %v", f.Name())
 					break
 				}
-				f.log.Errorf("Error reading from middleware (joiner_ratings): %v", err)
+				//f.log.Errorf("Error reading from middleware (joiner_ratings): %v", err)
 				continue
 			}
 			// if !ok {

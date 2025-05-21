@@ -70,6 +70,12 @@ func newEOFEnvelope[T codec.Serializable[T]](
 	}
 }
 
+func NewEOFEnvelope[T codec.Serializable[T]](
+	cid string,
+) middleware.Envelope[T] {
+	return newEOFEnvelope[T](cid)
+}
+
 type eofEnvelopeRabbitmq[T codec.Serializable[T]] struct {
 	cid string
 }

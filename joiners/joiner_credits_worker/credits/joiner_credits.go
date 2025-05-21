@@ -46,6 +46,10 @@ func (f *JoinerCredits) Name() string {
 	return "joiner_credits"
 }
 
+func (f *JoinerCredits) NameWithId() string {
+	return fmt.Sprintf("joiner_%s_credits", f.id)
+}
+
 func (f *JoinerCredits) getFilename(clientId string, movieID string) (string, error) {
 	lastDigit := string(movieID[len(movieID)-1])
 	dirPath := "joiner_credits"
@@ -312,8 +316,8 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 	// 	return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
 	// }
 	prefetch := 500
-	groupQueueName := fmt.Sprintf("joiner_%s_credits", f.id)
-	f.taskReceiverCredits, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, uint(peers), prefetch)
+	groupQueueName := f.NameWithId()
+	f.taskReceiverCredits, err = middlewareConnection.ConsumeFrom(f.inputToSave.Name(), groupQueueName, uint(1), prefetch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue clean_credits for task %s", f.Name())
 	}

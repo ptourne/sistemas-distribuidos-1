@@ -27,7 +27,7 @@ func main() {
 	if err != nil {
 		workerLogger.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	middlewareLogger := logger.NewConsoleLogger(fmt.Sprintf("middleware_%s", WORKER_ID), logger.Debug)
+	middlewareLogger := logger.NewConsoleLogger(fmt.Sprintf("middleware_%s", WORKER_ID), logger.Info)
 	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector, middlewareLogger)
 	defer middlewareConnection.Close()
 

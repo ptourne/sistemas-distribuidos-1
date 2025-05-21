@@ -1,6 +1,5 @@
 .DS_Store
 **/datasets
 docker-compose.yml
-joiner_credits/joiner*/*.csv
-joiner_ratings/joiner*/*.csv
-
+joiner_credits/joiner*/**/*.csv
+joiner_ratings/joiner*/**/*.csv
