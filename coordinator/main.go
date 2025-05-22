@@ -119,10 +119,6 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 				inputChannelMapLock.Unlock()
 			}
 		case middleware.Prune:
-			// log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), channelString)
-			// err = envelope.Ack(false)
-			// unwrap(err, "Failed to ack message", log)
-			// continue
 		}
 
 		queue := getFuc(channelsCid)
@@ -142,10 +138,7 @@ func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator, wg
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
 	}
-	subscribers := map[string][]string{
-		"reduce_by_movieId": []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"},
-	}
-	ratingsSender, err := (*c.MiddlewareChanByte).WriteToRK(c.RatingsName, subscribers, "direct")
+	ratingsSender, err := (*c.MiddlewareChanByte).WriteToRKID(c.RatingsName, []string{"reduce_by_movieId"})
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
 	}
@@ -162,8 +155,6 @@ OuterLoop:
 		msg := msgEnvelope.Msg()
 		bytes := msg.Buf.Bytes
 		t := msg.PackageType
-		// log.Infof("Received message type: %v", t)
-		// log.Infof("Received message cid: %v", cid)
 		msgEnvelope.Ack(false)
 		switch t {
 		case common.FileName:
@@ -251,8 +242,7 @@ OuterLoop:
 						Id:     uint32(num),
 						Rating: uint8(val),
 					}
-					routingKey := string(movieId[len(movieId)-1])
-					ratingsSender.SendRK(&rating, routingKey, cid)
+					ratingsSender.SendRKID(&rating, movieId, cid)
 				}
 
 			}

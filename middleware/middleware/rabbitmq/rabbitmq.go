@@ -224,6 +224,11 @@ func (m *middlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string,
 	return m.createReadQueueRK(sourceName, groupName, "fanout", "", consumerCount, uint(prefetch))
 }
 
+func (m *middlewareRabbitmq[T]) ConsumeFromRKID(sourceName string, groupName string, routingKey string, consumerCount uint, prefetch int) (middleware.Receiver[T], error) {
+	t := "direct"
+	return m.createReadQueueRK(sourceName, groupName, t, routingKey, consumerCount, uint(prefetch))
+}
+
 func (m *middlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, t string, routingKey string, consumerCount uint, prefetch int) (middleware.Receiver[T], error) {
 	m.Log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' and prefetch %d", sourceName, groupName, prefetch)
 	if sourceName == "" {
@@ -327,10 +332,18 @@ func (m *middlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string)
 	for _, sub := range subscribers {
 		subscribersMap[sub] = []string{""}
 	}
-	return m.WriteToRK(outputName, subscribersMap, "fanout")
+	return m.writeToRK(outputName, subscribersMap, "fanout")
 }
 
-func (m *middlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[string][]string, t string) (middleware.Sender[T], error) {
+func (m *middlewareRabbitmq[T]) WriteToRKID(outputName string, subscribers []string) (middleware.Sender[T], error) {
+	subscribersMap := make(map[string][]string)
+	for _, sub := range subscribers {
+		subscribersMap[sub] = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
+	}
+	return m.writeToRK(outputName, subscribersMap, "direct")
+}
+
+func (m *middlewareRabbitmq[T]) writeToRK(outputName string, subscribers map[string][]string, t string) (middleware.Sender[T], error) {
 	m.Log.Infof("Creating WriteTo exchange '%s'", outputName)
 	output, err := CreateProducerRK[T, T](m, outputName, t)
 	if err != nil {
@@ -358,7 +371,7 @@ func (m *middlewareRabbitmq[T]) WriteToRK(outputName string, subscribers map[str
 }
 
 func (s *SenderChannel[T]) Publish(ctx context.Context, msg T, cid string) error {
-	s.Log.Debugf("Publish msg %+v in %s", msg, s.exchangeName)
+	// s.Log.Debugf("Publish msg %+v in %s", msg, s.exchangeName)
 	return s.PublishRK(ctx, msg, "", cid)
 }
 
@@ -384,7 +397,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
 	}
-	s.Log.Debugf("PUBLISHED message in chan %s msg:%v with type %v and cid %v", s.exchangeName, msg, normal.String(), cid)
+	s.Log.Debugf("PUBLISHED message in chan %s and rk: %s, msg:%v with type %v and cid %v", s.exchangeName, routingKey, msg, normal.String(), cid)
 	return nil
 }
 
@@ -646,6 +659,11 @@ func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, c
 
 func (s *SenderRabbitmq[T]) Send(row T, cid string) error {
 	return s.SendRK(row, "", cid)
+}
+
+func (s *SenderRabbitmq[T]) SendRKID(row T, id, cid string) error { // solo toma rk de un digito!!
+	routingKey := string(id[len(id)-1])
+	return s.SendRK(row, routingKey, cid)
 }
 
 func (s *SenderRabbitmq[T]) SendRK(row T, routingKey string, cid string) error {

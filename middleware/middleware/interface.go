@@ -9,10 +9,10 @@ import (
 
 // ver de declare, tratr de devovler un struct, ghacer read/write
 type Connection[T codec.Serializable[T]] interface {
-	ConsumeFrom(sourceName string, groupName string, consumerCount uint, prefetch int) (Receiver[T], error)
-	ConsumeFromRK(sourceName string, groupName string, t string, routingkey string, consumerCount uint, prefetch int) (Receiver[T], error)
-	WriteTo(writeExchangeName string, subscribers []string) (Sender[T], error)
-	WriteToRK(writeExchangeName string, subscribers map[string][]string, t string) (Sender[T], error)
+	// ConsumeFrom(sourceName string, groupName string, consumerCount uint, prefetch int) (Receiver[T], error)
+	ConsumeFromRKID(sourceName string, groupName string, routingkey string, consumerCount uint, prefetch int) (Receiver[T], error)
+	// WriteTo(writeExchangeName string, subscribers []string) (Sender[T], error)
+	WriteToRKID(writeExchangeName string, subscribers []string) (Sender[T], error)
 	Close() error
 }
 
@@ -75,10 +75,10 @@ func FromStringTypeMsg(s string) (TypeMsg, error) {
 }
 
 type Sender[T codec.Serializable[T]] interface {
-	Send(row T, cid string) error
+	// Send(row T, cid string) error
 	Prune(cid string) error
-	SendRK(row T, routingKey string, cid string) error
-	SendEOF(cid string) error
+	SendRKID(row T, id string, cid string) error
+	// SendEOF(cid string) error
 	SendEOFRK(routingKey string, cid string) error
 	Close() error
 }

@@ -53,10 +53,8 @@ func main() {
 		&TopBottomReduce{},
 		[]string{"q3"},
 		"",
-		[]string{},
 		id,
 		uint(count),
-		1,
 	)
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)

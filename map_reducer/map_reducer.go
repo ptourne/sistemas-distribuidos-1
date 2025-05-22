@@ -64,27 +64,24 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	batchSize uint,
 	mapReducer MapReduce[I, A, R],
 	subscribers []string,
-	routingKey string,
-	routingKeys []string,
 	id string,
-	count uint,
-	shardCount uint,
 ) (*MapReducer[I, A, R], error) {
 	log := logger.NewConsoleLogger(fmt.Sprintf("worker_%s", id), logger.Info)
 	prefetch := 500
 	prefetchIn := 1000
 
-	var t string = "direct"
+	// var t string = "direct"
 	subscribersMap := make(map[string][]string)
 	for _, subscriber := range subscribers {
 		subscribersMap[subscriber] = []string{""}
 	}
 
-	if len(routingKeys) == 0 {
-		log.Infof("Using FANOUT")
-		routingKeys = []string{""}
-		t = "fanout"
-	}
+	// if len(routingKeys) == 0 {
+	// 	log.Infof("Using FANOUT")
+	// 	routingKeys = []string{""}
+	// 	t = "fanout"
+	// }
+	routingKey := id
 
 	if batchSize < 2 {
 		return nil, fmt.Errorf("batchSize must be at least two")
@@ -93,24 +90,24 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	middlewareLogger := logger.NewConsoleLogger(fmt.Sprintf("middleware_%s", id), logger.Info)
 	connIn := rabbitmq.NewMiddleware[I](connector, middlewareLogger)
 
-	inputCh, err := connIn.ConsumeFromRK(input, name, t, routingKey, count, prefetchIn)
+	inputCh, err := connIn.ConsumeFromRKID(input, name, routingKey, 1, prefetchIn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create input channel: %w", err)
 	}
 	connOut := rabbitmq.NewMiddleware[R](connector, middlewareLogger)
 
-	output, err := connOut.WriteTo(name, subscribers)
+	output, err := connOut.WriteToRKID(name, subscribers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create output channel: %w", err)
 	}
 
-	partialResultName := partialResultName(input, name, routingKey)
+	partialResultName := partialResultName(input, name)
 	connPartialResult := rabbitmq.NewMiddleware[A](connector, middlewareLogger)
-	partialResultIn, err := connPartialResult.ConsumeFrom(partialResultName, name, count, prefetch)
+	partialResultIn, err := connPartialResult.ConsumeFromRKID(partialResultName, name, id, 1, prefetch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create accumulator input channel: %w", err)
 	}
-	partialResultOut, err := connPartialResult.WriteTo(partialResultName, []string{})
+	partialResultOut, err := connPartialResult.WriteToRKID(partialResultName, []string{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create accumulator output channel: %w", err)
 	}
@@ -119,16 +116,17 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	connFinalReduce := rabbitmq.NewMiddleware[A](connector, middlewareLogger)
 	var finalReduceInMap = make(map[string]middleware.Receiver[A])
 	if id == "1" {
+		routingKeys := []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
 		for _, rk := range routingKeys {
 			// Only leader gets to consume from the final reduce queue
-			finalReduceIn, err := connFinalReduce.ConsumeFromRK(finalReuceName, name, "direct", rk, 1, prefetch)
+			finalReduceIn, err := connFinalReduce.ConsumeFromRKID(finalReuceName, name, rk, 1, prefetch)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create accumulator input channel: %w", err)
 			}
 			finalReduceInMap[rk] = finalReduceIn
 		}
 	}
-	finalReduceOut, err := connFinalReduce.WriteToRK(finalReuceName, map[string][]string{}, "direct")
+	finalReduceOut, err := connFinalReduce.WriteToRKID(finalReuceName, []string{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create accumulator output channel: %w", err)
 	}
@@ -149,15 +147,15 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		CidPrunnedTwice:           make(map[string]bool),
 		timeoutStep:               0,
 		timeoutStepFinal:          0,
-		shardCount:                shardCount,
+		shardCount:                10,
 		RoutingKey:                routingKey,
 		pruneCounter:              make(map[string]uint),
 		eofCounter:                make(map[string]uint),
 	}, nil
 }
 
-func partialResultName(input string, name string, routingKey string) string {
-	return fmt.Sprintf("%s->%s_%s:partial_accumulators", input, name, routingKey)
+func partialResultName(input string, name string) string {
+	return fmt.Sprintf("%s->%s:partial_accumulators", input, name)
 }
 
 func finalReduceName(input string, name string) string {
@@ -242,7 +240,7 @@ func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 				mr.log.Debugf("input : %s | Received input", envelope.Cid())
 				acc := mr.MapReduce.Map(msg)
 				for _, a := range acc {
-					err = mr.PartialResultSender.Send(a, envelope.Cid())
+					err = mr.PartialResultSender.SendRKID(a, mr.RoutingKey, envelope.Cid())
 					if err != nil {
 						envelope.Nack(true)
 						err = fmt.Errorf("error sending partial result: %w", err)
@@ -253,7 +251,7 @@ func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 				envelope.Ack(false)
 			case middleware.EOF:
 				mr.log.Debugf("input : %s | Received EOF", envelope.Cid())
-				err = mr.PartialResultSender.SendEOF(envelope.Cid())
+				err = mr.PartialResultSender.SendEOFRK(mr.RoutingKey, envelope.Cid())
 				if err != nil {
 					envelope.Nack(true)
 					err = fmt.Errorf("error sending final result: %w", err)
@@ -310,12 +308,12 @@ func (mr *MapReducer[I, A, R]) reduceBattchess(ctx context.Context) <-chan error
 			case middleware.EOF:
 				mr.log.Debugf("reduc : %s | Received EOF", e.Cid())
 				if mr.CidPrunnedTwice[e.Cid()] {
-					mr.log.Debugf("reduc : %s | Sending EOF to FinalReduceSender", e.Cid())
+					mr.log.Debugf("reduc : %s | Sending EOF to FinalReduceSender last", e.Cid())
 					err = mr.FinalReduceSender.SendEOFRK(mr.RoutingKey, e.Cid())
 					delete(mr.CidPrunnedTwice, e.Cid())
 				} else {
 					mr.log.Debugf("reduc : %s | Sending EOF to PartialResultSender", e.Cid())
-					err = mr.PartialResultSender.SendEOF(e.Cid())
+					err = mr.PartialResultSender.SendEOFRK(mr.RoutingKey, e.Cid())
 				}
 				if err != nil {
 					mr.log.Errorf("reduc : %s | SendEOF failed: %s", e.Cid(), err)
@@ -351,7 +349,7 @@ func (mr *MapReducer[I, A, R]) reduceBattchess(ctx context.Context) <-chan error
 }
 
 func (mr *MapReducer[I, A, R]) ReduceAndSend(cid string, msg A) error {
-	// mr.log.Infof("reduc : %s | ReduceAndSend ", cid)
+	mr.log.Infof("reduc : %s | ReduceAndSend ", cid)
 	clientBatch, ok := mr.PartReduceBatchesForPart[cid]
 	if ok {
 		// mr.log.Infof("reduc : %s | ReduceAndSend partial", cid)
@@ -362,7 +360,7 @@ func (mr *MapReducer[I, A, R]) ReduceAndSend(cid string, msg A) error {
 		}
 		// mr.log.Infof("reduc : %s | ReduceAndSend | Batch size reached", cid)
 		reduced := mr.MapReduce.Reduce(clientBatch.flush())
-		err := mr.PartialResultSender.Send(reduced, cid)
+		err := mr.PartialResultSender.SendRKID(reduced, mr.RoutingKey, cid)
 		if err != nil {
 			return fmt.Errorf("error sending partial result: %w", err)
 		}
@@ -379,11 +377,11 @@ func (mr *MapReducer[I, A, R]) ReduceAndSend(cid string, msg A) error {
 		}
 		// mr.log.Infof("reduc : %s | ReduceAndSend | Batch size reached", cid)
 		reduced := mr.MapReduce.Reduce(clientBatch.flush())
-		err := mr.FinalReduceSender.SendRK(reduced, mr.RoutingKey, cid)
+		err := mr.FinalReduceSender.SendRKID(reduced, mr.RoutingKey, cid)
 		if err != nil {
 			return fmt.Errorf("error sending final result: %w", err)
 		}
-		// mr.log.Infof("reduc : %s | ReduceAndSend | Final result sent ", cid)
+		mr.log.Infof("reduc : %s | ReduceAndSend | Final result sent | rk %s:", cid, mr.RoutingKey)
 		return nil
 	}
 	// mr.log.Infof("reduc : %s | ReduceAndSend | Creating new batch", cid)
@@ -401,7 +399,7 @@ func (mr *MapReducer[I, A, R]) Prune(cid string) error {
 		if len(clientBatch.batch) > 0 {
 			mr.log.Infof("reduc : %s | First prune | Sending partial result to Final", cid)
 			reduced := mr.MapReduce.Reduce(clientBatch.flush())
-			err := mr.FinalReduceSender.SendRK(reduced, mr.RoutingKey, cid)
+			err := mr.FinalReduceSender.SendRKID(reduced, mr.RoutingKey, cid)
 			if err != nil {
 				return fmt.Errorf("error sending partial result: %w", err)
 			}
@@ -417,7 +415,7 @@ func (mr *MapReducer[I, A, R]) Prune(cid string) error {
 		mr.log.Infof("reduc : %s | Second prune", cid)
 		if len(clientBatch.batch) > 0 {
 			reduced := mr.MapReduce.Reduce(clientBatch.flush())
-			err := mr.FinalReduceSender.SendRK(reduced, mr.RoutingKey, cid)
+			err := mr.FinalReduceSender.SendRKID(reduced, mr.RoutingKey, cid)
 			if err != nil {
 				return fmt.Errorf("error sending partial result: %w", err)
 			}
@@ -530,11 +528,14 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 				mr.log.Infof("Final : %s | Received last EOF", e.Cid())
 				delete(mr.eofCounter, e.Cid())
 				mr.log.Infof("Final : %s | Sending EOF after sending partial result", e.Cid())
-				err = mr.Output.SendEOF(e.Cid())
-				if err != nil {
-					e.Nack(true)
-					mr.log.Fatalf("Final : error sending EOF after sending partial result: %s", err)
-					panic("Resending EOF not implemented")
+				// err = mr.Output.SendEOFRK(mr.RoutingKey, e.Cid())
+				for i := 0; i < int(mr.shardCount); i++ {
+					err = mr.Output.SendEOFRK(fmt.Sprintf("%d", i), e.Cid())
+					if err != nil {
+						e.Nack(true)
+						mr.log.Fatalf("Final : error sending EOF after sending partial result: %s", err)
+						panic("Resending EOF not implemented")
+					}
 				}
 				e.Ack(true)
 			case middleware.Prune:
@@ -569,8 +570,9 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 				reduced := mr.MapReduce.Reduce(clientBatch.flush())
 				output := mr.MapReduce.Output(reduced)
 				for _, o := range output {
+					//TODO ENVIAR A [0,9]
 					mr.log.Infof("Final : %s | Sending partial result to output: %v", e.Cid(), o)
-					err = mr.Output.Send(o, e.Cid())
+					err = mr.Output.SendRKID(o, mr.RoutingKey, e.Cid())
 				}
 				if err != nil {
 					e.Nack(true)
