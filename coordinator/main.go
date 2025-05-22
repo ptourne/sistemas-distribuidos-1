@@ -5,9 +5,11 @@ import (
 	"encoding/csv"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"slices"
 
@@ -32,6 +34,14 @@ func main() {
 	wg := sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		log.Infof("Received SIGTERM. Shutting down gracefully...")
+		cancel()
+	}()
 	inputsChannelMap := map[string]*ChannelsCid{}
 	inputChannelMapLock := sync.Mutex{}
 	wg.Add(1)
@@ -44,7 +54,7 @@ func main() {
 					log.Infof("Channel closed: %v", config.ReadFileByteQueue)
 					break
 				}
-				if err.Error() == "timeout reached while waiting for message or ctx canceled" {
+				if err.Error() == "timeout reached while waiting for message" {
 					log.Infof("Timeout reached while waiting for message or ctx canceled")
 					break
 				}
@@ -59,7 +69,7 @@ func main() {
 				inputsChannelMap[cid] = channelsCid
 				inputChannelMapLock.Unlock()
 				wg.Add(1)
-				go handleClient(cid, channelsCid, config, &wg)
+				go handleClient(cid, channelsCid, config, &wg, ctx)
 			}
 			switch envelope.Type() {
 			case middleware.EOF:
@@ -67,7 +77,14 @@ func main() {
 			case middleware.Prune:
 				panic("Prune arrived in coordinator")
 			}
-			channelsCid.input <- envelope
+			select {
+			case channelsCid.input <- envelope:
+				// enviado con éxito
+			case <-ctx.Done():
+				log.Infof("Context cancelled before sending to input channel of cid: %s", envelope.Cid())
+				return
+			}
+
 		}
 	}()
 	wg.Add(1)
@@ -82,10 +99,11 @@ func main() {
 	go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true)
 
 	wg.Wait()
-	log.Infof("EXITING COORDINATOR")
+	log.Infof("All goroutines finished. Closing ChannelsCid")
 	for _, channelCid := range inputsChannelMap {
 		channelCid.Close()
 	}
+	log.Infof("EXITING COORDINATOR")
 }
 
 func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex, wg *sync.WaitGroup, lastQuery bool) {
@@ -97,8 +115,9 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 				log.Infof("Channel closed: %v", channelString)
 				break
 			}
-			if err.Error() == "timeout reached while waiting for message or ctx canceled" {
-				log.Infof("Timeout reached while waiting for message or ctx canceled")
+			if err.Error() == "timeout reached while waiting for message" {
+				log.Infof("Timeout reached while waiting for message or ctx canceled (nextQueue)")
+				queue.Close()
 				break
 			}
 			log.Errorf("Error reading from middleware: %v", err)
@@ -108,13 +127,14 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 		channelsCid, exists := inputsChannelMap[cid]
 		if !exists {
 			log.Errorf("Channel not found: %v", cid)
-			panic("Channel not found")
+			continue
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
 			if lastQuery {
 				log.Infof("cid %s finished receiving", cid)
 				inputChannelMapLock.Lock()
+				close(getFuc(channelsCid))
 				delete(inputsChannelMap, envelope.Cid())
 				inputChannelMapLock.Unlock()
 			}
@@ -126,11 +146,18 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 		}
 
 		queue := getFuc(channelsCid)
-		queue <- envelope
+		select {
+		case queue <- envelope:
+			// enviado con éxito
+		case <-ctx.Done():
+			log.Infof("Context cancelled before sending envelope: %s", channelString)
+			return
+		}
+
 	}
 }
 
-func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup) {
+func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context) {
 	defer wg.Done()
 	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%s", cid), logger.Info)
 	moviesMetadataSender, err := (*c.MiddlewareChan).WriteTo(c.MoviesMetadataName, []string{"clean_movies"})
@@ -157,115 +184,141 @@ func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator, wg
 
 OuterLoop:
 	for {
-		msgEnvelope := <-channelsCid.input
-		cid := msgEnvelope.Cid()
-		msg := msgEnvelope.Msg()
-		bytes := msg.Buf.Bytes
-		t := msg.PackageType
-		// log.Infof("Received message type: %v", t)
-		// log.Infof("Received message cid: %v", cid)
-		msgEnvelope.Ack(false)
-		switch t {
-		case common.FileName:
-			fileName := string(bytes)
-			var sender middleware.Sender[*model.Row]
-			var amount int
-			var expectedLen int
-			var create func([]string) *model.Row
-			switch fileName {
-			case c.MoviesMetadataName:
-				log.Infof("Received file: %s", fileName)
-				sender = moviesMetadataSender
-				amount = 10000
-				expectedLen = 24
-				create = Film
-			case c.CreditsName:
-				log.Infof("Received file: %s", fileName)
-				sender = creditsSender
-				amount = 10000
-				expectedLen = 3
-				create = Credit
-			case c.RatingsName:
-				log.Infof("Received file: %s", fileName)
-				sender = nil
-				amount = 100000
-				expectedLen = 3
-				create = Rating
-			default:
-				panic(fmt.Sprintf("Unknown file name: %s", fileName))
+		select {
+		case <-ctx.Done():
+			log.Infof("Context cancelled, exiting handleClient")
+			moviesMetadataSender.Close()
+			creditsSender.Close()
+			ratingsSender.Close()
+			return
+		case msgEnvelope, ok := <-channelsCid.input:
+			if !ok {
+				log.Infof("Channel closed: %v", channelsCid.input)
+				break OuterLoop
 			}
-
-			connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: make([]byte, 0)}
-			reader := csv.NewReader(connReader)
-
-			d, err := reader.Read()
-			log.Infof("Received header file: %v", d)
-			unwrap(err, "Failed to read CSV header", log)
-			line := 0
-			log.Infof("Starting CSV processing")
-			for {
-				line++
-				if line%amount == 0 {
-					log.Infof("Processed %d lines from %s", line, fileName)
+			cid := msgEnvelope.Cid()
+			msg := msgEnvelope.Msg()
+			bytes := msg.Buf.Bytes
+			t := msg.PackageType
+			// log.Infof("Received message type: %v", t)
+			// log.Infof("Received message cid: %v", cid)
+			msgEnvelope.Ack(false)
+			switch t {
+			case common.FileName:
+				fileName := string(bytes)
+				var sender middleware.Sender[*model.Row]
+				var amount int
+				var expectedLen int
+				var create func([]string) *model.Row
+				switch fileName {
+				case c.MoviesMetadataName:
+					log.Infof("Received file: %s", fileName)
+					sender = moviesMetadataSender
+					amount = 10000
+					expectedLen = 24
+					create = Film
+				case c.CreditsName:
+					log.Infof("Received file: %s", fileName)
+					sender = creditsSender
+					amount = 10000
+					expectedLen = 3
+					create = Credit
+				case c.RatingsName:
+					log.Infof("Received file: %s", fileName)
+					sender = nil
+					amount = 100000
+					expectedLen = 3
+					create = Rating
+				default:
+					panic(fmt.Sprintf("Unknown file name: %s", fileName))
 				}
-				data, err := reader.Read()
-				if err != nil {
-					if err.Error() == "EOF" {
+
+				connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: make([]byte, 0), ctx: ctx}
+				reader := csv.NewReader(connReader)
+
+				d, err := reader.Read()
+				if err != nil && err.Error() == "read canceled by context" {
+					log.Infof("Context cancelled, exiting handleClient")
+					moviesMetadataSender.Close()
+					creditsSender.Close()
+					ratingsSender.Close()
+					return
+				}
+				log.Infof("Received header file: %v", d)
+				unwrap(err, "Failed to read CSV header", log)
+				line := 0
+				log.Infof("Starting CSV processing")
+				for {
+					line++
+					if line%amount == 0 {
 						log.Infof("Processed %d lines from %s", line, fileName)
-						log.Infof("End of file reached")
-						if fileName != c.RatingsName {
-							sender.SendEOF(cid)
-						} else {
-							for i := range 10 {
-								rk := fmt.Sprintf("%d", i)
-								err := ratingsSender.SendEOFRK(rk, cid)
-								if err != nil {
-									log.Errorf("failed to send EOFRK to %s: %v", rk, err)
-								}
-								log.Infof("Sent EOF to %s with cid: %s", rk, cid)
-							}
+					}
+					data, err := reader.Read()
+					if err != nil {
+						if err.Error() == "read canceled by context" {
+							log.Infof("Context cancelled, exiting handleClient")
+							moviesMetadataSender.Close()
+							creditsSender.Close()
+							ratingsSender.Close()
+							return
 						}
-						break
+						if err.Error() == "EOF" {
+							log.Infof("Processed %d lines from %s", line, fileName)
+							log.Infof("End of file reached")
+							if fileName != c.RatingsName {
+								sender.SendEOF(cid)
+							} else {
+								for i := range 10 {
+									rk := fmt.Sprintf("%d", i)
+									err := ratingsSender.SendEOFRK(rk, cid)
+									if err != nil {
+										log.Errorf("failed to send EOFRK to %s: %v", rk, err)
+									}
+									log.Infof("Sent EOF to %s with cid: %s", rk, cid)
+								}
+							}
+							break
+						}
+						log.Errorf("Error reading CSV line: %v", err)
+						continue
 					}
-					log.Errorf("Error reading CSV line: %v", err)
-					continue
-				}
-				if len(data) < expectedLen {
-					continue
-				}
+					if len(data) < expectedLen {
+						continue
+					}
 
+					if fileName != c.RatingsName {
+						row := create(data)
+						sender.Send(row, cid)
+					} else {
+						movieId := data[1]
+						num, err := strconv.Atoi(movieId)
+						unwrap(err, "Failed to convert string to int", log)
+						digits := strings.Split(data[2], ".")
+						dec, err := strconv.Atoi(digits[0])
+						unwrap(err, "Failed to convert string to int", log)
+						unit, err := strconv.Atoi(digits[1])
+						unwrap(err, "Failed to convert string to int", log)
+						val := dec*10 + unit
+						rating := model.Rating{
+							Id:     uint32(num),
+							Rating: uint8(val),
+						}
+						routingKey := string(movieId[len(movieId)-1])
+						ratingsSender.SendRK(&rating, routingKey, cid)
+					}
+
+				}
+				log.Infof("CSV %s processing completed, closing", fileName)
 				if fileName != c.RatingsName {
-					row := create(data)
-					sender.Send(row, cid)
+					sender.Close()
 				} else {
-					movieId := data[1]
-					num, err := strconv.Atoi(movieId)
-					unwrap(err, "Failed to convert string to int", log)
-					digits := strings.Split(data[2], ".")
-					dec, err := strconv.Atoi(digits[0])
-					unwrap(err, "Failed to convert string to int", log)
-					unit, err := strconv.Atoi(digits[1])
-					unwrap(err, "Failed to convert string to int", log)
-					val := dec*10 + unit
-					rating := model.Rating{
-						Id:     uint32(num),
-						Rating: uint8(val),
-					}
-					routingKey := string(movieId[len(movieId)-1])
-					ratingsSender.SendRK(&rating, routingKey, cid)
+					ratingsSender.Close()
 				}
 
+			case common.AllFilesSent:
+				log.Infof("Received ALL FILES SENT")
+				break OuterLoop
 			}
-			log.Infof("CSV %s processing completed, closing", fileName)
-			if fileName != c.RatingsName {
-				sender.Close()
-			} else {
-				ratingsSender.Close()
-			}
-
-		case common.AllFilesSent:
-			log.Infof("Received ALL FILES SENT")
-			break OuterLoop
 		}
 	}
 	log.Infof("CSV processing completed")
@@ -424,6 +477,7 @@ type ChannelsCid struct {
 	q3    chan middleware.Envelope[*model.Row]
 	q4    chan middleware.Envelope[*model.Row]
 	q5    chan middleware.Envelope[*model.Row]
+	once  sync.Once
 }
 
 func NewChannelsCid() *ChannelsCid {
@@ -463,31 +517,32 @@ func GetQ5(c *ChannelsCid) chan middleware.Envelope[*model.Row] {
 }
 
 func (c *ChannelsCid) Close() {
-	if c.input != nil {
-		close(c.input)
-		c.input = nil
-	}
-	if c.q1 != nil {
-		close(c.q1)
-		c.q1 = nil
-	}
-	if c.q2 != nil {
-		close(c.q2)
-		c.q2 = nil
-	}
-	if c.q3 != nil {
-		close(c.q3)
-		c.q3 = nil
-	}
-	if c.q4 != nil {
-		close(c.q4)
-		c.q4 = nil
-	}
-	if c.q5 != nil {
-		close(c.q5)
-		c.q5 = nil
-	}
-
+	c.once.Do(func() {
+		if c.input != nil {
+			close(c.input)
+			c.input = nil
+		}
+		if c.q1 != nil {
+			close(c.q1)
+			c.q1 = nil
+		}
+		if c.q2 != nil {
+			close(c.q2)
+			c.q2 = nil
+		}
+		if c.q3 != nil {
+			close(c.q3)
+			c.q3 = nil
+		}
+		if c.q4 != nil {
+			close(c.q4)
+			c.q4 = nil
+		}
+		if c.q5 != nil {
+			close(c.q5)
+			c.q5 = nil
+		}
+	})
 }
 
 func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
@@ -532,7 +587,7 @@ func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 }
 
 func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
-	// expectedOutputQ3 := []*model.Row{
+	//expectedOutputQ3 := []*model.Row{
 	// 	{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
 	// 	{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
 	// }
@@ -565,9 +620,6 @@ func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Q4", expectedOutputQ4, removeQ4, false)
 }
 
-// reducing batch: failed to process close notification: failed to decode item: failed to decode map length: failed to read data: EOF
-// Received message from input: {Acknowledger:0xc0000a6a20 Headers:map[cid:1 type:normal] ContentType:application/message ContentEncoding: DeliveryMode:0 Priority:0 CorrelationId: ReplyTo: Expiration: MessageId: Timestamp:0001-01-01 00:00:00 +0000 UTC Type: UserId: AppId: ConsumerTag:ctag-/map_reducer-3 MessageCount:0 DeliveryTag:1 Redelivered:false Exchange:joiner_credits->reduce_by_actor:partial_accumulators RoutingKey: Body:[]} in receiver reduce_by_actor
-
 func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
 	expectedOutputQ5 := []*model.Row{
 		{Strings: map[string]string{"sentiment": "NEGATIVE"}, Floats: map[string]float64{"avg_rate": 5453.397595}},
@@ -584,7 +636,11 @@ func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middlew
 	}
 OuterLoop:
 	for {
-		envelope := <-qReceiver
+		envelope, ok := <-qReceiver
+		if !ok {
+			log.Infof("Channel closed: %v", qReceiver)
+			return
+		}
 		if envelope.Cid() != cid {
 			log.Errorf("Received message from wrong cid: %s", envelope.Cid())
 			continue
@@ -714,11 +770,6 @@ func removeQ5(expectedOutputQ5 []*model.Row, receivedSentiment *model.Row, log *
 	return expectedOutputQ5
 }
 
-// adult,belongs_to_collection,budget,genres,homepage,id,imdb_id,original_language,
-// original_title,overview,popularity,poster_path,production_companies,
-// production_countries,
-// release_date,revenue,runtime,spoken_languages,status,tagline,title,video,vote_average,vote_count
-
 func Film(data []string) *model.Row {
 	budget, genres, id, overview, production_countries, release_date, revenue, title :=
 		data[2], data[3], data[5], data[9], data[13], data[14], data[15], data[20]
@@ -764,6 +815,7 @@ func unwrap(err error, msg string, log *logger.ConsoleLogger) {
 type ConnReader struct {
 	ch                  chan middleware.Envelope[*common.PackageFile]
 	lastReadNotIncluded []byte
+	ctx                 context.Context
 }
 
 func (cr *ConnReader) Read(buff []byte) (n int, err error) {
@@ -776,27 +828,34 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 		return cantCopyFromLast, nil
 	}
 
-	msgEnvelope := <-cr.ch
-	if msgEnvelope == nil {
-		return 0, fmt.Errorf("invalid message es NIL")
+	select {
+	case <-cr.ctx.Done():
+		return 0, fmt.Errorf("read canceled by context")
+	case msgEnvelope, ok := <-cr.ch:
+		if !ok {
+			return 0, fmt.Errorf("channel closed")
+		}
+		if msgEnvelope == nil {
+			return 0, fmt.Errorf("invalid message es NIL")
+		}
+		msg := msgEnvelope.Msg()
+		data := msg.Buf.Bytes
+		t := msg.PackageType
+		cantCopyFromData := min(remainingCapacity, len(data))
+		switch t {
+		case common.FileData:
+			copy(buff[cantCopyFromLast:], data[:cantCopyFromData])
+			cr.lastReadNotIncluded = append(cr.lastReadNotIncluded, data[cantCopyFromData:]...)
+			n = cantCopyFromLast + cantCopyFromData
+			err = nil
+		case common.FinishFile:
+			n = 0
+			err = fmt.Errorf("EOF")
+		default:
+			n = 0
+			err = fmt.Errorf("invalid message type: %v", t)
+		}
+		msgEnvelope.Ack(false)
+		return n, err
 	}
-	msg := msgEnvelope.Msg()
-	data := msg.Buf.Bytes
-	t := msg.PackageType
-	cantCopyFromData := min(remainingCapacity, len(data))
-	switch t {
-	case common.FileData:
-		copy(buff[cantCopyFromLast:], data[:cantCopyFromData])
-		cr.lastReadNotIncluded = append(cr.lastReadNotIncluded, data[cantCopyFromData:]...)
-		n = cantCopyFromLast + cantCopyFromData
-		err = nil
-	case common.FinishFile:
-		n = 0
-		err = fmt.Errorf("EOF")
-	default:
-		n = 0
-		err = fmt.Errorf("invalid message type: %v", t)
-	}
-	msgEnvelope.Ack(false)
-	return n, err
 }

@@ -200,7 +200,7 @@ func (m *middlewareRabbitmq[T]) Close() error {
 }
 
 func (r *receiverRabbitmq[T]) Close() error {
-	r.Log.Debugf("CLOSING RECEIVER: '%s', '%s", r.input.exchangeName, r.input.queueName)
+	r.Log.Infof("CLOSING RECEIVER: '%s', '%s", r.input.exchangeName, r.input.queueName)
 	r.input.Close()
 	r.closeReceiver.Close()
 	r.closeSender.Close()
@@ -208,7 +208,7 @@ func (r *receiverRabbitmq[T]) Close() error {
 }
 
 func (s *SenderRabbitmq[T]) Close() error {
-	s.Log.Debugf("CLOSING SENDER")
+	s.Log.Infof("CLOSING SENDER: '%s'", s.exchangeName)
 	s.output.Close()
 	return nil
 }
