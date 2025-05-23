@@ -663,6 +663,7 @@ func (s *SenderRabbitmq[T]) Send(row T, cid string) error {
 
 func (s *SenderRabbitmq[T]) SendRKID(row T, id, cid string) error { // solo toma rk de un digito!!
 	routingKey := string(id[len(id)-1])
+	// s.Log.Infof("SendRKID: %s", routingKey)
 	return s.SendRK(row, routingKey, cid)
 }
 

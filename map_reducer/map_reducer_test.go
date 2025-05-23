@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -231,19 +232,19 @@ func TestMapReducer(t *testing.T) {
 	test8container := <-test8
 	defer test8container.Container.Teardown()
 
-	t.Run("1Reducer1Cid1Msg", func(t *testing.T) {
+	t.Run("10Reducer1Cid1Msg", func(t *testing.T) {
 		init := test1container
 		assert.NoError(t, init.Err)
 
 		cid := "1"
-		// sender, receiver, stopMapReducer, handlers, err := setupReducerPipeline(t, init, 1)
 		sender, receiver, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
 		assert.NoError(t, err)
 
+		log.Infof("created good ")
 		err = sender.SendRKID(&num{val: 1}, "1", cid)
 		assert.NoError(t, err)
 
-		ctx, cancel := newTimer()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_, err = receiver.Next(ctx)
 		cancel()
 		assert.Error(t, err)
@@ -257,22 +258,72 @@ func TestMapReducer(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
-		ctx, cancel = newTimer()
+		ctx, cancel = context.WithTimeout(context.Background(), 50*time.Minute)
 		e, err := receiver.Next(ctx)
-		cancel()
 		assert.NoError(t, err)
 		assert.Equal(t, middleware.Normal, e.Type())
 		assert.Equal(t, uint64(1), e.Msg().val)
 		e.Ack(true)
 
-		ctx, cancel = newTimer()
 		e, err = receiver.Next(ctx)
-		cancel()
 		assert.NoError(t, err)
 		assert.Equal(t, middleware.Prune, e.Type())
 		e.Ack(true)
 
-		ctx, cancel = newTimer()
+		e, err = receiver.Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(true)
+		cancel()
+
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
+		}
+		log.Infof("All handlers finisheded YESSS")
+	})
+
+	t.Run("10Reducer1Cid10Msg", func(t *testing.T) {
+		init := test2container
+		assert.NoError(t, init.Err)
+
+		cid := "1"
+		sender, receiver, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
+		assert.NoError(t, err)
+
+		expected := uint64(0)
+		for i := range uint64(10) {
+			rk := fmt.Sprintf("%d", i)
+			err = sender.SendRKID(&num{val: i}, rk, cid)
+			assert.NoError(t, err)
+			expected += i
+		}
+
+		ctx, cancel := newTimer()
+		_, err = receiver.Next(ctx)
+		cancel()
+		assert.Error(t, err)
+
+		for i := 0; i < 10; i++ {
+			rk := fmt.Sprintf("%d", i)
+			err := sender.SendEOFRK(rk, cid)
+			assert.NoError(t, err)
+		}
+
+		ctx, cancel = context.WithTimeout(context.Background(), 50*time.Minute)
+		e, err := receiver.Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Normal, e.Type())
+		assert.Equal(t, expected, e.Msg().val)
+		e.Ack(true)
+
+		e, err = receiver.Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Prune, e.Type())
+		e.Ack(true)
+
 		e, err = receiver.Next(ctx)
 		cancel()
 		assert.NoError(t, err)
@@ -285,261 +336,69 @@ func TestMapReducer(t *testing.T) {
 		for _, handler := range handlers {
 			<-handler
 		}
-		log.Infof("All handlers finisheded")
 	})
 
-	// t.Run("1Reducer1Cid10Msg", func(t *testing.T) {
-	// 	init := test2container
-	// 	assert.NoError(t, init.Err)
+	t.Run("10Reducer1Cid1000Msg", func(t *testing.T) {
+		init := test3container
+		assert.NoError(t, init.Err)
 
-	// 	cid := "1"
-	// 	sender, receiver, stopMapReducer, handlers, err := setupReducerPipeline(t, init, 1)
-	// 	assert.NoError(t, err)
+		cid := "1"
+		sender, receiver, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
+		assert.NoError(t, err)
 
-	// 	expected := uint64(0)
-	// 	for i := range uint64(10) {
-	// 		err = sender.Send(&num{val: i}, cid)
-	// 		assert.NoError(t, err)
-	// 		expected += i
-	// 	}
+		expected := uint64(0)
+		for i := range uint64(1000) {
+			rk := fmt.Sprintf("%d", i)
+			err = sender.SendRKID(&num{val: i}, rk, cid)
+			assert.NoError(t, err)
+			expected += i
+		}
 
-	// 	ctx, cancel := newTimer()
-	// 	_, err = receiver.Next(ctx)
-	// 	cancel()
-	// 	assert.Error(t, err)
+		ctx, cancel := newTimer()
+		_, err = receiver.Next(ctx)
+		cancel()
+		assert.Error(t, err)
 
-	// 	err = sender.SendEOF(cid)
-	// 	assert.NoError(t, err)
+		for i := 0; i < 10; i++ {
+			rk := fmt.Sprintf("%d", i)
+			err := sender.SendEOFRK(rk, cid)
+			assert.NoError(t, err)
+		}
 
-	// 	ctx, cancel = newTimer()
-	// 	e, err := receiver.Next(ctx)
-	// 	cancel()
-	// 	assert.NoError(t, err)
-	// 	assert.Equal(t, middleware.Normal, e.Type())
-	// 	assert.Equal(t, expected, e.Msg().val)
-	// 	e.Ack(true)
+		ctx, cancel = context.WithTimeout(context.Background(), 50*time.Minute)
+		e, err := receiver.Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Normal, e.Type())
+		assert.Equal(t, expected, e.Msg().val)
+		e.Ack(true)
 
-	// 	ctx, cancel = newTimer()
-	// 	e, err = receiver.Next(ctx)
-	// 	cancel()
-	// 	assert.NoError(t, err)
-	// 	assert.Equal(t, middleware.Prune, e.Type())
-	// 	e.Ack(true)
+		e, err = receiver.Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Prune, e.Type())
+		e.Ack(true)
 
-	// 	ctx, cancel = newTimer()
-	// 	e, err = receiver.Next(ctx)
-	// 	cancel()
-	// 	assert.NoError(t, err)
-	// 	assert.Equal(t, middleware.EOF, e.Type())
-	// 	e.Ack(true)
+		e, err = receiver.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(true)
 
-	// 	time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
 
-	// 	stopMapReducer()
-	// 	for _, handler := range handlers {
-	// 		<-handler
-	// 	}
-	// })
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
+		}
+	})
 
-	// t.Run("2Reducer1Cid10Msg", func(t *testing.T) {
-	// 	init := test3container
-	// 	assert.NoError(t, init.Err)
+	t.Run("10Reducer2Cid10000MsgEach", func(t *testing.T) {
+		init := test4container
+		assert.NoError(t, init.Err)
+		const cidCount = uint64(2)
+		const countPerCID = 10000
 
-	// 	cid := "1"
-	// 	sender, receiver, stopMapReducer, handlers, err := setupReducerPipeline(t, init, 2)
-	// 	assert.NoError(t, err)
-
-	// 	expected := uint64(0)
-	// 	for i := range uint64(10) {
-	// 		err = sender.Send(&num{val: i}, cid)
-	// 		assert.NoError(t, err)
-	// 		expected += i
-	// 	}
-	// 	ref := time.Now()
-	// 	emptyDuration := time.Since(ref)
-	// 	err = sender.Prune(cid)
-	// 	fin := time.Since(ref) - emptyDuration
-	// 	assert.NoError(t, err)
-	// 	log.Infof("Prune duration: %s", fin)
-
-	// 	ctx, cancel := newTimer()
-	// 	_, err = receiver.Next(ctx)
-	// 	cancel()
-	// 	assert.Error(t, err)
-
-	// 	err = sender.SendEOF(cid)
-	// 	assert.NoError(t, err)
-
-	// 	ctx, cancel = newTimer()
-	// 	e, err := receiver.Next(ctx)
-	// 	cancel()
-	// 	assert.NoError(t, err)
-	// 	assert.Equal(t, middleware.Normal, e.Type())
-	// 	assert.Equal(t, expected, e.Msg().val)
-	// 	e.Ack(true)
-
-	// 	ctx, cancel = newTimer()
-	// 	e, err = receiver.Next(ctx)
-	// 	cancel()
-	// 	assert.NoError(t, err)
-	// 	assert.Equal(t, middleware.Prune, e.Type())
-	// 	e.Ack(true)
-
-	// 	ctx, cancel = newTimer()
-	// 	e, err = receiver.Next(ctx)
-	// 	cancel()
-	// 	assert.NoError(t, err)
-	// 	assert.Equal(t, middleware.EOF, e.Type())
-	// 	e.Ack(true)
-
-	// 	time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
-
-	// 	stopMapReducer()
-	// 	for _, handler := range handlers {
-	// 		<-handler
-	// 	}
-	// })
-
-	// t.Run("2Reducer2Cid10MsgEach", func(t *testing.T) {
-	// 	init := test4container
-	// 	assert.NoError(t, init.Err)
-
-	// 	cid1 := "1"
-	// 	cid2 := "2"
-	// 	sender, receiver, stopMapReducer, handlers, err := setupReducerPipeline(t, init, 2)
-	// 	assert.NoError(t, err)
-
-	// 	expected1 := uint64(0)
-	// 	expected2 := uint64(0)
-	// 	counter1 := uint64(0)
-	// 	counter2 := uint64(0)
-	// 	for {
-	// 		if counter1 < 10 {
-	// 			err = sender.Send(&num{val: counter1}, cid1)
-	// 			assert.NoError(t, err)
-	// 			expected1 += counter1
-	// 			counter1++
-	// 		}
-	// 		if counter1 > 5 && counter2 < 10 {
-	// 			err = sender.Send(&num{val: counter2}, cid2)
-	// 			assert.NoError(t, err)
-	// 			expected2 += counter2
-	// 			counter2++
-	// 		}
-	// 		if counter1 == 10 && counter2 == 10 {
-	// 			break
-	// 		}
-	// 	}
-
-	// 	ctx, cancel := newTimer()
-	// 	_, err = receiver.Next(ctx)
-	// 	cancel()
-	// 	assert.Error(t, err)
-
-	// 	err = sender.SendEOF(cid1)
-	// 	assert.NoError(t, err)
-	// 	err = sender.SendEOF(cid2)
-	// 	assert.NoError(t, err)
-
-	// 	steps := map[string]uint{
-	// 		cid1: 0,
-	// 		cid2: 0,
-	// 	}
-	// 	for range 6 {
-	// 		ctx, cancel = newTimer()
-	// 		e, err := receiver.Next(ctx)
-	// 		cancel()
-	// 		assert.NoError(t, err)
-	// 		switch steps[e.Cid()] {
-	// 		case 0:
-	// 			assert.Equal(t, middleware.Normal, e.Type())
-	// 			expected := expected1
-	// 			if e.Cid() == cid2 {
-	// 				expected = expected2
-	// 			}
-	// 			assert.Equal(t, expected, e.Msg().val)
-	// 		case 1:
-	// 			assert.Equal(t, middleware.Prune, e.Type())
-	// 		case 2:
-	// 			assert.NoError(t, err)
-	// 			assert.Equal(t, middleware.EOF, e.Type())
-	// 		default:
-	// 			t.Fatal("Got three msgs from same Cid")
-	// 		}
-	// 		e.Ack(true)
-	// 		steps[e.Cid()]++
-	// 	}
-
-	// 	time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
-
-	// 	stopMapReducer()
-	// 	for _, handler := range handlers {
-	// 		<-handler
-	// 	}
-	// })
-
-	// t.Run("10Reducer1Cid10000MsgEach", func(t *testing.T) {
-	// 	init := test5container
-	// 	assert.NoError(t, init.Err)
-
-	// 	cid := "1"
-	// 	sender, receiver, stopMapReducer, handlers, err := setupReducerPipeline(t, init, 10)
-	// 	assert.NoError(t, err)
-	// 	expected := uint64(0)
-	// 	countPerCID := uint64(10000)
-	// 	for range countPerCID {
-	// 		err = sender.Send(&num{val: 1}, cid)
-	// 		assert.NoError(t, err)
-	// 		expected += 1
-	// 	}
-	// 	err = sender.SendEOF(cid)
-	// 	assert.NoError(t, err)
-
-	// 	step := uint(0)
-	// 	for range 3 {
-	// 		log.Debugf("Waiting for message")
-	// 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
-	// 		e, err := receiver.Next(ctx)
-	// 		cancel()
-	// 		assert.NoError(t, err)
-	// 		cidIdx, err := strconv.Atoi(e.Cid())
-	// 		log.Debugf("Received message from cid %d, type %s", cidIdx, e.Type())
-	// 		cidIdx--
-	// 		assert.NoError(t, err)
-	// 		switch step {
-	// 		case 0:
-	// 			assert.Equal(t, middleware.Normal, e.Type())
-	// 			assert.Equal(t, expected, e.Msg().val)
-	// 		case 1:
-	// 			assert.Equal(t, middleware.Prune, e.Type())
-	// 		case 2:
-	// 			assert.Equal(t, middleware.EOF, e.Type())
-	// 		default:
-	// 			t.Fatal("Got three msgs from same Cid")
-	// 		}
-	// 		e.Ack(true)
-	// 		step++
-	// 	}
-
-	// 	time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
-
-	// 	log.Infof("Stopping map reducers")
-	// 	stopMapReducer()
-	// 	for k, handler := range handlers {
-	// 		log.Infof("Waiting for handler %d", k)
-	// 		<-handler
-	// 	}
-	// })
-
-	// t.Run("10Reducer2Cid10000MsgEach", func(t *testing.T) {
-	// 	init := test6container
-	// 	assert.NoError(t, init.Err)
-	// 	const reducerCount = 10
-	// 	const cidCount = uint64(2)
-	// 	const countPerCID = 10000
-
-	// 	testBulk(t, cidCount, init, reducerCount, countPerCID)
-	// })
+		testBulk(t, cidCount, init, countPerCID)
+	})
 
 	// t.Run("10Reducer10Cid10000MsgEach", func(t *testing.T) {
 	// 	init := test7container
@@ -551,80 +410,81 @@ func TestMapReducer(t *testing.T) {
 	// 	testBulk(t, cidCount, init, reducerCount, countPerCID)
 	// })
 
-	t.Run("RoutingKeys2Reducers1Cid", func(t *testing.T) {
-		init := test8container
-
-		assert.NoError(t, init.Err)
-		const countPerCID = uint64(10)
-
-		cid := "1"
-		// routingKeys := []string{"odd", "even"}
-		sender, receiver, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
-		assert.NoError(t, err)
-		expected := uint64(0)
-		for i := range countPerCID {
-			// rk := "odd"
-			// if i%2 == 0 {
-			// 	rk = "even"
-			// }
-			rk := fmt.Sprintf("%d", i)
-			err = sender.SendRKID(&num{val: i}, rk, cid)
-			assert.NoError(t, err)
-			expected += i
-		}
-		err = sender.Prune(cid)
-		assert.NoError(t, err)
-		for i := 0; i < 10; i++ {
-			rk := fmt.Sprintf("%d", i)
-			err := sender.SendEOFRK(rk, cid)
-			assert.NoError(t, err)
-		}
-
-		step := uint(0)
-		for range 3 {
-			log.Debugf("Waiting for message")
-			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Minute)
-			e, err := receiver.Next(ctx)
-			cancel()
-			assert.NoError(t, err)
-			// cidIdx, err := strconv.Atoi(e.Cid())
-			// cidIdx--
-			assert.NoError(t, err)
-			log.Debugf("Received message from cid %s, type %s", e.Cid(), e.Type())
-			switch step {
-			case 0:
-				assert.Equal(t, middleware.Normal, e.Type())
-				assert.Equal(t, expected, e.Msg().val)
-			case 1:
-				assert.Equal(t, middleware.Prune, e.Type())
-			case 2:
-				assert.Equal(t, middleware.EOF, e.Type())
-			default:
-				t.Fatal("Got three msgs from same Cid")
-			}
-			e.Ack(true)
-			step++
-		}
-
-		log.Infof("AALLL GOOD")
-		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
-
-		log.Infof("Stopping map reducers")
-		stopMapReducer()
-		for k, handler := range handlers {
-			log.Infof("Waiting for handler %d", k)
-			<-handler
-		}
-		log.Infof("All handlers finisheded")
-	})
 }
 
-// func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes, reducerCount uint, countPerCID uint64) {
+func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes, countPerCID uint64) {
+	cids := []string{}
+	for i := range cidCount {
+		cids = append(cids, fmt.Sprintf("%d", i))
+	}
+	sender, receiver, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
+	assert.NoError(t, err)
+
+	expecteds := 0
+	for i := 0; i < int(countPerCID); i++ {
+		for cid := range cidCount {
+			rk := fmt.Sprintf("%d", i)
+			err = sender.SendRKID(&num{val: uint64(i)}, rk, cids[cid])
+			assert.NoError(t, err)
+			if cid == 0 {
+				expecteds += i
+			}
+		}
+	}
+
+	for cid := range cidCount {
+		for i := 0; i < 10; i++ {
+			rk := fmt.Sprintf("%d", i)
+			err := sender.SendEOFRK(rk, cids[cid])
+			assert.NoError(t, err)
+		}
+	}
+
+	steps := map[string]uint{}
+	for i := range cidCount {
+		steps[cids[i]] = 0
+	}
+	for range cidCount * 3 {
+		log.Debugf("Waiting for message")
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+		e, err := receiver.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		cidIdx, err := strconv.Atoi(e.Cid())
+		cidIdx--
+		assert.NoError(t, err)
+		log.Debugf("Received message from cid %d, type %s", cidIdx, e.Type())
+		switch steps[e.Cid()] {
+		case 0:
+			assert.Equal(t, middleware.Normal, e.Type())
+			assert.Equal(t, uint64(expecteds), e.Msg().val)
+		case 1:
+			assert.Equal(t, middleware.Prune, e.Type())
+		case 2:
+			assert.Equal(t, middleware.EOF, e.Type())
+		default:
+			t.Fatal("Got three msgs from same Cid")
+		}
+		e.Ack(true)
+		steps[e.Cid()]++
+	}
+
+	time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+	log.Infof("Stopping map reducers")
+	stopMapReducer()
+	for k, handler := range handlers {
+		log.Infof("Waiting for handler %d", k)
+		<-handler
+	}
+}
+
+// func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes, countPerCID uint64) {
 // 	cids := []string{}
 // 	for i := range cidCount {
 // 		cids = append(cids, fmt.Sprintf("%d", i+1))
 // 	}
-// 	sender, receiver, stopMapReducer, handlers, err := setupReducerPipeline(t, init, reducerCount)
+// 	sender, receiver, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
 // 	assert.NoError(t, err)
 // 	expecteds := make([]uint64, cidCount)
 // 	counters := make([]uint64, cidCount)
@@ -640,7 +500,7 @@ func TestMapReducer(t *testing.T) {
 // 		}
 // 		for j := range cidCount {
 // 			if i > startingPoints[j] && counters[j] < countPerCID {
-// 				err = sender.Send(&num{val: 1}, cids[j])
+// 				err = sender.SendRKID(&num{val: 1}, cids[j])
 // 				assert.NoError(t, err)
 // 				expecteds[j] += 1
 // 				counters[j]++
