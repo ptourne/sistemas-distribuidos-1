@@ -9,9 +9,7 @@ import (
 
 // ver de declare, tratr de devovler un struct, ghacer read/write
 type Connection[T codec.Serializable[T]] interface {
-	// ConsumeFrom(sourceName string, groupName string, consumerCount uint, prefetch int) (Receiver[T], error)
 	ConsumeFrom(sourceName string, groupName string, routingkey string, prefetch int) (Receiver[T], error)
-	// WriteTo(writeExchangeName string, subscribers []string) (Sender[T], error)
 	WriteTo(writeExchangeName string, subscribers []string, idWorker string) (Sender[T], error)
 	Close() error
 }
