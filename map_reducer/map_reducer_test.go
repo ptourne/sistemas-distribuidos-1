@@ -86,62 +86,6 @@ const RABBITMQ_EXPOSED_PORT_BASE = uint16(4000)
 
 var baseConfig = rabbitmq.NewConfiguration("guest", "guest", "localhost", RABBITMQ_EXPOSED_PORT_BASE)
 
-// func setupReducerPipeline(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, reducerCount uint) (
-// 	sender middleware.Sender[i],
-// 	receiver middleware.Receiver[r],
-// 	stopReducers context.CancelFunc,
-// 	reducerHandles []chan struct{},
-// 	err error,
-// ) {
-// 	senderConnector, err := rabbitmq.ConnectorCustom(init.Config)
-// 	assert.NoError(t, err)
-
-// 	middlewareSenderLogger := logger.NewConsoleLogger("midd_send", logger.Debug)
-// 	senderMiddleware := rabbitmq.NewMiddleware[i](senderConnector, middlewareSenderLogger)
-// 	sender, err = senderMiddleware.WriteTo("input", []string{"map_reducer"})
-// 	assert.NoError(t, err)
-
-// 	reducerHandles = make([]chan struct{}, reducerCount)
-// 	mapReducerCtx, stopMapReducer := context.WithCancel(context.Background())
-// 	for idx := range reducerCount {
-// 		reducerConnector, err := rabbitmq.ConnectorCustom(init.Config)
-// 		assert.NoError(t, err)
-// 		id := idx + 1
-// 		mapReducer, err := NewMapReducer(
-// 			reducerConnector,
-// 			"map_reducer",
-// 			"input",
-// 			2,
-// 			sumMapReducer{},
-// 			[]string{"output"},
-// 			"",
-// 			[]string{},
-// 			fmt.Sprintf("%d", id),
-// 			reducerCount,
-// 			1,
-// 		)
-// 		assert.NoError(t, err)
-
-// 		handler := make(chan struct{})
-// 		go func() {
-// 			log.Infof("Starting map reducer: %v", mapReducer)
-// 			err = mapReducer.Run(mapReducerCtx)
-// 			assert.NoErrorf(t, err, "error running map reducer %d: %s", id, err)
-// 			log.Infof("map reducer finished")
-// 			close(handler)
-// 		}()
-// 		reducerHandles[idx] = handler
-// 	}
-
-// 	receiverConnector, err := rabbitmq.ConnectorCustom(init.Config)
-// 	assert.NoError(t, err)
-// 	middlewareReceiverLogger := logger.NewConsoleLogger("midd_rec", logger.Debug)
-// 	receiverMiddleware := rabbitmq.NewMiddleware[r](receiverConnector, middlewareReceiverLogger)
-// 	receiver, err = receiverMiddleware.ConsumeFrom("map_reducer", "receiver", 1, 1)
-// 	assert.NoError(t, err)
-// 	return sender, receiver, stopMapReducer, reducerHandles, err
-// }
-
 func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (
 	sender middleware.Sender[i],
 	receiver middleware.Receiver[r],
@@ -154,7 +98,7 @@ func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (
 
 	middlewareSenderLogger := logger.NewConsoleLogger("midd_send", logger.Debug)
 	senderMiddleware := rabbitmq.NewMiddleware[i](senderConnector, middlewareSenderLogger)
-	sender, err = senderMiddleware.WriteToRKID("input", []string{"map_reducer"})
+	sender, err = senderMiddleware.WriteTo("input", []string{"map_reducer"}, "1")
 	assert.NoError(t, err)
 
 	reducerHandles = make([]chan struct{}, 10)
@@ -191,7 +135,7 @@ func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (
 	assert.NoError(t, err)
 	middlewareReceiverLogger := logger.NewConsoleLogger("midd_rec", logger.Debug)
 	receiverMiddleware := rabbitmq.NewMiddleware[r](receiverConnector, middlewareReceiverLogger)
-	receiver, err = receiverMiddleware.ConsumeFromRKID("map_reducer", "receiver", "1", 1, 1)
+	receiver, err = receiverMiddleware.ConsumeFrom("map_reducer", "receiver", "1", 1)
 	assert.NoError(t, err)
 	return sender, receiver, stopMapReducer, reducerHandles, err
 }
@@ -241,7 +185,7 @@ func TestMapReducer(t *testing.T) {
 		assert.NoError(t, err)
 
 		log.Infof("created good ")
-		err = sender.SendRKID(&num{val: 1}, "1", cid)
+		err = sender.Send(&num{val: 1}, cid)
 		assert.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -252,11 +196,8 @@ func TestMapReducer(t *testing.T) {
 		err = sender.Prune(cid)
 		assert.NoError(t, err)
 
-		for i := 0; i < 10; i++ {
-			rk := fmt.Sprintf("%d", i)
-			err := sender.SendEOFRK(rk, cid)
-			assert.NoError(t, err)
-		}
+		err = sender.SendEOFAllID(cid)
+		assert.NoError(t, err)
 
 		ctx, cancel = context.WithTimeout(context.Background(), 50*time.Minute)
 		e, err := receiver.Next(ctx)
@@ -295,8 +236,7 @@ func TestMapReducer(t *testing.T) {
 
 		expected := uint64(0)
 		for i := range uint64(10) {
-			rk := fmt.Sprintf("%d", i)
-			err = sender.SendRKID(&num{val: i}, rk, cid)
+			err = sender.Send(&num{val: i}, cid)
 			assert.NoError(t, err)
 			expected += i
 		}
@@ -306,11 +246,57 @@ func TestMapReducer(t *testing.T) {
 		cancel()
 		assert.Error(t, err)
 
-		for i := 0; i < 10; i++ {
-			rk := fmt.Sprintf("%d", i)
-			err := sender.SendEOFRK(rk, cid)
-			assert.NoError(t, err)
+		err = sender.SendEOFAllID(cid)
+		assert.NoError(t, err)
+
+		ctx, cancel = context.WithTimeout(context.Background(), 50*time.Minute)
+		e, err := receiver.Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Normal, e.Type())
+		assert.Equal(t, expected, e.Msg().val)
+		e.Ack(true)
+
+		e, err = receiver.Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Prune, e.Type())
+		e.Ack(true)
+
+		e, err = receiver.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(true)
+
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
 		}
+	})
+
+	t.Run("10Reducer1Cid10MsgID", func(t *testing.T) {
+		init := test2container
+		assert.NoError(t, init.Err)
+
+		cid := "1"
+		sender, receiver, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
+		assert.NoError(t, err)
+
+		expected := uint64(0)
+		for i := range uint64(10) {
+			err = sender.SendMsgID(&num{val: i}, cid)
+			assert.NoError(t, err)
+			expected += i
+		}
+
+		ctx, cancel := newTimer()
+		_, err = receiver.Next(ctx)
+		cancel()
+		assert.Error(t, err)
+
+		err = sender.SendEOFAllID(cid)
+		assert.NoError(t, err)
 
 		ctx, cancel = context.WithTimeout(context.Background(), 50*time.Minute)
 		e, err := receiver.Next(ctx)
@@ -348,8 +334,7 @@ func TestMapReducer(t *testing.T) {
 
 		expected := uint64(0)
 		for i := range uint64(1000) {
-			rk := fmt.Sprintf("%d", i)
-			err = sender.SendRKID(&num{val: i}, rk, cid)
+			err = sender.Send(&num{val: i}, cid)
 			assert.NoError(t, err)
 			expected += i
 		}
@@ -359,11 +344,57 @@ func TestMapReducer(t *testing.T) {
 		cancel()
 		assert.Error(t, err)
 
-		for i := 0; i < 10; i++ {
-			rk := fmt.Sprintf("%d", i)
-			err := sender.SendEOFRK(rk, cid)
-			assert.NoError(t, err)
+		err = sender.SendEOFAllID(cid)
+		assert.NoError(t, err)
+
+		ctx, cancel = context.WithTimeout(context.Background(), 50*time.Minute)
+		e, err := receiver.Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Normal, e.Type())
+		assert.Equal(t, expected, e.Msg().val)
+		e.Ack(true)
+
+		e, err = receiver.Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.Prune, e.Type())
+		e.Ack(true)
+
+		e, err = receiver.Next(ctx)
+		cancel()
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(true)
+
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
 		}
+	})
+
+	t.Run("10Reducer1Cid1000MsgID", func(t *testing.T) {
+		init := test3container
+		assert.NoError(t, init.Err)
+
+		cid := "1"
+		sender, receiver, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
+		assert.NoError(t, err)
+
+		expected := uint64(0)
+		for i := range uint64(1000) {
+			err = sender.SendMsgID(&num{val: i}, cid)
+			assert.NoError(t, err)
+			expected += i
+		}
+
+		ctx, cancel := newTimer()
+		_, err = receiver.Next(ctx)
+		cancel()
+		assert.Error(t, err)
+
+		err = sender.SendEOFAllID(cid)
+		assert.NoError(t, err)
 
 		ctx, cancel = context.WithTimeout(context.Background(), 50*time.Minute)
 		e, err := receiver.Next(ctx)
@@ -400,16 +431,6 @@ func TestMapReducer(t *testing.T) {
 		testBulk(t, cidCount, init, countPerCID)
 	})
 
-	// t.Run("10Reducer10Cid10000MsgEach", func(t *testing.T) {
-	// 	init := test7container
-	// 	assert.NoError(t, init.Err)
-	// 	const reducerCount = 10
-	// 	const cidCount = uint64(10)
-	// 	const countPerCID = 10000
-
-	// 	testBulk(t, cidCount, init, reducerCount, countPerCID)
-	// })
-
 }
 
 func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes, countPerCID uint64) {
@@ -423,8 +444,7 @@ func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes,
 	expecteds := 0
 	for i := 0; i < int(countPerCID); i++ {
 		for cid := range cidCount {
-			rk := fmt.Sprintf("%d", i)
-			err = sender.SendRKID(&num{val: uint64(i)}, rk, cids[cid])
+			err = sender.Send(&num{val: uint64(i)}, cids[cid])
 			assert.NoError(t, err)
 			if cid == 0 {
 				expecteds += i
@@ -433,11 +453,8 @@ func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes,
 	}
 
 	for cid := range cidCount {
-		for i := 0; i < 10; i++ {
-			rk := fmt.Sprintf("%d", i)
-			err := sender.SendEOFRK(rk, cids[cid])
-			assert.NoError(t, err)
-		}
+		err = sender.SendEOFAllID(cids[cid])
+		assert.NoError(t, err)
 	}
 
 	steps := map[string]uint{}
@@ -473,6 +490,7 @@ func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes,
 
 	log.Infof("Stopping map reducers")
 	stopMapReducer()
+
 	for k, handler := range handlers {
 		log.Infof("Waiting for handler %d", k)
 		<-handler

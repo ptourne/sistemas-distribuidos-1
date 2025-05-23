@@ -126,6 +126,8 @@ type SenderRabbitmq[T codec.Serializable[T]] struct {
 	isBlocked    atomic.Bool
 	isClosed     atomic.Bool
 	Log          *logger.ConsoleLogger
+	lastId       uint64
+	idSender     string
 }
 
 type Metadata struct {
@@ -213,23 +215,23 @@ func (s *SenderRabbitmq[T]) Close() error {
 	return nil
 }
 
-func (m *middlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string, consumerCount uint, prefetch int) (middleware.Receiver[T], error) {
-	m.Log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' and prefetch %d", sourceName, groupName, prefetch)
-	if sourceName == "" {
-		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
-	}
-	if groupName == "" {
-		return nil, fmt.Errorf("groupQueueName is empty, should be a valid name")
-	}
-	return m.createReadQueueRK(sourceName, groupName, "fanout", "", consumerCount, uint(prefetch))
-}
+// func (m *middlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string, consumerCount uint, prefetch int) (middleware.Receiver[T], error) {
+// 	m.Log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' and prefetch %d", sourceName, groupName, prefetch)
+// 	if sourceName == "" {
+// 		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
+// 	}
+// 	if groupName == "" {
+// 		return nil, fmt.Errorf("groupQueueName is empty, should be a valid name")
+// 	}
+// 	return m.createReadQueueRK(sourceName, groupName, "fanout", "", consumerCount, uint(prefetch))
+// }
 
-func (m *middlewareRabbitmq[T]) ConsumeFromRKID(sourceName string, groupName string, routingKey string, consumerCount uint, prefetch int) (middleware.Receiver[T], error) {
+func (m *middlewareRabbitmq[T]) ConsumeFrom(sourceName string, groupName string, routingKey string, prefetch int) (middleware.Receiver[T], error) {
 	t := "direct"
-	return m.createReadQueueRK(sourceName, groupName, t, routingKey, consumerCount, uint(prefetch))
+	return m.createReadQueueRK(sourceName, groupName, t, routingKey, uint(prefetch))
 }
 
-func (m *middlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, t string, routingKey string, consumerCount uint, prefetch int) (middleware.Receiver[T], error) {
+func (m *middlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName string, t string, routingKey string, prefetch int) (middleware.Receiver[T], error) {
 	m.Log.Infof("Creating ConsumeFrom exchange '%s' with groupName '%s' and prefetch %d", sourceName, groupName, prefetch)
 	if sourceName == "" {
 		return nil, fmt.Errorf("readExchangeName is empty, should be a valid name")
@@ -237,10 +239,10 @@ func (m *middlewareRabbitmq[T]) ConsumeFromRK(sourceName string, groupName strin
 	if groupName == "" {
 		return nil, fmt.Errorf("groupQueueName is empty, should be a valid name")
 	}
-	return m.createReadQueueRK(sourceName, groupName, t, routingKey, consumerCount, uint(prefetch))
+	return m.createReadQueueRK(sourceName, groupName, t, routingKey, uint(prefetch))
 }
 
-func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queueName string, t string, routingKey string, consumerCount uint, prefetch uint) (middleware.Receiver[T], error) {
+func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queueName string, t string, routingKey string, prefetch uint) (middleware.Receiver[T], error) {
 
 	input, err := createConsumerRK[T, T](m, readExchangeName, queueName, t, routingKey, prefetch)
 	if err != nil {
@@ -261,7 +263,7 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 		input:         input,
 		closeReceiver: closeReceiver,
 		closeSender:   closeSender,
-		consumerCount: consumerCount,
+		consumerCount: 1,
 		prefetch:      int(prefetch),
 		finishCids: make(map[string]struct {
 			finishDonePending uint
@@ -327,23 +329,23 @@ func createConsumerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	return ReceiverChannel[I]{readExchangeName, queueName, inputCh, &msgs, m.Log}, nil
 }
 
-func (m *middlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string) (middleware.Sender[T], error) {
-	subscribersMap := make(map[string][]string)
-	for _, sub := range subscribers {
-		subscribersMap[sub] = []string{""}
-	}
-	return m.writeToRK(outputName, subscribersMap, "fanout")
-}
+// func (m *middlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string, idWorker string) (middleware.Sender[T], error) {
+// 	subscribersMap := make(map[string][]string)
+// 	for _, sub := range subscribers {
+// 		subscribersMap[sub] = []string{""}
+// 	}
+// 	return m.writeToRK(outputName, subscribersMap, "fanout", idWorker)
+// }
 
-func (m *middlewareRabbitmq[T]) WriteToRKID(outputName string, subscribers []string) (middleware.Sender[T], error) {
+func (m *middlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string, idWorker string) (middleware.Sender[T], error) {
 	subscribersMap := make(map[string][]string)
 	for _, sub := range subscribers {
 		subscribersMap[sub] = []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
 	}
-	return m.writeToRK(outputName, subscribersMap, "direct")
+	return m.writeToRK(outputName, subscribersMap, "direct", idWorker)
 }
 
-func (m *middlewareRabbitmq[T]) writeToRK(outputName string, subscribers map[string][]string, t string) (middleware.Sender[T], error) {
+func (m *middlewareRabbitmq[T]) writeToRK(outputName string, subscribers map[string][]string, t string, idWorker string) (middleware.Sender[T], error) {
 	m.Log.Infof("Creating WriteTo exchange '%s'", outputName)
 	output, err := CreateProducerRK[T, T](m, outputName, t)
 	if err != nil {
@@ -364,6 +366,8 @@ func (m *middlewareRabbitmq[T]) writeToRK(outputName string, subscribers map[str
 		exchangeName: outputName,
 		output:       output,
 		Log:          m.Log,
+		lastId:       0,
+		idSender:     idWorker,
 	}
 	sender.isBlocked.Store(false)
 	sender.isClosed.Store(false)
@@ -402,7 +406,19 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 }
 
 func (s *SenderRabbitmq[T]) SendEOF(cid string) error {
-	return s.SendEOFRK("", cid)
+	rk := s.idSender
+	return s.SendEOFRK(rk, cid)
+}
+
+func (s *SenderRabbitmq[T]) SendEOFAllID(cid string) error {
+	for i := 0; i < 10; i++ {
+		rk := fmt.Sprintf("%d", i)
+		err := s.SendEOFRK(rk, cid)
+		if err != nil {
+			return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
+		}
+	}
+	return nil
 }
 
 func (s *SenderRabbitmq[T]) SendEOFRK(routingKey string, cid string) error {
@@ -658,13 +674,14 @@ func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, c
 }
 
 func (s *SenderRabbitmq[T]) Send(row T, cid string) error {
-	return s.SendRK(row, "", cid)
+	rk := s.idSender
+	return s.SendRK(row, rk, cid)
 }
 
-func (s *SenderRabbitmq[T]) SendRKID(row T, id, cid string) error { // solo toma rk de un digito!!
-	routingKey := string(id[len(id)-1])
-	// s.Log.Infof("SendRKID: %s", routingKey)
-	return s.SendRK(row, routingKey, cid)
+func (s *SenderRabbitmq[T]) SendMsgID(row T, cid string) error {
+	last := fmt.Sprintf("%d", s.lastId)
+	rk := string(last[len(last)-1])
+	return s.SendRK(row, rk, cid)
 }
 
 func (s *SenderRabbitmq[T]) SendRK(row T, routingKey string, cid string) error {
