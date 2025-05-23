@@ -267,16 +267,18 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		consumerCount := uint(2)
 		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		senderMiddleware := NewMiddleware[*Ball](senderConnector, middlewareLogger)
-		sender, err := senderMiddleware.WriteTo("output", []string{""}, senderId, consumerCount)
+		var senderMiddlewareLogger *logger.ConsoleLogger = logger.NewConsoleLogger("mid_sender", logger.Debug)
+		senderMiddleware := NewMiddleware[*Ball](senderConnector, senderMiddlewareLogger)
+		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"}, senderId, consumerCount)
 		assert.NoError(t, err)
 		cid := "1"
 
 		receiverConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
-		receiverMiddleware := NewMiddleware[*Ball](receiverConnector, middlewareLogger)
 		receivers := []middleware.Receiver[*Ball]{}
 		for i := 0; i < int(consumerCount); i++ {
+			var recvMiddlewareLogger *logger.ConsoleLogger = logger.NewConsoleLogger(fmt.Sprintf("mid_recv_%d", i), logger.Debug)
+			receiverMiddleware := NewMiddleware[*Ball](receiverConnector, recvMiddlewareLogger)
 			rk := fmt.Sprintf("%d", i)
 			receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", rk, 1, consumerCount)
 			assert.NoError(t, err)
@@ -284,7 +286,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 			receivers = append(receivers, receiver)
 		}
 
-		sentMsg := &Ball{3}
+		sentMsg := &Ball{1}
 		err = sender.Send(sentMsg, cid)
 		assert.NoError(t, err)
 
@@ -299,7 +301,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
 			e, err := receivers[i].Next(ctx)
 			assert.NoError(t, err)
-			log.Debugf("Received message type %s con i %d : %s", e.Type(), i)
+			log.Debugf("received message type %s con i %d", e.Type(), i)
 			switch e.Type() {
 			case middleware.Normal:
 				assert.Equal(t, sentMsg, e.Msg())

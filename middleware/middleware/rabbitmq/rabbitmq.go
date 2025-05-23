@@ -373,6 +373,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	if err != nil {
 		return fmt.Errorf("failed to encode message: %v", err)
 	}
+
 	err = s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
 		routingKey,     // routing key
@@ -751,10 +752,9 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 	if groupName != "" {
 		if routingKey == "" {
 			queueName = fmt.Sprintf("%s->%s", exchangeName, groupName)
+		} else {
+			queueName = fmt.Sprintf("%s->%s[%s]", exchangeName, groupName, routingKey)
 		}
-		// else {
-		// 	queueName = fmt.Sprintf("%s->%s[%s]", exchangeName, groupName, routingKey)
-		// }
 	}
 	m.Log.Debugf("createQueue: Creating queue '%s' for exchange '%s'", queueName, exchangeName)
 	queue, err := ch.QueueDeclare(
@@ -770,6 +770,7 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 		return nil, nil, fmt.Errorf("failed to declare queue %v", err)
 	}
 
+	m.Log.Infof("ROUTING KEY: %s with quename %s", routingKey, queue.Name)
 	err = ch.QueueBind(
 		queue.Name,   // queue name
 		routingKey,   // routing key
