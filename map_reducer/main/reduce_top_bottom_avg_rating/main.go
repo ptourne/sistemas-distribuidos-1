@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
@@ -60,7 +62,9 @@ func main() {
 		log.Errorf("error creating maperducer: %s", err)
 		return
 	}
-	err = mapReducer.Run(context.Background()) // TODO: use context to handle sigterm
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	err = mapReducer.Run(ctx) // TODO: use context to handle sigterm
 	if err != nil {
 		log.Errorf("error running map reducer: %s", err)
 		return
