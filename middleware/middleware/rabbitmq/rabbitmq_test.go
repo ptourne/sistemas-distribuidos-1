@@ -143,6 +143,90 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, received.Ack(true))
 	})
 
+	t.Run("OneMessageID", func(t *testing.T) {
+		init := test9container
+		assert.NoError(t, init.Err)
+		senderId := "1"
+		senderConnector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		senderMiddleware := NewMiddleware[*Ball](senderConnector, middlewareLogger)
+		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"}, senderId)
+		assert.NoError(t, err)
+		cid := "1"
+
+		receiverConnector, err := ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		receiverMiddleware := NewMiddleware[*Ball](receiverConnector, middlewareLogger)
+		receivers := []middleware.Receiver[*Ball]{}
+		for i := 0; i < 10; i++ {
+			rk := fmt.Sprintf("%d", i)
+			receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", rk, 1)
+			assert.NoError(t, err)
+			assert.NotNil(t, receiver)
+			receivers = append(receivers, receiver)
+		}
+
+		sentMsg := &Ball{1}
+		err = sender.SendMsgID(sentMsg, cid)
+		assert.NoError(t, err)
+
+		err = sender.Prune(cid)
+		assert.NoError(t, err)
+
+		err = sender.SendEOFAllID(cid)
+		assert.NoError(t, err)
+
+		cant_msg_received := 0
+		cant_msg_not_received := 0
+
+		for i := 0; i < 10; i++ {
+			log.Debugf("Waiting for message")
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+			e, err := receivers[i].Next(ctx)
+			assert.NoError(t, err)
+			log.Debugf("Received message type %s", e.Type())
+			switch e.Type() {
+			case middleware.Normal:
+				cant_msg_received++
+				assert.Equal(t, sentMsg, e.Msg())
+				e.Ack(true)
+
+				e, err = receivers[i].Next(ctx)
+				assert.NoError(t, err)
+				assert.Equal(t, middleware.Prune, e.Type())
+				e.Ack(true)
+
+				e, err = receivers[i].Next(ctx)
+				assert.NoError(t, err)
+				assert.Equal(t, middleware.EOF, e.Type())
+				e.Ack(true)
+				cancel()
+			case middleware.Prune:
+				cant_msg_not_received++
+				e.Ack(true)
+				e, err = receivers[i].Next(ctx)
+				assert.NoError(t, err)
+				assert.Equal(t, middleware.EOF, e.Type())
+				e.Ack(true)
+				cancel()
+			default:
+				assert.Fail(t, "should not be here")
+				cancel()
+			}
+		}
+
+		for i := 0; i < 10; i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			_, err = receivers[i].Next(ctx)
+			cancel()
+			assert.Error(t, err)
+		}
+
+		assert.Equal(t, 1, cant_msg_received)
+		assert.Equal(t, 9, cant_msg_not_received)
+
+	})
+
 	t.Run("TwoMessages", func(t *testing.T) {
 		init := test2container
 		assert.NoError(t, init.Err)
