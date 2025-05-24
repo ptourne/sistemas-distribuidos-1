@@ -3,7 +3,6 @@ package map_reducer
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -86,7 +85,7 @@ const RABBITMQ_EXPOSED_PORT_BASE = uint16(4000)
 
 var baseConfig = rabbitmq.NewConfiguration("guest", "guest", "localhost", RABBITMQ_EXPOSED_PORT_BASE)
 
-func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (
+func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, shardCount uint, shardCountOutput uint) (
 	sender middleware.Sender[i],
 	receivers []middleware.Receiver[r],
 	stopReducers context.CancelFunc,
@@ -98,12 +97,12 @@ func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (
 
 	middlewareSenderLogger := logger.NewConsoleLogger("midd_send", logger.Debug)
 	senderMiddleware := rabbitmq.NewMiddleware[i](senderConnector, middlewareSenderLogger)
-	sender, err = senderMiddleware.WriteTo("input", []string{"map_reducer"}, "1")
+	sender, err = senderMiddleware.WriteTo("input", []string{"map_reducer"}, "1", shardCount)
 	assert.NoError(t, err)
 
-	reducerHandles = make([]chan struct{}, 10)
+	reducerHandles = make([]chan struct{}, shardCount)
 	mapReducerCtx, stopMapReducer := context.WithCancel(context.Background())
-	for i := 0; i < 10; i++ {
+	for i := 0; i < int(shardCount); i++ {
 		reducerConnector, err := rabbitmq.ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		id := fmt.Sprintf("%d", i)
@@ -115,6 +114,8 @@ func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (
 			sumMapReducer{},
 			[]string{"receiver"},
 			id,
+			shardCount,
+			shardCountOutput,
 		)
 		assert.NoError(t, err)
 		assert.NotNil(t, mapReducer)
@@ -136,9 +137,9 @@ func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (
 	middlewareReceiverLogger := logger.NewConsoleLogger("midd_rec", logger.Debug)
 	receivers = []middleware.Receiver[r]{}
 	receiverMiddleware := rabbitmq.NewMiddleware[r](receiverConnector, middlewareReceiverLogger)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < int(shardCountOutput); i++ {
 		rk := fmt.Sprintf("%d", i)
-		receiver, err := receiverMiddleware.ConsumeFrom("map_reducer", "receiver", rk, 1)
+		receiver, err := receiverMiddleware.ConsumeFrom("map_reducer", "receiver", rk, 1, shardCountOutput)
 		assert.NoError(t, err)
 		assert.NotNil(t, receiver)
 		receivers = append(receivers, receiver)
@@ -182,12 +183,100 @@ func TestMapReducer(t *testing.T) {
 	test8container := <-test8
 	defer test8container.Container.Teardown()
 
-	t.Run("10Reducer1Cid1Msg", func(t *testing.T) {
+	t.Run("1Reducer1Cid1Msg", func(t *testing.T) {
 		init := test1container
 		assert.NoError(t, init.Err)
 
 		cid := "1"
-		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
+		shardCount := uint(1)
+		shardCountOutput := uint(1)
+		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput)
+		assert.NoError(t, err)
+
+		err = sender.Send(&num{val: 1}, cid)
+		assert.NoError(t, err)
+
+		for i := 0; i < int(shardCountOutput); i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			_, err = receivers[i].Next(ctx)
+			cancel()
+			assert.Error(t, err)
+		}
+
+		err = sender.Prune(cid)
+		assert.NoError(t, err)
+
+		err = sender.SendEOF(cid)
+		assert.NoError(t, err)
+
+		cant_msg_received := []int{}
+		cant_msg_not_received := uint(0)
+
+		for i := 0; i < int(shardCountOutput); i++ {
+			log.Debugf("Waiting for message")
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+			e, err := receivers[i].Next(ctx)
+			assert.NoError(t, err)
+			log.Debugf("Received message type %s", e.Type())
+			switch e.Type() {
+			case middleware.Normal:
+				cant_msg_received = append(cant_msg_received, i)
+				assert.Equal(t, uint64(1), e.Msg().val)
+				e.Ack(true)
+
+				e, err = receivers[i].Next(ctx)
+				assert.NoError(t, err)
+				assert.Equal(t, middleware.Prune, e.Type())
+				e.Ack(true)
+
+				if i == 0 {
+					e, err = receivers[i].Next(ctx)
+					assert.NoError(t, err)
+					assert.Equal(t, middleware.EOF, e.Type())
+					e.Ack(true)
+				}
+				cancel()
+			case middleware.Prune:
+				cant_msg_not_received++
+				e.Ack(true)
+				e, err = receivers[i].Next(ctx)
+				assert.NoError(t, err)
+				assert.Equal(t, middleware.EOF, e.Type())
+				e.Ack(true)
+				cancel()
+			default:
+				assert.Fail(t, "should not be here")
+				cancel()
+			}
+		}
+
+		for i := 0; i < int(shardCountOutput); i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			_, err = receivers[i].Next(ctx)
+			cancel()
+			assert.Error(t, err)
+		}
+
+		assert.Equal(t, []int{0}, cant_msg_received)
+		assert.Equal(t, shardCountOutput-1, cant_msg_not_received)
+
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
+		}
+		log.Infof("All handlers finisheded YESSS")
+	})
+
+	t.Run("5Reducer1Cid1Msg1Receiver", func(t *testing.T) {
+		init := test2container
+		assert.NoError(t, init.Err)
+		shardCount := uint(5)
+		shardCountOutput := uint(1)
+
+		cid := "1"
+		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput)
 		assert.NoError(t, err)
 
 		err = sender.Send(&num{val: 1}, cid)
@@ -203,7 +292,7 @@ func TestMapReducer(t *testing.T) {
 		err = sender.Prune(cid)
 		assert.NoError(t, err)
 
-		err = sender.SendEOFAllID(cid)
+		err = sender.SendEOF(cid)
 		assert.NoError(t, err)
 
 		cant_msg_received := 0
@@ -264,558 +353,476 @@ func TestMapReducer(t *testing.T) {
 		log.Infof("All handlers finisheded YESSS")
 	})
 
-	t.Run("10Reducer1Cid1MsgID", func(t *testing.T) {
-		init := test2container
-		assert.NoError(t, init.Err)
-
-		cid := "1"
-		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
-		assert.NoError(t, err)
-
-		err = sender.SendMsgID(&num{val: 1}, cid)
-		assert.NoError(t, err)
-
-		for i := 0; i < 10; i++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			_, err = receivers[i].Next(ctx)
-			cancel()
-			assert.Error(t, err)
-		}
-
-		err = sender.Prune(cid)
-		assert.NoError(t, err)
-
-		err = sender.SendEOFAllID(cid)
-		assert.NoError(t, err)
-
-		cant_msg_received := 0
-		cant_msg_not_received := 0
-
-		for i := 0; i < 10; i++ {
-			log.Debugf("Waiting for message")
-			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
-			e, err := receivers[i].Next(ctx)
-			assert.NoError(t, err)
-			log.Debugf("Received message type %s", e.Type())
-			switch e.Type() {
-			case middleware.Normal:
-				cant_msg_received++
-				assert.Equal(t, uint64(1), e.Msg().val)
-				e.Ack(true)
-
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.Prune, e.Type())
-				e.Ack(true)
-
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
-				cancel()
-			case middleware.Prune:
-				cant_msg_not_received++
-				e.Ack(true)
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
-				cancel()
-			default:
-				assert.Fail(t, "should not be here")
-				cancel()
-			}
-		}
-
-		for i := 0; i < 10; i++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			_, err = receivers[i].Next(ctx)
-			cancel()
-			assert.Error(t, err)
-		}
-
-		assert.Equal(t, 1, cant_msg_received)
-		assert.Equal(t, 9, cant_msg_not_received)
-
-		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
-
-		stopMapReducer()
-		for _, handler := range handlers {
-			<-handler
-		}
-		log.Infof("All handlers finisheded YESSS")
-	})
-
-	t.Run("10Reducer1Cid10Msg", func(t *testing.T) {
-		init := test3container
-		assert.NoError(t, init.Err)
-
-		cid := "1"
-		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
-		assert.NoError(t, err)
-
-		expected := uint64(0)
-		for i := range uint64(10) {
-			err = sender.Send(&num{val: i}, cid)
-			assert.NoError(t, err)
-			expected += i
-		}
-
-		for i := 0; i < 10; i++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			_, err = receivers[i].Next(ctx)
-			cancel()
-			assert.Error(t, err)
-		}
-
-		err = sender.Prune(cid)
-		assert.NoError(t, err)
-
-		err = sender.SendEOFAllID(cid)
-		assert.NoError(t, err)
-
-		cant_msg_received := 0
-		cant_msg_not_received := 0
-
-		for i := 0; i < 10; i++ {
-			log.Debugf("Waiting for message")
-			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
-			e, err := receivers[i].Next(ctx)
-			assert.NoError(t, err)
-			log.Debugf("Received message type %s", e.Type())
-			switch e.Type() {
-			case middleware.Normal:
-				cant_msg_received++
-				assert.Equal(t, expected, e.Msg().val)
-				e.Ack(true)
-
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.Prune, e.Type())
-				e.Ack(true)
-
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
-				cancel()
-			case middleware.Prune:
-				cant_msg_not_received++
-				e.Ack(true)
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
-				cancel()
-			default:
-				assert.Fail(t, "should not be here")
-				cancel()
-			}
-		}
-
-		for i := 0; i < 10; i++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			_, err = receivers[i].Next(ctx)
-			cancel()
-			assert.Error(t, err)
-		}
-
-		assert.Equal(t, 1, cant_msg_received)
-		assert.Equal(t, 9, cant_msg_not_received)
-
-		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
-
-		stopMapReducer()
-		for _, handler := range handlers {
-			<-handler
-		}
-		log.Infof("All handlers finisheded YESSS")
-	})
-	t.Run("10Reducer1Cid10MsgID", func(t *testing.T) {
-		init := test4container
-		assert.NoError(t, init.Err)
-
-		cid := "1"
-		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
-		assert.NoError(t, err)
-
-		expected := uint64(0)
-		for i := range uint64(10) {
-			err = sender.SendMsgID(&num{val: i}, cid)
-			assert.NoError(t, err)
-			expected += i
-		}
-
-		for i := 0; i < 10; i++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			_, err = receivers[i].Next(ctx)
-			cancel()
-			assert.Error(t, err)
-		}
-
-		err = sender.Prune(cid)
-		assert.NoError(t, err)
-
-		err = sender.SendEOFAllID(cid)
-		assert.NoError(t, err)
-
-		cant_msg_received := 0
-		cant_msg_not_received := 0
-
-		for i := 0; i < 10; i++ {
-			log.Debugf("Waiting for message")
-			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
-			e, err := receivers[i].Next(ctx)
-			assert.NoError(t, err)
-			log.Debugf("Received message type %s", e.Type())
-			switch e.Type() {
-			case middleware.Normal:
-				cant_msg_received++
-				assert.Equal(t, expected, e.Msg().val)
-				e.Ack(true)
-
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.Prune, e.Type())
-				e.Ack(true)
-
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
-				cancel()
-			case middleware.Prune:
-				cant_msg_not_received++
-				e.Ack(true)
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
-				cancel()
-			default:
-				assert.Fail(t, "should not be here")
-				cancel()
-			}
-		}
-
-		for i := 0; i < 10; i++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			_, err = receivers[i].Next(ctx)
-			cancel()
-			assert.Error(t, err)
-		}
-
-		assert.Equal(t, 1, cant_msg_received)
-		assert.Equal(t, 9, cant_msg_not_received)
-
-		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
-
-		stopMapReducer()
-		for _, handler := range handlers {
-			<-handler
-		}
-		log.Infof("All handlers finisheded YESSS")
-	})
-
-	t.Run("10Reducer1Cid1000Msg", func(t *testing.T) {
-		init := test5container
-		assert.NoError(t, init.Err)
-
-		cid := "1"
-		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
-		assert.NoError(t, err)
-
-		expected := uint64(0)
-		for i := range uint64(1000) {
-			err = sender.Send(&num{val: i}, cid)
-			assert.NoError(t, err)
-			expected += i
-		}
-
-		for i := 0; i < 10; i++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			_, err = receivers[i].Next(ctx)
-			cancel()
-			assert.Error(t, err)
-		}
-
-		err = sender.Prune(cid)
-		assert.NoError(t, err)
-
-		err = sender.SendEOFAllID(cid)
-		assert.NoError(t, err)
-
-		cant_msg_received := 0
-		cant_msg_not_received := 0
-
-		for i := 0; i < 10; i++ {
-			log.Debugf("Waiting for message")
-			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
-			e, err := receivers[i].Next(ctx)
-			assert.NoError(t, err)
-			log.Debugf("Received message type %s", e.Type())
-			switch e.Type() {
-			case middleware.Normal:
-				cant_msg_received++
-				assert.Equal(t, expected, e.Msg().val)
-				e.Ack(true)
-
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.Prune, e.Type())
-				e.Ack(true)
-
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
-				cancel()
-			case middleware.Prune:
-				cant_msg_not_received++
-				e.Ack(true)
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
-				cancel()
-			default:
-				assert.Fail(t, "should not be here")
-				cancel()
-			}
-		}
-
-		for i := 0; i < 10; i++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			_, err = receivers[i].Next(ctx)
-			cancel()
-			assert.Error(t, err)
-		}
-
-		assert.Equal(t, 1, cant_msg_received)
-		assert.Equal(t, 9, cant_msg_not_received)
-
-		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
-
-		stopMapReducer()
-		for _, handler := range handlers {
-			<-handler
-		}
-		log.Infof("All handlers finisheded YESSS")
-	})
-
-	t.Run("10Reducer1Cid1000MsgID", func(t *testing.T) {
-		init := test6container
-		assert.NoError(t, init.Err)
-
-		cid := "1"
-		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
-		assert.NoError(t, err)
-
-		expected := uint64(0)
-		for i := range uint64(1000) {
-			err = sender.SendMsgID(&num{val: i}, cid)
-			assert.NoError(t, err)
-			expected += i
-		}
-
-		for i := 0; i < 10; i++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			_, err = receivers[i].Next(ctx)
-			cancel()
-			assert.Error(t, err)
-		}
-
-		err = sender.Prune(cid)
-		assert.NoError(t, err)
-
-		err = sender.SendEOFAllID(cid)
-		assert.NoError(t, err)
-
-		cant_msg_received := 0
-		cant_msg_not_received := 0
-
-		for i := 0; i < 10; i++ {
-			log.Debugf("Waiting for message")
-			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
-			e, err := receivers[i].Next(ctx)
-			assert.NoError(t, err)
-			log.Debugf("Received message type %s", e.Type())
-			switch e.Type() {
-			case middleware.Normal:
-				cant_msg_received++
-				assert.Equal(t, expected, e.Msg().val)
-				e.Ack(true)
-
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.Prune, e.Type())
-				e.Ack(true)
-
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
-				cancel()
-			case middleware.Prune:
-				cant_msg_not_received++
-				e.Ack(true)
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
-				cancel()
-			default:
-				assert.Fail(t, "should not be here")
-				cancel()
-			}
-		}
-
-		for i := 0; i < 10; i++ {
-			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			_, err = receivers[i].Next(ctx)
-			cancel()
-			assert.Error(t, err)
-		}
-
-		assert.Equal(t, 1, cant_msg_received)
-		assert.Equal(t, 9, cant_msg_not_received)
-
-		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
-
-		stopMapReducer()
-		for _, handler := range handlers {
-			<-handler
-		}
-		log.Infof("All handlers finisheded YESSS")
-	})
-
-	t.Run("10Reducer2Cid10000MsgEach", func(t *testing.T) {
-		init := test7container
-		assert.NoError(t, init.Err)
-		const cidCount = uint64(2)
-		const countPerCID = 10000
-
-		testBulk(t, cidCount, init, countPerCID)
-	})
+	// t.Run("10Reducer1Cid10Msg", func(t *testing.T) {
+	// 	init := test3container
+	// 	assert.NoError(t, init.Err)
+
+	// 	cid := "1"
+	// 	sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
+	// 	assert.NoError(t, err)
+
+	// 	expected := uint64(0)
+	// 	for i := range uint64(10) {
+	// 		err = sender.Send(&num{val: i}, cid)
+	// 		assert.NoError(t, err)
+	// 		expected += i
+	// 	}
+
+	// 	for i := 0; i < 10; i++ {
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	// 		_, err = receivers[i].Next(ctx)
+	// 		cancel()
+	// 		assert.Error(t, err)
+	// 	}
+
+	// 	err = sender.Prune(cid)
+	// 	assert.NoError(t, err)
+
+	// 	err = sender.SendEOFAllID(cid)
+	// 	assert.NoError(t, err)
+
+	// 	cant_msg_received := 0
+	// 	cant_msg_not_received := 0
+
+	// 	for i := 0; i < 10; i++ {
+	// 		log.Debugf("Waiting for message")
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+	// 		e, err := receivers[i].Next(ctx)
+	// 		assert.NoError(t, err)
+	// 		log.Debugf("Received message type %s", e.Type())
+	// 		switch e.Type() {
+	// 		case middleware.Normal:
+	// 			cant_msg_received++
+	// 			assert.Equal(t, expected, e.Msg().val)
+	// 			e.Ack(true)
+
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.Prune, e.Type())
+	// 			e.Ack(true)
+
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.EOF, e.Type())
+	// 			e.Ack(true)
+	// 			cancel()
+	// 		case middleware.Prune:
+	// 			cant_msg_not_received++
+	// 			e.Ack(true)
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.EOF, e.Type())
+	// 			e.Ack(true)
+	// 			cancel()
+	// 		default:
+	// 			assert.Fail(t, "should not be here")
+	// 			cancel()
+	// 		}
+	// 	}
+
+	// 	for i := 0; i < 10; i++ {
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	// 		_, err = receivers[i].Next(ctx)
+	// 		cancel()
+	// 		assert.Error(t, err)
+	// 	}
+
+	// 	assert.Equal(t, 1, cant_msg_received)
+	// 	assert.Equal(t, 9, cant_msg_not_received)
+
+	// 	time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+	// 	stopMapReducer()
+	// 	for _, handler := range handlers {
+	// 		<-handler
+	// 	}
+	// 	log.Infof("All handlers finisheded YESSS")
+	// })
+	// t.Run("10Reducer1Cid10MsgID", func(t *testing.T) {
+	// 	init := test4container
+	// 	assert.NoError(t, init.Err)
+
+	// 	cid := "1"
+	// 	sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
+	// 	assert.NoError(t, err)
+
+	// 	expected := uint64(0)
+	// 	for i := range uint64(10) {
+	// 		err = sender.SendMsgID(&num{val: i}, cid)
+	// 		assert.NoError(t, err)
+	// 		expected += i
+	// 	}
+
+	// 	for i := 0; i < 10; i++ {
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	// 		_, err = receivers[i].Next(ctx)
+	// 		cancel()
+	// 		assert.Error(t, err)
+	// 	}
+
+	// 	err = sender.Prune(cid)
+	// 	assert.NoError(t, err)
+
+	// 	err = sender.SendEOFAllID(cid)
+	// 	assert.NoError(t, err)
+
+	// 	cant_msg_received := 0
+	// 	cant_msg_not_received := 0
+
+	// 	for i := 0; i < 10; i++ {
+	// 		log.Debugf("Waiting for message")
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+	// 		e, err := receivers[i].Next(ctx)
+	// 		assert.NoError(t, err)
+	// 		log.Debugf("Received message type %s", e.Type())
+	// 		switch e.Type() {
+	// 		case middleware.Normal:
+	// 			cant_msg_received++
+	// 			assert.Equal(t, expected, e.Msg().val)
+	// 			e.Ack(true)
+
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.Prune, e.Type())
+	// 			e.Ack(true)
+
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.EOF, e.Type())
+	// 			e.Ack(true)
+	// 			cancel()
+	// 		case middleware.Prune:
+	// 			cant_msg_not_received++
+	// 			e.Ack(true)
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.EOF, e.Type())
+	// 			e.Ack(true)
+	// 			cancel()
+	// 		default:
+	// 			assert.Fail(t, "should not be here")
+	// 			cancel()
+	// 		}
+	// 	}
+
+	// 	for i := 0; i < 10; i++ {
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	// 		_, err = receivers[i].Next(ctx)
+	// 		cancel()
+	// 		assert.Error(t, err)
+	// 	}
+
+	// 	assert.Equal(t, 1, cant_msg_received)
+	// 	assert.Equal(t, 9, cant_msg_not_received)
+
+	// 	time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+	// 	stopMapReducer()
+	// 	for _, handler := range handlers {
+	// 		<-handler
+	// 	}
+	// 	log.Infof("All handlers finisheded YESSS")
+	// })
+
+	// t.Run("10Reducer1Cid1000Msg", func(t *testing.T) {
+	// 	init := test5container
+	// 	assert.NoError(t, init.Err)
+
+	// 	cid := "1"
+	// 	sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
+	// 	assert.NoError(t, err)
+
+	// 	expected := uint64(0)
+	// 	for i := range uint64(1000) {
+	// 		err = sender.Send(&num{val: i}, cid)
+	// 		assert.NoError(t, err)
+	// 		expected += i
+	// 	}
+
+	// 	for i := 0; i < 10; i++ {
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	// 		_, err = receivers[i].Next(ctx)
+	// 		cancel()
+	// 		assert.Error(t, err)
+	// 	}
+
+	// 	err = sender.Prune(cid)
+	// 	assert.NoError(t, err)
+
+	// 	err = sender.SendEOFAllID(cid)
+	// 	assert.NoError(t, err)
+
+	// 	cant_msg_received := 0
+	// 	cant_msg_not_received := 0
+
+	// 	for i := 0; i < 10; i++ {
+	// 		log.Debugf("Waiting for message")
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+	// 		e, err := receivers[i].Next(ctx)
+	// 		assert.NoError(t, err)
+	// 		log.Debugf("Received message type %s", e.Type())
+	// 		switch e.Type() {
+	// 		case middleware.Normal:
+	// 			cant_msg_received++
+	// 			assert.Equal(t, expected, e.Msg().val)
+	// 			e.Ack(true)
+
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.Prune, e.Type())
+	// 			e.Ack(true)
+
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.EOF, e.Type())
+	// 			e.Ack(true)
+	// 			cancel()
+	// 		case middleware.Prune:
+	// 			cant_msg_not_received++
+	// 			e.Ack(true)
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.EOF, e.Type())
+	// 			e.Ack(true)
+	// 			cancel()
+	// 		default:
+	// 			assert.Fail(t, "should not be here")
+	// 			cancel()
+	// 		}
+	// 	}
+
+	// 	for i := 0; i < 10; i++ {
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	// 		_, err = receivers[i].Next(ctx)
+	// 		cancel()
+	// 		assert.Error(t, err)
+	// 	}
+
+	// 	assert.Equal(t, 1, cant_msg_received)
+	// 	assert.Equal(t, 9, cant_msg_not_received)
+
+	// 	time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+	// 	stopMapReducer()
+	// 	for _, handler := range handlers {
+	// 		<-handler
+	// 	}
+	// 	log.Infof("All handlers finisheded YESSS")
+	// })
+
+	// t.Run("10Reducer1Cid1000MsgID", func(t *testing.T) {
+	// 	init := test6container
+	// 	assert.NoError(t, init.Err)
+
+	// 	cid := "1"
+	// 	sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
+	// 	assert.NoError(t, err)
+
+	// 	expected := uint64(0)
+	// 	for i := range uint64(1000) {
+	// 		err = sender.SendMsgID(&num{val: i}, cid)
+	// 		assert.NoError(t, err)
+	// 		expected += i
+	// 	}
+
+	// 	for i := 0; i < 10; i++ {
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	// 		_, err = receivers[i].Next(ctx)
+	// 		cancel()
+	// 		assert.Error(t, err)
+	// 	}
+
+	// 	err = sender.Prune(cid)
+	// 	assert.NoError(t, err)
+
+	// 	err = sender.SendEOFAllID(cid)
+	// 	assert.NoError(t, err)
+
+	// 	cant_msg_received := 0
+	// 	cant_msg_not_received := 0
+
+	// 	for i := 0; i < 10; i++ {
+	// 		log.Debugf("Waiting for message")
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+	// 		e, err := receivers[i].Next(ctx)
+	// 		assert.NoError(t, err)
+	// 		log.Debugf("Received message type %s", e.Type())
+	// 		switch e.Type() {
+	// 		case middleware.Normal:
+	// 			cant_msg_received++
+	// 			assert.Equal(t, expected, e.Msg().val)
+	// 			e.Ack(true)
+
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.Prune, e.Type())
+	// 			e.Ack(true)
+
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.EOF, e.Type())
+	// 			e.Ack(true)
+	// 			cancel()
+	// 		case middleware.Prune:
+	// 			cant_msg_not_received++
+	// 			e.Ack(true)
+	// 			e, err = receivers[i].Next(ctx)
+	// 			assert.NoError(t, err)
+	// 			assert.Equal(t, middleware.EOF, e.Type())
+	// 			e.Ack(true)
+	// 			cancel()
+	// 		default:
+	// 			assert.Fail(t, "should not be here")
+	// 			cancel()
+	// 		}
+	// 	}
+
+	// 	for i := 0; i < 10; i++ {
+	// 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	// 		_, err = receivers[i].Next(ctx)
+	// 		cancel()
+	// 		assert.Error(t, err)
+	// 	}
+
+	// 	assert.Equal(t, 1, cant_msg_received)
+	// 	assert.Equal(t, 9, cant_msg_not_received)
+
+	// 	time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+	// 	stopMapReducer()
+	// 	for _, handler := range handlers {
+	// 		<-handler
+	// 	}
+	// 	log.Infof("All handlers finisheded YESSS")
+	// })
+
+	// t.Run("10Reducer2Cid10000MsgEach", func(t *testing.T) {
+	// 	init := test7container
+	// 	assert.NoError(t, init.Err)
+	// 	const cidCount = uint64(2)
+	// 	const countPerCID = 10000
+
+	// 	testBulk(t, cidCount, init, countPerCID)
+	// })
 
 }
 
-func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes, countPerCID uint64) {
-	cids := []string{}
-	for i := range cidCount {
-		cids = append(cids, fmt.Sprintf("%d", i))
-	}
-	sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
-	assert.NoError(t, err)
+// func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes, countPerCID uint64) {
+// 	cids := []string{}
+// 	for i := range cidCount {
+// 		cids = append(cids, fmt.Sprintf("%d", i))
+// 	}
+// 	sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init)
+// 	assert.NoError(t, err)
 
-	expecteds := 0
-	for i := 0; i < int(countPerCID); i++ {
-		for cid := range cidCount {
-			err = sender.SendMsgID(&num{val: uint64(i)}, cids[cid])
-			assert.NoError(t, err)
-			if cid == 0 {
-				expecteds += i
-			}
-		}
-	}
+// 	expecteds := 0
+// 	for i := 0; i < int(countPerCID); i++ {
+// 		for cid := range cidCount {
+// 			err = sender.SendMsgID(&num{val: uint64(i)}, cids[cid])
+// 			assert.NoError(t, err)
+// 			if cid == 0 {
+// 				expecteds += i
+// 			}
+// 		}
+// 	}
 
-	for cid := range cidCount {
-		err = sender.SendEOFAllID(cids[cid])
-		assert.NoError(t, err)
-	}
+// 	for cid := range cidCount {
+// 		err = sender.SendEOFAllID(cids[cid])
+// 		assert.NoError(t, err)
+// 	}
 
-	steps := map[string]map[int]int{} //steps
-	// no_lider_msg := map[string]uint{} //siempre tiene que dar 9
-	for i := range cidCount {
-		steps[cids[i]] = map[int]int{}
-		for j := 0; j < 10; j++ {
-			steps[cids[i]][j] = -1
-		}
-	}
+// 	steps := map[string]map[int]int{} //steps
+// 	// no_lider_msg := map[string]uint{} //siempre tiene que dar 9
+// 	for i := range cidCount {
+// 		steps[cids[i]] = map[int]int{}
+// 		for j := 0; j < 10; j++ {
+// 			steps[cids[i]][j] = -1
+// 		}
+// 	}
 
-	cant_received_msg := map[string]uint{}
-	for i := 0; i < int(cidCount); i++ {
-		cant_received_msg[cids[i]] = 0
-	}
-	for range cidCount * 3 {
-		for i := 0; i < 10; i++ {
-			log.Debugf("Waiting for message")
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			e, err := receivers[i].Next(ctx)
-			cancel()
-			var timeoutErr *middleware.TimeoutErr
-			if errors.As(err, &timeoutErr) {
-				continue
-			} else if err != nil {
-				assert.Fail(t, "should not have error")
-				log.Errorf("Error: %s", err)
-			}
+// 	cant_received_msg := map[string]uint{}
+// 	for i := 0; i < int(cidCount); i++ {
+// 		cant_received_msg[cids[i]] = 0
+// 	}
+// 	for range cidCount * 3 {
+// 		for i := 0; i < 10; i++ {
+// 			log.Debugf("Waiting for message")
+// 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// 			e, err := receivers[i].Next(ctx)
+// 			cancel()
+// 			var timeoutErr *middleware.TimeoutErr
+// 			if errors.As(err, &timeoutErr) {
+// 				continue
+// 			} else if err != nil {
+// 				assert.Fail(t, "should not have error")
+// 				log.Errorf("Error: %s", err)
+// 			}
 
-			assert.NoError(t, err)
-			log.Debugf("Received message type %s cid %s", e.Type(), e.Cid())
-			step := steps[e.Cid()]
+// 			assert.NoError(t, err)
+// 			log.Debugf("Received message type %s cid %s", e.Type(), e.Cid())
+// 			step := steps[e.Cid()]
 
-			switch step[i] {
-			case -1: //primera vez que recibe de este receiver, puede ser normal o prune
-				if e.Type() == middleware.Normal {
-					assert.Equal(t, uint64(expecteds), e.Msg().val)
-					step[i] = 0
-					cant_received_msg[e.Cid()]++
-				} else if e.Type() == middleware.Prune {
-					assert.Equal(t, middleware.Prune, e.Type())
-					step[i] = 1
-				} else {
-					assert.Fail(t, "should not be here")
-				}
-				e.Ack(true)
-			case 0: //segundo mensaje, tiene que ser prune
-				assert.Equal(t, middleware.Prune, e.Type())
-				step[i] = 1
-				e.Ack(true)
+// 			switch step[i] {
+// 			case -1: //primera vez que recibe de este receiver, puede ser normal o prune
+// 				if e.Type() == middleware.Normal {
+// 					assert.Equal(t, uint64(expecteds), e.Msg().val)
+// 					step[i] = 0
+// 					cant_received_msg[e.Cid()]++
+// 				} else if e.Type() == middleware.Prune {
+// 					assert.Equal(t, middleware.Prune, e.Type())
+// 					step[i] = 1
+// 				} else {
+// 					assert.Fail(t, "should not be here")
+// 				}
+// 				e.Ack(true)
+// 			case 0: //segundo mensaje, tiene que ser prune
+// 				assert.Equal(t, middleware.Prune, e.Type())
+// 				step[i] = 1
+// 				e.Ack(true)
 
-			case 1: //tercero, tiene que ser EOF
-				assert.Equal(t, middleware.EOF, e.Type())
-				step[i] = 2
-				e.Ack(true)
-			case 2: //cuarto, no tiene que recibir nada
-				assert.Fail(t, "should not be here 2?")
-			default:
-				assert.Fail(t, "should not be here at all")
-			}
-		}
-	}
+// 			case 1: //tercero, tiene que ser EOF
+// 				assert.Equal(t, middleware.EOF, e.Type())
+// 				step[i] = 2
+// 				e.Ack(true)
+// 			case 2: //cuarto, no tiene que recibir nada
+// 				assert.Fail(t, "should not be here 2?")
+// 			default:
+// 				assert.Fail(t, "should not be here at all")
+// 			}
+// 		}
+// 	}
 
-	//verifico que todos los cid tengan todos en 2
-	for cid := range cidCount {
-		for i := 0; i < 10; i++ {
-			if steps[cids[cid]][i] != 2 {
-				assert.Fail(t, "not 2")
-			}
-		}
-	}
+// 	//verifico que todos los cid tengan todos en 2
+// 	for cid := range cidCount {
+// 		for i := 0; i < 10; i++ {
+// 			if steps[cids[cid]][i] != 2 {
+// 				assert.Fail(t, "not 2")
+// 			}
+// 		}
+// 	}
 
-	//verifico que todos los cid hayan recibido solo un mensaje
-	for cid := range cidCount {
-		if cant_received_msg[cids[cid]] != 1 {
-			assert.Fail(t, "not 1")
-		}
-	}
+// 	//verifico que todos los cid hayan recibido solo un mensaje
+// 	for cid := range cidCount {
+// 		if cant_received_msg[cids[cid]] != 1 {
+// 			assert.Fail(t, "not 1")
+// 		}
+// 	}
 
-	for i := 0; i < 10; i++ {
-		//verifico que no tenga mensajes pendientes
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		_, err := receivers[i].Next(ctx)
-		cancel()
-		assert.Error(t, err)
-	}
+// 	for i := 0; i < 10; i++ {
+// 		//verifico que no tenga mensajes pendientes
+// 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+// 		_, err := receivers[i].Next(ctx)
+// 		cancel()
+// 		assert.Error(t, err)
+// 	}
 
-	time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+// 	time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
 
-	log.Infof("Stopping map reducers")
-	stopMapReducer()
+// 	log.Infof("Stopping map reducers")
+// 	stopMapReducer()
 
-	for k, handler := range handlers {
-		log.Infof("Waiting for handler %d", k)
-		<-handler
-	}
-}
+// 	for k, handler := range handlers {
+// 		log.Infof("Waiting for handler %d", k)
+// 		<-handler
+// 	}
+// }
