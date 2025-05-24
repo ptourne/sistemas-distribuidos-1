@@ -140,6 +140,7 @@ compose_coordinator() {
 
 compose_workers() {
     local worker_id=$1
+    local monitor_addresses=$2
     echo "    worker$worker_id:
         container_name: worker$worker_id
         build:
@@ -154,7 +155,7 @@ compose_workers() {
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - WORKER_NAME=worker$worker_id
-            - MONITOR_ADDRESS=monitor1:9999
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -419,6 +420,8 @@ compose_reduce_by_movieId() {
 
 compose_monitor(){
     local worker_id=$1
+    local number_of_monitors=$2
+    local port=$3
     echo "    monitor$worker_id:
         container_name: monitor$worker_id
         build:
@@ -428,7 +431,9 @@ compose_monitor(){
         networks:
             - local_net
         environment:
-            - PORT=9999
+            - PORT=$port
+            - MONITOR_COUNT=$number_of_monitors
+            - MONITOR_ID=$worker_id
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -440,12 +445,24 @@ compose_monitor(){
 }
 
 
+NUMBER_OF_MONITORS=3
+MONITOR_PORT_BASE=9000
+monitor_addresses=""
+for i in $(seq 1 $NUMBER_OF_MONITORS); do
+    port=$((MONITOR_PORT_BASE + i))
+    monitor_addresses+="monitor$i:$port"
+    if [[ $i -lt $NUMBER_OF_MONITORS ]]; then
+        monitor_addresses+=","
+    fi
+done
+
 compose_header > $file_name
 compose_rabbitmq >> $file_name
 compose_sentiment_server >> $file_name
 compose_coordinator >> $file_name
+
 for i in $(seq 1 $number_of_workers); do
-    compose_workers $i >> $file_name
+    compose_workers $i "$monitor_addresses" >> $file_name
 done
 for i in $(seq 1 $number_of_nlp_workers); do
     compose_nlp_workers $i >> $file_name
@@ -481,7 +498,9 @@ done
 # for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
 #     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
 # done
-compose_monitor 1 >> $file_name
+for i in $(seq 1 $NUMBER_OF_MONITORS); do
+    compose_monitor $i $NUMBER_OF_MONITORS $((MONITOR_PORT_BASE + i)) >> $file_name
+done
 for i in $(seq 1 $number_of_clients); do
     compose_client $i $number_of_clients >> $file_name
 done

@@ -105,8 +105,12 @@ func (m *Monitor) checkWorkers(cli *client.Client) {
 		m.Mu.Lock()
 		for id, status := range m.Workers {
 			if now.Sub(status.LastSeen) > m.Timeout {
-				log.Infof("Worker %s not responding. Restarting...", id)
-				m.restartContainer(cli, id)
+				if MONITOR_ID == "1" {
+					log.Infof("Worker %s not responding. Restarting...", id)
+					m.restartContainer(cli, id)
+				} else {
+					log.Infof("Worker %s not responding.", id)
+				}
 			}
 		}
 		m.Mu.Unlock()

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"net"
+	"strings"
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
@@ -9,26 +10,18 @@ import (
 
 const HEATBEAT_INTERVAL = 1 * time.Second // ToDo: ajustar
 
-func SendHeartbeat(id string, addr string, log *logger.ConsoleLogger) {
-	var conn net.Conn
-	var err error
-	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+func SendHeartbeat(id string, addrs string, log *logger.ConsoleLogger) {
+	addresses := strings.Split(addrs, ",")
 
-	if err != nil {
-		log.Errorf("Failed to resolve UDP address: %v", err)
-		return
-	}
-	for {
-		conn, err = net.DialUDP("udp", nil, udpAddr)
+	udpAddrs := []*net.UDPAddr{}
+	for _, addr := range addresses {
+		udpAddr, err := net.ResolveUDPAddr("udp", strings.TrimSpace(addr))
 		if err != nil {
-			//log.Errorf("Failed to connect to monitor: %v", err)
+			log.Errorf("Failed to resolve UDP address %s: %v", addr, err)
 			continue
 		}
-		break
-
+		udpAddrs = append(udpAddrs, udpAddr)
 	}
-	defer conn.Close()
-	log.Infof("Sending heartbeat with ID: %s to %s", id, addr)
 	for {
 		msg := []byte(id)
 		msgLen := len(msg)
@@ -39,16 +32,31 @@ func SendHeartbeat(id string, addr string, log *logger.ConsoleLogger) {
 
 		packet := append([]byte{byte(msgLen)}, msg...)
 
-		totalSent := 0
-
-		for totalSent < len(packet) {
-			sent, err := conn.Write(packet[totalSent:])
+		for _, addr := range udpAddrs {
+			conn, err := net.DialUDP("udp", nil, addr)
 			if err != nil {
-				log.Errorf("Failed to send heartbeat: %v", err)
+				log.Errorf("Failed to connect to monitor %s: %v", addr.String(), err)
+				continue
 			}
-			totalSent += sent
+
+			sendHeartbeat(addr, log, packet, conn)
+
+			conn.Close()
 		}
 
 		time.Sleep(HEATBEAT_INTERVAL)
+	}
+}
+
+func sendHeartbeat(addr *net.UDPAddr, log *logger.ConsoleLogger, packet []byte, conn net.Conn) {
+	totalSent := 0
+
+	for totalSent < len(packet) {
+		sent, err := conn.Write(packet[totalSent:])
+		if err != nil {
+			log.Errorf("Failed to send heartbeat to %s: %v", addr.String(), err)
+			continue
+		}
+		totalSent += sent
 	}
 }

@@ -11,12 +11,12 @@ import (
 func main() {
 
 	name := os.Getenv("WORKER_NAME")
-	monitor_addr := os.Getenv("MONITOR_ADDRESS")
+	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
 	var WORKER_ID = os.Getenv("WORKER_ID")
 	var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
 	worker := NewWorker()
 
-	go utils.SendHeartbeat(name, monitor_addr, log)
+	go utils.SendHeartbeat(name, monitor_addrs, log)
 
 	worker.Run()
 }
