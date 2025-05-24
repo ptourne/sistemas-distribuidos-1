@@ -9,8 +9,8 @@ import (
 
 // ver de declare, tratr de devovler un struct, ghacer read/write
 type Connection[T codec.Serializable[T]] interface {
-	ConsumeFrom(sourceName string, groupName string, routingkey string, prefetch int) (Receiver[T], error)
-	WriteTo(writeExchangeName string, subscribers []string, idWorker string) (Sender[T], error)
+	ConsumeFrom(sourceName string, groupName string, routingkey string, prefetch int, consumerCount uint) (Receiver[T], error)
+	WriteTo(writeExchangeName string, subscribers []string, idWorker string, consumerCount uint) (Sender[T], error)
 	Close() error
 }
 
@@ -73,8 +73,8 @@ func FromStringTypeMsg(s string) (TypeMsg, error) {
 }
 
 type Sender[T codec.Serializable[T]] interface {
-	Send(row T, cid string) error      //usa el rk del sender id
-	SendMsgID(row T, cid string) error // usa el rk del msj id
+	Send(row T, cid string) error //usa el rk del sender id
+	// SendMsgID(row T, cid string) error // usa el rk del msj id
 	Prune(cid string) error
 	SendEOF(cid string) error      //usa el rk del sender id
 	SendEOFAllID(cid string) error //manda el EOF a todos los shards
