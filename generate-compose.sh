@@ -153,6 +153,8 @@ compose_workers() {
             - N_WORKERS=$number_of_workers
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
+            - WORKER_NAME=worker$worker_id
+            - MONITOR_ADDRESS=monitor1:9999
         networks:
             - local_net
         depends_on:
@@ -415,6 +417,28 @@ compose_reduce_by_movieId() {
 "
 }
 
+compose_monitor(){
+    local worker_id=$1
+    echo "    monitor$worker_id:
+        container_name: monitor$worker_id
+        build:
+            context: .
+            dockerfile: monitor/Dockerfile
+        entrypoint: /monitor
+        networks:
+            - local_net
+        environment:
+            - PORT=9999
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server:
+                condition: service_healthy
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+    "
+}
+
 
 compose_header > $file_name
 compose_rabbitmq >> $file_name
@@ -453,10 +477,11 @@ done
 for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
 done
-NUMBER_OF_REDUCE_BY_MOVIEID=10
-for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
-    compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
-done
+# NUMBER_OF_REDUCE_BY_MOVIEID=10
+# for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
+#     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
+# done
+compose_monitor 1 >> $file_name
 for i in $(seq 1 $number_of_clients); do
     compose_client $i $number_of_clients >> $file_name
 done
