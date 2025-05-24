@@ -147,10 +147,11 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		init := test9container
 		assert.NoError(t, init.Err)
 		senderId := "1"
+		consumerCount := 5
 		senderConnector, err := ConnectorCustom(init.Config)
 		assert.NoError(t, err)
 		senderMiddleware := NewMiddleware[*Ball](senderConnector, middlewareLogger)
-		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"}, senderId, 10)
+		sender, err := senderMiddleware.WriteTo("output", []string{"receiver"}, senderId, uint(consumerCount))
 		assert.NoError(t, err)
 		cid := "1"
 
@@ -158,9 +159,9 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 		receiverMiddleware := NewMiddleware[*Ball](receiverConnector, middlewareLogger)
 		receivers := []middleware.Receiver[*Ball]{}
-		for i := 0; i < 10; i++ {
+		for i := 0; i < consumerCount; i++ {
 			rk := fmt.Sprintf("%d", i)
-			receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", rk, 1, 10)
+			receiver, err := receiverMiddleware.ConsumeFrom("output", "receiver", rk, 1, uint(consumerCount))
 			assert.NoError(t, err)
 			assert.NotNil(t, receiver)
 			receivers = append(receivers, receiver)
@@ -179,7 +180,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		cant_msg_received := 0
 		cant_msg_not_received := 0
 
-		for i := 0; i < 10; i++ {
+		for i := 0; i < consumerCount; i++ {
 			log.Debugf("Waiting for message")
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
 			e, err := receivers[i].Next(ctx)
@@ -195,18 +196,9 @@ func TestRabbitMQMiddleware(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, middleware.Prune, e.Type())
 				e.Ack(true)
-
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
 				cancel()
 			case middleware.Prune:
 				cant_msg_not_received++
-				e.Ack(true)
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
 				e.Ack(true)
 				cancel()
 			default:
@@ -215,7 +207,14 @@ func TestRabbitMQMiddleware(t *testing.T) {
 			}
 		}
 
-		for i := 0; i < 10; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+		e, err := receivers[0].Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(true)
+		cancel()
+
+		for i := 0; i < consumerCount; i++ {
 			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 			_, err = receivers[i].Next(ctx)
 			cancel()
@@ -223,7 +222,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		}
 
 		assert.Equal(t, 1, cant_msg_received)
-		assert.Equal(t, 9, cant_msg_not_received)
+		assert.Equal(t, consumerCount-1, cant_msg_not_received)
 
 	})
 

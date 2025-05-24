@@ -229,27 +229,38 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 		return nil, err
 	}
 
-	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName, routingKey), "", "fanout", "", 100)
+	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "", "fanout", "", 100)
 	if err != nil {
 		return nil, err
 	}
 
-	closeSender, err := CreateProducerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName, routingKey), "fanout")
+	closeSender, err := CreateProducerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "fanout")
 	if err != nil {
 		return nil, err
+	}
+
+	var finishcCids map[string]struct {
+		finishDonePending uint
+		msg               middleware.Envelope[T]
+	}
+
+	if routingKey == "0" {
+		finishcCids = make(map[string]struct {
+			finishDonePending uint
+			msg               middleware.Envelope[T]
+		})
+	} else {
+		finishcCids = nil
 	}
 
 	receiver := &receiverRabbitmq[T]{
 		input:         input,
 		closeReceiver: closeReceiver,
 		closeSender:   closeSender,
-		consumerCount: 1,
+		consumerCount: consumerCount,
 		prefetch:      int(prefetch),
-		finishCids: make(map[string]struct {
-			finishDonePending uint
-			msg               middleware.Envelope[T]
-		}),
-		pendingPrune: make([]middleware.Envelope[T], 0),
+		finishCids:    finishcCids,
+		pendingPrune:  make([]middleware.Envelope[T], 0),
 		// prefetchCids: make(map[string]int),
 		Log:        m.Log,
 		routingKey: routingKey,
@@ -307,7 +318,7 @@ func createConsumerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err != nil {
 		return ReceiverChannel[I]{}, fmt.Errorf("failed to register a consumer %v", err)
 	}
-	return ReceiverChannel[I]{readExchangeName, queueName, inputCh, &msgs, m.Log}, nil
+	return ReceiverChannel[I]{readExchangeName, inputQueue.Name, inputCh, &msgs, m.Log}, nil
 }
 
 func (m *middlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string, idWorker string, consumerCount uint) (middleware.Sender[T], error) {
@@ -382,13 +393,13 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	return nil
 }
 
-func (s *SenderRabbitmq[T]) SendEOF(cid string) error {
-	rk := s.idSender
-	return s.SendEOFRK(rk, cid)
-}
+// func (s *SenderRabbitmq[T]) SendEOF(cid string) error {
+// 	rk := s.idSender
+// 	return s.SendEOFRK(rk, cid)
+// }
 
 func (s *SenderRabbitmq[T]) SendEOFAllID(cid string) error {
-	for i := 0; i < 10; i++ {
+	for i := 0; i < int(s.consumerCount); i++ {
 		rk := fmt.Sprintf("%d", i)
 		err := s.SendEOFRK(rk, cid)
 		if err != nil {
@@ -505,31 +516,38 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				case eofCid:
 					// We set de listener for finishDones send on ack of prune msgs
 					//r.Log.Infof("Consumer count: %d for channel %s", r.consumerCount, r.input.exchangeName)
-					r.finishCids[cid] = struct {
-						finishDonePending uint
-						msg               middleware.Envelope[T]
-					}{
-						finishDonePending: r.consumerCount,
-						msg:               newEOFEnvelope[T](cid),
-					}
-					r.Log.Infof("LIDER eof received on channel for Cid %s in %s", cid, r.input.queueName)
-					r.Log.Debugf("%s added finishCid[%s] = %+v", r.input.exchangeName, cid, r.finishCids[cid])
-					err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCid}, cid)
-					if err != nil {
-						return nil, fmt.Errorf("failed to ack message in close notification: %v", err)
-					}
-					err = r.closeSender.Prune(cid)
-					if err != nil {
-						return nil, fmt.Errorf("failed to send message in close notification: %v", err)
-					}
-					r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
+					if r.routingKey == "0" {
+						r.Log.Debugf("EOF received on channel for Cid %s in %s", cid, r.input.queueName)
 
-					err = tag.Ack(false)
-					if err != nil {
-						r.Log.Errorf("failed to ack message in close notification: %v", err)
+						r.finishCids[cid] = struct {
+							finishDonePending uint
+							msg               middleware.Envelope[T]
+						}{
+							finishDonePending: r.consumerCount,
+							msg:               newEOFEnvelope[T](cid),
+						}
+						r.Log.Infof("LIDER eof received on channel for Cid %s in %s", cid, r.input.queueName)
+						r.Log.Debugf("%s added finishCid[%s] = %+v", r.input.exchangeName, cid, r.finishCids[cid])
+						// err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCid}, cid)
+						// if err != nil {
+						// 	return nil, fmt.Errorf("failed to ack message in close notification: %v", err)
+						// }
+						err = r.closeSender.Prune(cid)
+						if err != nil {
+							return nil, fmt.Errorf("failed to send message in close notification: %v", err)
+						}
+						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
+
+						err = tag.Ack(false)
+						if err != nil {
+							r.Log.Errorf("failed to ack message in close notification: %v", err)
+						}
+						r.Log.Debugf("return prune callback envelope")
+						continue
+					} else {
+						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
+						continue
 					}
-					r.Log.Debugf("return prune callback envelope")
-					continue
 
 				}
 				r.Log.Debugf("return normal envelope")
@@ -578,32 +596,44 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 
 	switch notification.notificationType {
 	case closeNotificationFinishCidDone:
-		r.Log.Debugf("%s, Finish done received for Cid %s", r.input.exchangeName, cid)
-		finishCid, exists := r.finishCids[cid]
-		if !exists {
-			r.Log.Debugf("Finish done received for non-existent Cid %s", cid)
-			return true, false, nil, nil
-		} else {
-			r.Log.Debugf("Finish done pending for Cid before %s: %d | Receiver %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)
-			finishCid.finishDonePending--
-			r.finishCids[cid] = finishCid
-			r.Log.Debugf("Finish done pending for Cid %s: %d in %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)
-			if r.finishCids[cid].finishDonePending == 0 {
-				r.Log.Infof("Finishes done received for Cid %s in %s", cid, r.input.queueName)
-				delete(r.finishCids, cid)
-				return false, true, finishCid.msg, nil
+		if r.routingKey == "0" {
+			r.Log.Debugf("%s, Finish done received for Cid %s", r.input.exchangeName, cid)
+			finishCid, exists := r.finishCids[cid]
+			if !exists {
+				// r.Log.Debugf("Finish done received for non-existent Cid %s", cid)
+				// return true, false, nil, nil
+				r.finishCids[cid] = struct {
+					finishDonePending uint
+					msg               middleware.Envelope[T]
+				}{
+					finishDonePending: r.consumerCount - 1,
+					msg:               newEOFEnvelope[T](cid),
+				}
+				return true, false, nil, nil
+			} else {
+				r.Log.Debugf("Finish done pending for Cid before %s: %d | Receiver %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)
+				finishCid.finishDonePending--
+				r.finishCids[cid] = finishCid
+				r.Log.Debugf("Finish done pending for Cid %s: %d in %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)
+				if r.finishCids[cid].finishDonePending == 0 {
+					r.Log.Infof("Finishes done received for Cid %s in %s", cid, r.input.queueName)
+					delete(r.finishCids, cid)
+					return false, true, finishCid.msg, nil
+				}
 			}
-		}
-	case closeNotificationFinishCid:
-		_, exists := r.finishCids[cid]
-		if exists {
+		} else { //not leader
 			return true, false, nil, nil
 		}
-		r.Log.Infof("Finish received for Cid %s in %s", cid, r.input.queueName)
-		// r.prefetchCids[cid] = r.prefetch + PREFETCH_MAX
-		r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
-		// r.Log.Debugf("r.prefetchCids[%s] = %d | Receiver %s", cid, r.prefetchCids[cid], name)
-		return true, false, nil, nil
+		// case closeNotificationFinishCid:
+		// 	_, exists := r.finishCids[cid]
+		// 	if exists {
+		// 		return true, false, nil, nil
+		// 	}
+		// 	r.Log.Infof("Finish received for Cid %s in %s", cid, r.input.queueName)
+		// 	// r.prefetchCids[cid] = r.prefetch + PREFETCH_MAX
+		// 	r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
+		// 	// r.Log.Debugf("r.prefetchCids[%s] = %d | Receiver %s", cid, r.prefetchCids[cid], name)
+		// 	return true, false, nil, nil
 	}
 	return false, false, nil, nil
 }
@@ -752,6 +782,7 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 		return nil, nil, fmt.Errorf("failed to declare queue %v", err)
 	}
 
+	m.Log.Infof("ROUTING KEY: %s with quename %s", routingKey, queue.Name)
 	err = ch.QueueBind(
 		queue.Name,   // queue name
 		routingKey,   // routing key
@@ -765,9 +796,9 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 	return &queue, ch, nil
 }
 
-func closeExchangeName(readExchangeName string, queueName string, routingKey string) string {
-	if routingKey == "" {
-		return fmt.Sprintf("%s->%s:close", readExchangeName, queueName)
-	}
-	return fmt.Sprintf("%s->%s[%s]:close", readExchangeName, queueName, routingKey)
+func closeExchangeName(readExchangeName string, queueName string) string {
+	// if routingKey == "" {
+	return fmt.Sprintf("%s->%s:close", readExchangeName, queueName)
+	// }
+	// return fmt.Sprintf("%s->%s[%s]:close", readExchangeName, queueName, routingKey)
 }

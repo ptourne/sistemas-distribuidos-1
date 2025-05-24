@@ -76,7 +76,7 @@ type Sender[T codec.Serializable[T]] interface {
 	Send(row T, cid string) error //usa el rk del sender id
 	// SendMsgID(row T, cid string) error // usa el rk del msj id
 	Prune(cid string) error
-	SendEOF(cid string) error      //usa el rk del sender id
+	// SendEOF(cid string) error      //usa el rk del sender id
 	SendEOFAllID(cid string) error //manda el EOF a todos los shards
 	Close() error
 }
