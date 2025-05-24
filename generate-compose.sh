@@ -422,6 +422,7 @@ compose_monitor(){
     local worker_id=$1
     local number_of_monitors=$2
     local port=$3
+    local monitor_peers=$4
     echo "    monitor$worker_id:
         container_name: monitor$worker_id
         build:
@@ -434,6 +435,7 @@ compose_monitor(){
             - PORT=$port
             - MONITOR_COUNT=$number_of_monitors
             - MONITOR_ID=$worker_id
+            - PEERS=$monitor_peers
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -448,11 +450,14 @@ compose_monitor(){
 NUMBER_OF_MONITORS=3
 MONITOR_PORT_BASE=9000
 monitor_addresses=""
+monitor_peers=""
 for i in $(seq 1 $NUMBER_OF_MONITORS); do
     port=$((MONITOR_PORT_BASE + i))
     monitor_addresses+="monitor$i:$port"
+    monitor_peers+="$i:monitor$i:$port"
     if [[ $i -lt $NUMBER_OF_MONITORS ]]; then
         monitor_addresses+=","
+        monitor_peers+=","
     fi
 done
 
@@ -499,7 +504,7 @@ done
 #     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
 # done
 for i in $(seq 1 $NUMBER_OF_MONITORS); do
-    compose_monitor $i $NUMBER_OF_MONITORS $((MONITOR_PORT_BASE + i)) >> $file_name
+    compose_monitor $i $NUMBER_OF_MONITORS $((MONITOR_PORT_BASE + i)) $monitor_peers >> $file_name
 done
 for i in $(seq 1 $number_of_clients); do
     compose_client $i $number_of_clients >> $file_name

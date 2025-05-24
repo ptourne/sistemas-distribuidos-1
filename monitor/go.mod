@@ -2,6 +2,8 @@ module github.com/ptourne/sistemas-distribuidos-1/monitor
 
 go 1.24.1
 
+replace github.com/ptourne/sistemas-distribuidos-1/common => ../common
+
 require (
 	github.com/docker/docker v28.1.1+incompatible
 	github.com/ptourne/sistemas-distribuidos-1/common v0.0.0-20250425001853-3c6d7299e6cf

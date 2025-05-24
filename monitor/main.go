@@ -13,7 +13,8 @@ var log = logger.NewConsoleLogger(fmt.Sprintf("monitor_%s", MONITOR_ID), logger.
 func main() {
 
 	port := os.Getenv("PORT")
+	rawPeers := os.Getenv("PEERS")
 
-	monitor := NewMonitor(port)
+	monitor := NewMonitor(port, rawPeers)
 	monitor.Start()
 }
