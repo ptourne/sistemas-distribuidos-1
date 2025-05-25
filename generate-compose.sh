@@ -136,7 +136,6 @@ compose_coordinator() {
                 condition: service_healthy
 "
 }
-# TODO: entrypoint: /coordinator en compose_coordinador() y el command en compose_client()
 
 compose_workers() {
     local worker_id=$1
@@ -267,6 +266,8 @@ compose_joiner_credits() {
 
 compose_client() {
     local client_id=$1
+    local client_count=$2
+    local monitor_addresses=$3
     echo "    client$client_id:
         container_name: client$client_id
         build:
@@ -275,6 +276,8 @@ compose_client() {
         entrypoint: /client
         environment:
             - SERVER_PORT=endpoint:9876
+            - CLIENT_NAME=client$client_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -507,7 +510,7 @@ for i in $(seq 1 $NUMBER_OF_MONITORS); do
     compose_monitor $i $NUMBER_OF_MONITORS $((MONITOR_PORT_BASE + i)) $monitor_peers >> $file_name
 done
 for i in $(seq 1 $number_of_clients); do
-    compose_client $i $number_of_clients >> $file_name
+    compose_client $i $number_of_clients $monitor_addresses >> $file_name
 done
 compose_endpoint >> $file_name
 compose_network >> $file_name

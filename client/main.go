@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
 )
 
 var log = logger.NewConsoleLogger("client", logger.Debug)
-
 
 type Client struct {
 	conn    net.Conn
@@ -20,6 +20,8 @@ type Client struct {
 }
 
 func main() {
+	name := os.Getenv("CLIENT_NAME")
+	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
 	var SERVER_PORT = os.Getenv("SERVER_PORT")
 	conn, err := net.Dial("tcp", SERVER_PORT)
 	if err != nil {
@@ -32,7 +34,9 @@ func main() {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	finishChan := make(chan bool)
+	heartbeatStop := make(chan bool)
 	go HandleSignals(client, &wg, finishChan)
+	go utils.SendStoppableHeartbeat(name, monitor_addrs, log, heartbeatStop)
 	err = client.Run()
 	if err != nil && client.Running {
 		log.Errorf("error sending files: %v", err)
@@ -41,8 +45,11 @@ func main() {
 		finishChan <- true
 	}
 	close(finishChan)
+	heartbeatStop <- true
+	close(heartbeatStop)
 	wg.Wait()
 	log.Infof("client finished")
+	go utils.SendExit(name, monitor_addrs, log)
 	time.Sleep(1000 * time.Millisecond)
 
 }
@@ -64,5 +71,3 @@ func HandleSignals(c *Client, wg *sync.WaitGroup, finishChan chan bool) {
 		c.StopClient()
 	}
 }
-
-

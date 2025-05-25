@@ -126,7 +126,7 @@ func (m *Monitor) restartContainer(cli *client.Client, containerName string) {
 func (m *Monitor) listenHeartbeats(conn *net.UDPConn) {
 	buffer := make([]byte, MaxUDPMessageSize)
 	for {
-		n, _, err := conn.ReadFromUDP(buffer)
+		n, addr, err := conn.ReadFromUDP(buffer)
 		if err != nil {
 			log.Infof("Error reading UDP: %v", err)
 			continue
@@ -143,11 +143,29 @@ func (m *Monitor) listenHeartbeats(conn *net.UDPConn) {
 			continue
 		}
 
-		id := string(buffer[HEADER_SIZE : HEADER_SIZE+msgLen])
+		msg := string(buffer[HEADER_SIZE : HEADER_SIZE+msgLen])
+		parts := strings.Split(msg, "|")
+		id := parts[0]
 
 		workerType := WORKER
 		if strings.Contains("client", id) {
 			workerType = CLIENT
+			if len(parts) > 1 && parts[1] == "e" {
+				if m.isLeader() {
+					ackMessage := []byte("ACK")
+					packet := append([]byte{byte(len(ackMessage))}, msg...)
+					utils.WriteToConn(addr.String(), log, packet, conn)
+				}
+				m.MuWorkers.Lock()
+				_, exists := m.Workers[id]
+				if exists {
+					delete(m.Workers, id)
+					m.MuWorkers.Unlock()
+					log.Infof("%s exited", id)
+				}
+				continue
+			}
+
 		}
 		if strings.Contains("monitor", id) {
 			workerType = MONITOR
@@ -195,7 +213,7 @@ func unwrap(err error, msg string) {
 	}
 }
 
-func sendMessage(addr, msg string) { // ToDo: short write
+func sendMessage(addr, msg string) {
 	var conn net.Conn
 	var err error
 	for range 5 {
@@ -210,7 +228,8 @@ func sendMessage(addr, msg string) { // ToDo: short write
 		return
 	}
 	defer conn.Close()
-	conn.Write([]byte(msg))
+	packet := append([]byte{byte(len(msg))}, []byte(msg)...)
+	utils.WriteToConn(addr, log, packet, conn)
 }
 
 func (m *Monitor) startElection() {
@@ -282,9 +301,11 @@ func (m *Monitor) startTCPServer() {
 
 func (m *Monitor) handleConnection(conn net.Conn) {
 	defer conn.Close()
-	buffer := make([]byte, 256) // ToDo: short read
-	n, _ := conn.Read(buffer)
-	msg := string(buffer[:n])
+	msg, err := utils.ReceiveMessage(conn)
+	if err != nil {
+		log.Errorf("Error receiving message: %v", err)
+		return
+	}
 	parts := strings.Split(msg, "|")
 
 	switch parts[0] {
