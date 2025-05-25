@@ -12,6 +12,7 @@ import (
 
 const HEATBEAT_INTERVAL = 1 * time.Second // ToDo: ajustar
 const HEADER_SIZE = 1
+const UDP_TIMEOUT = 1 * time.Second
 
 func SendHeartbeat(id string, addrs string, log *logger.ConsoleLogger) {
 	sendHeartbeat(id, addrs, log, false, nil)
@@ -31,11 +32,14 @@ func SendExit(idClient string, addrs string, log *logger.ConsoleLogger) {
 
 	for {
 
-		sendHeartbeat(idClient, addrs, log, true, nil)
+		sendHeartbeatWithConn(idClient, addrs, log, true, nil, conn)
 		log.Infof("Sent exit heartbeat to monitors")
 
-		msg, err := ReceiveMessage(conn)
+		conn.SetReadDeadline(time.Now().Add(UDP_TIMEOUT))
+
+		msg, err := ReceiveUDPMessage(conn)
 		if err != nil {
+			log.Warnf("Failed to receive message: %v", err)
 			continue
 		}
 
@@ -53,7 +57,20 @@ func WriteToConn(addr string, log *logger.ConsoleLogger, packet []byte, conn net
 	for totalSent < len(packet) {
 		sent, err := conn.Write(packet[totalSent:])
 		if err != nil {
-			log.Errorf("Failed to send heartbeat to %s: %v", addr, err)
+			log.Errorf("Failed to write to %s: %v", addr, err)
+			continue
+		}
+		totalSent += sent
+	}
+}
+
+func WriteUDP(addr *net.UDPAddr, log *logger.ConsoleLogger, packet []byte, conn *net.UDPConn) {
+	totalSent := 0
+
+	for totalSent < len(packet) {
+		sent, err := conn.WriteToUDP(packet[totalSent:], addr)
+		if err != nil {
+			log.Errorf("Failed to write to %s: %v", addr, err)
 			continue
 		}
 		totalSent += sent
@@ -79,9 +96,8 @@ func getUdpAddrs(addrs string, log *logger.ConsoleLogger) []*net.UDPAddr {
 	return udpAddrs
 }
 
-func sendHeartbeat(id string, addrs string, log *logger.ConsoleLogger, exit bool, stopChan <-chan bool) {
+func sendHeartbeatWithConn(id string, addrs string, log *logger.ConsoleLogger, exit bool, stopChan <-chan bool, conn *net.UDPConn) {
 	udpAddrs := getUdpAddrs(addrs, log)
-	log.Infof("Sending heartbeat to monitors: %s", udpAddrs)
 	for {
 		select {
 		case <-stopChan:
@@ -101,26 +117,38 @@ func sendHeartbeat(id string, addrs string, log *logger.ConsoleLogger, exit bool
 			packet := append([]byte{byte(msgLen)}, msg...)
 
 			for _, addr := range udpAddrs {
-				conn, err := net.DialUDP("udp", nil, addr)
-				if err != nil {
-					log.Errorf("Failed to connect to monitor %s: %v", addr.String(), err)
-					continue
-				}
+				WriteUDP(addr, log, packet, conn)
+			}
 
-				WriteToConn(addr.String(), log, packet, conn)
-
-				conn.Close()
+			if exit {
+				return
 			}
 
 			time.Sleep(HEATBEAT_INTERVAL)
-			if exit {
-				break
-			}
 		}
 	}
 }
 
-func ReceiveMessage(conn net.Conn) (string, error) {
+func sendHeartbeat(id string, addrs string, log *logger.ConsoleLogger, exit bool, stopChan <-chan bool) {
+
+	conn, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		log.Fatalf("Failed to open UDP socket: %v", err)
+	}
+	defer conn.Close()
+	sendHeartbeatWithConn(id, addrs, log, exit, stopChan, conn)
+}
+
+func ReceiveUDPMessage(conn *net.UDPConn) (string, error) {
+	buffer := make([]byte, 1024)
+	n, _, err := conn.ReadFromUDP(buffer)
+	if err != nil {
+		return "", err
+	}
+	return string(buffer[:n]), nil
+}
+
+func ReceiveTCPMessage(conn net.Conn) (string, error) {
 	header, err := recvHeader(conn, HEADER_SIZE)
 	if err != nil {
 		return "", fmt.Errorf("error receiving message: %w", err)

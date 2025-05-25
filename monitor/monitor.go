@@ -148,13 +148,13 @@ func (m *Monitor) listenHeartbeats(conn *net.UDPConn) {
 		id := parts[0]
 
 		workerType := WORKER
-		if strings.Contains("client", id) {
+		if strings.Contains(id, "client") {
 			workerType = CLIENT
 			if len(parts) > 1 && parts[1] == "e" {
 				if m.isLeader() {
-					ackMessage := []byte("ACK")
-					packet := append([]byte{byte(len(ackMessage))}, msg...)
-					utils.WriteToConn(addr.String(), log, packet, conn)
+					log.Infof("%s exited, sending ACK", id)
+					packet := []byte("ACK")
+					utils.WriteUDP(addr, log, packet, conn)
 				}
 				m.MuWorkers.Lock()
 				_, exists := m.Workers[id]
@@ -167,7 +167,7 @@ func (m *Monitor) listenHeartbeats(conn *net.UDPConn) {
 			}
 
 		}
-		if strings.Contains("monitor", id) {
+		if strings.Contains(id, "monitor") {
 			workerType = MONITOR
 		}
 
@@ -301,7 +301,7 @@ func (m *Monitor) startTCPServer() {
 
 func (m *Monitor) handleConnection(conn net.Conn) {
 	defer conn.Close()
-	msg, err := utils.ReceiveMessage(conn)
+	msg, err := utils.ReceiveTCPMessage(conn)
 	if err != nil {
 		log.Errorf("Error receiving message: %v", err)
 		return
@@ -319,7 +319,6 @@ func (m *Monitor) handleConnection(conn net.Conn) {
 		m.MuAnswers.Lock()
 		m.higherResponded = true
 		m.MuAnswers.Unlock()
-		// ToDo:Marcar que recibió respuesta y no se autoproclame
 	case "COORDINATOR":
 		m.LeaderID = parts[1]
 		m.inElection = false

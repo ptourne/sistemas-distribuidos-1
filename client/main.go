@@ -45,11 +45,15 @@ func main() {
 		finishChan <- true
 	}
 	close(finishChan)
+	wg.Add(1)
 	heartbeatStop <- true
 	close(heartbeatStop)
+	go func() {
+		utils.SendExit(name, monitor_addrs, log)
+		wg.Done()
+	}()
 	wg.Wait()
 	log.Infof("client finished")
-	go utils.SendExit(name, monitor_addrs, log)
 	time.Sleep(1000 * time.Millisecond)
 
 }
