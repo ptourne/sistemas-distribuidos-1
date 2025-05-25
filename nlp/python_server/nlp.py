@@ -8,6 +8,7 @@ from concurrent import futures
 from transformers import pipeline
 import sentiment_pb2 as sentiment_pb2
 import sentiment_pb2_grpc as sentiment_pb2_grpc
+from heartbeat import start_heartbeat
 
 sentiment_analyzer = pipeline('sentiment-analysis', model='distilbert-base-uncased-finetuned-sst-2-english')
 
@@ -16,9 +17,8 @@ class SentimentServicer(sentiment_pb2_grpc.SentimentAnalyzerServicer):
         result = sentiment_analyzer(request.text, truncation=True)[0]
         return sentiment_pb2.SentimentResponse(label=result['label'], score=result['score'])
 
-def serve():
-    port = os.getenv("GRPC_PORT", "50051")
-    workers = int(os.getenv("GRPC_WORKERS", "5"))
+def serve(workers, port, heartbeat_proc, stop_event):
+ 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=workers))
     sentiment_pb2_grpc.add_SentimentAnalyzerServicer_to_server(SentimentServicer(), server)
     server.add_insecure_port(f"0.0.0.0:{port}")
@@ -26,7 +26,10 @@ def serve():
 
     def handle_sigterm(*args):
         print("Received SIGTERM. Shutiing down gracefully...")
+        stop_event.set()
+        heartbeat_proc.join()
         server.stop(grace=5) 
+
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, handle_sigterm)
@@ -35,4 +38,13 @@ def serve():
     server.wait_for_termination()
 
 if __name__ == '__main__':
-    serve()
+    port = os.getenv("GRPC_PORT", "50051")
+    workers = int(os.getenv("GRPC_WORKERS", "5"))
+    name = os.getenv("NAME", "sentiment_server")
+    monitor_addrs = os.getenv("MONITOR_ADDRESSES", "")
+    stop_event, heartbeat_proc = start_heartbeat(name, monitor_addrs)
+    try:
+        serve(workers, port, heartbeat_proc, stop_event)
+    finally:
+        stop_event.set()
+        heartbeat_proc.join()

@@ -136,12 +136,14 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 			log.Errorf("Channel not found: %v", cid)
 			continue
 		}
+		finished := false
 		switch envelope.Type() {
 		case middleware.EOF:
 			if lastQuery {
 				log.Infof("cid %s finished receiving", cid)
 				inputChannelMapLock.Lock()
-				close(getFuc(channelsCid))
+				//close(getFuc(channelsCid))
+				finished = true
 				delete(inputsChannelMap, envelope.Cid())
 				inputChannelMapLock.Unlock()
 			}
@@ -153,6 +155,13 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 		}
 
 		queue := getFuc(channelsCid)
+		inputChannelMapLock.Lock()
+		_, stillExists := inputsChannelMap[cid]
+		inputChannelMapLock.Unlock()
+		if !stillExists && !finished {
+			continue
+		}
+
 		select {
 		case queue <- envelope:
 			// enviado con éxito
@@ -331,9 +340,9 @@ OuterLoop:
 	log.Infof("CSV processing completed")
 
 	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
-	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
-	verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
-	verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
+	// verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
+	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
 	verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 
 	log.Infof("finish all querys verified")

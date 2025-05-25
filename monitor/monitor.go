@@ -18,20 +18,29 @@ const HEADER_SIZE = 1
 const MaxUDPMessageSize = 1024
 const CHECK_INTERVAL = 3 * time.Second    // ToDo: ajustar
 const TIMEOUT = 5 * time.Second           // ToDo: ajustar
+const STARTING_TIMEOUT = 1 * time.Minute  // ToDo: ajustar
 const ELECTION_TIMEOUT = 10 * time.Second // ToDo: ajustar
 
 type WorkerType int
+type Status int
 
 const (
 	WORKER WorkerType = iota
 	CLIENT
 	MONITOR
+	SENTIMENT_SERVER
+)
+
+const (
+	STARTING Status = iota
+	RUNNING
+	EXITED
 )
 
 type WorkerStatus struct {
 	LastSeen time.Time
 	Type     WorkerType // ToDo: client
-	Exited   bool
+	Status   Status
 }
 
 type Monitor struct {
@@ -190,7 +199,7 @@ func (m *Monitor) listenHeartbeats(conn *net.UDPConn, ctx context.Context) {
 				m.MuWorkers.Lock()
 				client, exists := m.Workers[id]
 				m.MuWorkers.Unlock()
-				if exists && client.Exited {
+				if exists && client.Status == EXITED {
 					log.Infof("Client %s already marked as exited", id)
 					continue
 				}
@@ -203,8 +212,8 @@ func (m *Monitor) listenHeartbeats(conn *net.UDPConn, ctx context.Context) {
 					}
 					m.MuLeader.Unlock()
 					m.MuWorkers.Lock()
-					if exists && !client.Exited {
-						m.Workers[id] = WorkerStatus{LastSeen: client.LastSeen, Type: CLIENT, Exited: true}
+					if exists && !(client.Status == EXITED) {
+						m.Workers[id] = WorkerStatus{LastSeen: client.LastSeen, Type: CLIENT, Status: EXITED}
 						log.Infof("%s exited", id)
 					}
 					m.MuWorkers.Unlock()
@@ -215,9 +224,12 @@ func (m *Monitor) listenHeartbeats(conn *net.UDPConn, ctx context.Context) {
 			if strings.Contains(id, "monitor") {
 				workerType = MONITOR
 			}
+			if strings.Contains(id, "sentiment_server") {
+				workerType = SENTIMENT_SERVER
+			}
 
 			m.MuWorkers.Lock()
-			m.Workers[id] = WorkerStatus{LastSeen: time.Now(), Type: workerType, Exited: false}
+			m.Workers[id] = WorkerStatus{LastSeen: time.Now(), Type: workerType, Status: RUNNING}
 			m.MuWorkers.Unlock()
 		}
 	}
@@ -232,33 +244,38 @@ func (m *Monitor) checkWorkers(cli *client.Client, ctx context.Context) {
 			log.Infof("Stopping checkWorkers")
 			return
 		case <-ticker.C:
-			now := time.Now()
 
 			var workerStatus map[string]WorkerStatus
 
 			m.MuWorkers.Lock()
 			workerStatus = m.Workers
 			m.MuWorkers.Unlock()
+			now := time.Now()
 
 			for id, status := range workerStatus {
-				if now.Sub(status.LastSeen) > m.Timeout && !status.Exited {
+				if now.Sub(status.LastSeen) > m.Timeout && !(status.Status == EXITED) {
 					isLeader := false
 					m.MuLeader.Lock()
 					isLeader = m.isLeader()
 					m.MuLeader.Unlock()
-					if isLeader {
-						log.Infof("Worker %s not responding. Restarting...", id)
+					if shouldRestart(isLeader, status) {
+						log.Infof("%s not responding. Restarting...", id)
+						m.MuWorkers.Lock()
+						m.Workers[id] = WorkerStatus{LastSeen: status.LastSeen, Type: status.Type, Status: STARTING}
+						m.MuWorkers.Unlock()
 						m.restartContainer(cli, id)
 					} else {
-						log.Infof("Worker %s not responding.", id)
+						log.Infof("%s not responding.", id)
 					}
-					// if status.Type == MONITOR {
-					// 	m.startElection()
-					// }
 				}
 			}
 		}
 	}
+}
+
+func shouldRestart(isLeader bool, status WorkerStatus) bool {
+	now := time.Now()
+	return isLeader && (status.Status == RUNNING || (status.Status == STARTING && now.Sub(status.LastSeen) > STARTING_TIMEOUT))
 }
 
 func (m *Monitor) isLeader() bool {

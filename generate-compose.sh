@@ -399,7 +399,7 @@ compose_sentiment_server() {
             - NAME=sentiment_server
             - MONITOR_ADDRESSES=$monitor_addresses
         healthcheck:
-            test: ncat -zv localhost 50051
+            test: ['CMD', 'sh', '-c', 'nc -z localhost 50051']
             interval: 10s
             timeout: 10s
             retries: 10
