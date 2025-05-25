@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -14,12 +15,8 @@ const HEATBEAT_INTERVAL = 1 * time.Second // ToDo: ajustar
 const HEADER_SIZE = 1
 const UDP_TIMEOUT = 1 * time.Second
 
-func SendHeartbeat(id string, addrs string, log *logger.ConsoleLogger) {
-	sendHeartbeat(id, addrs, log, false, nil)
-}
-
-func SendStoppableHeartbeat(id string, addrs string, log *logger.ConsoleLogger, stopChan <-chan bool) {
-	sendHeartbeat(id, addrs, log, false, stopChan)
+func SendHeartbeat(id string, addrs string, log *logger.ConsoleLogger, ctx context.Context) {
+	sendHeartbeat(id, addrs, log, false, ctx)
 }
 
 func SendExit(idClient string, addrs string, log *logger.ConsoleLogger) {
@@ -30,9 +27,11 @@ func SendExit(idClient string, addrs string, log *logger.ConsoleLogger) {
 	}
 	defer conn.Close()
 
+	ctx := context.Background()
+
 	for {
 
-		sendHeartbeatWithConn(idClient, addrs, log, true, nil, conn)
+		sendHeartbeatWithConn(idClient, addrs, log, true, ctx, conn)
 		log.Infof("Sent exit heartbeat to monitors")
 
 		conn.SetReadDeadline(time.Now().Add(UDP_TIMEOUT))
@@ -84,9 +83,7 @@ func getUdpAddrs(addrs string, log *logger.ConsoleLogger) []*net.UDPAddr {
 	for _, addr := range addresses {
 		for { // ToDo: timeout o max retries
 			udpAddr, err := net.ResolveUDPAddr("udp", strings.TrimSpace(addr))
-			if err != nil {
-				log.Errorf("Failed to resolve UDP address '%s': %v", addr, err)
-			} else {
+			if err == nil {
 
 				udpAddrs = append(udpAddrs, udpAddr)
 				break
@@ -96,11 +93,11 @@ func getUdpAddrs(addrs string, log *logger.ConsoleLogger) []*net.UDPAddr {
 	return udpAddrs
 }
 
-func sendHeartbeatWithConn(id string, addrs string, log *logger.ConsoleLogger, exit bool, stopChan <-chan bool, conn *net.UDPConn) {
+func sendHeartbeatWithConn(id string, addrs string, log *logger.ConsoleLogger, exit bool, ctx context.Context, conn *net.UDPConn) {
 	udpAddrs := getUdpAddrs(addrs, log)
 	for {
 		select {
-		case <-stopChan:
+		case <-ctx.Done():
 			log.Infof("Stopping heartbeat")
 			return
 		default:
@@ -129,14 +126,14 @@ func sendHeartbeatWithConn(id string, addrs string, log *logger.ConsoleLogger, e
 	}
 }
 
-func sendHeartbeat(id string, addrs string, log *logger.ConsoleLogger, exit bool, stopChan <-chan bool) {
+func sendHeartbeat(id string, addrs string, log *logger.ConsoleLogger, exit bool, ctx context.Context) {
 
 	conn, err := net.ListenUDP("udp", nil)
 	if err != nil {
 		log.Fatalf("Failed to open UDP socket: %v", err)
 	}
 	defer conn.Close()
-	sendHeartbeatWithConn(id, addrs, log, exit, stopChan, conn)
+	sendHeartbeatWithConn(id, addrs, log, exit, ctx, conn)
 }
 
 func ReceiveUDPMessage(conn *net.UDPConn) (string, error) {
@@ -148,7 +145,13 @@ func ReceiveUDPMessage(conn *net.UDPConn) (string, error) {
 	return string(buffer[:n]), nil
 }
 
-func ReceiveTCPMessage(conn net.Conn) (string, error) {
+func ReceiveTCPMessage(conn net.Conn, ctx context.Context) (string, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := conn.SetReadDeadline(deadline); err != nil {
+			return "", fmt.Errorf("could not set read deadline: %w", err)
+		}
+	}
+
 	header, err := recvHeader(conn, HEADER_SIZE)
 	if err != nil {
 		return "", fmt.Errorf("error receiving message: %w", err)
@@ -160,6 +163,8 @@ func ReceiveTCPMessage(conn net.Conn) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("error receiving message: %w", err)
 	}
+
+	_ = conn.SetReadDeadline(time.Time{})
 
 	return string(buffer), nil
 }

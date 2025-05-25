@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 )
@@ -14,7 +17,8 @@ func main() {
 
 	port := os.Getenv("PORT")
 	rawPeers := os.Getenv("PEERS")
-
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	monitor := NewMonitor(port, rawPeers)
-	monitor.Start()
+	monitor.Start(ctx)
 }

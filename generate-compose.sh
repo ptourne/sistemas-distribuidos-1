@@ -13,6 +13,7 @@ if [ "$#" -eq 11 ]; then
     number_of_reduce_top_bottom_avg_ratings=${9}
     number_of_clients=${10}
     number_of_nlp_workers=${11}
+    
 
 elif [ "$#" -eq 12 ]; then
     file_name=$1
@@ -87,7 +88,19 @@ if ! [[ "$number_of_nlp_workers" =~ ^[0-9]+$ ]] || [ "$number_of_nlp_workers" -l
     exit 1
 fi
 
-
+NUMBER_OF_MONITORS=3
+MONITOR_PORT_BASE=9000
+monitor_addresses=""
+monitor_peers=""
+for i in $(seq 1 $NUMBER_OF_MONITORS); do
+    port=$((MONITOR_PORT_BASE + i))
+    monitor_addresses+="monitor$i:$port"
+    monitor_peers+="$i:monitor$i:$port"
+    if [[ $i -lt $NUMBER_OF_MONITORS ]]; then
+        monitor_addresses+=","
+        monitor_peers+=","
+    fi
+done
 
 compose_header() {
     echo "name: analisis-peliculas
@@ -112,8 +125,6 @@ compose_rabbitmq() {
             - ${PWD}/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 "
 }
-# volumes:
-    # - ${PWD}/rabbitmq_config/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
 compose_coordinator() {
     echo "    coordinator:
@@ -129,6 +140,8 @@ compose_coordinator() {
             - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=$number_of_reduce_by_country_sum_budgets
             - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=$number_of_reduce_top_5_by_budgets
             - PREFETCH=1 # Potential optimization
+            - NAME=coordinator
+            - MONITOR_ADDRESSES=$monitor_addresses
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -153,7 +166,7 @@ compose_workers() {
             - N_WORKERS=$number_of_workers
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
-            - WORKER_NAME=worker$worker_id
+            - NAME=worker$worker_id
             - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
@@ -179,6 +192,8 @@ compose_nlp_workers() {
             - NLP_GRPC_ADDR=sentiment_server:50051
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
+            - NAME=nlp_worker$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -226,6 +241,8 @@ compose_joiner_rating() {
             - SERVER_PORT=1234
             - WORKER_COUNT=$worker_count
             - PREFETCH=1
+            - NAME=joiner_rating$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -252,6 +269,8 @@ compose_joiner_credits() {
             - SERVER_PORT=1234
             - WORKER_COUNT=$worker_count
             - PREFETCH=1
+            - NAME=joiner_credits$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -276,7 +295,7 @@ compose_client() {
         entrypoint: /client
         environment:
             - SERVER_PORT=endpoint:9876
-            - CLIENT_NAME=client$client_id
+            - NAME=client$client_id
             - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
@@ -296,6 +315,8 @@ compose_endpoint() {
         entrypoint: /endpoint
         environment:
             - ENDPOINT_PORT=9876
+            - NAME=endpoint
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -340,6 +361,8 @@ compose_reduce() {
         environment:
             - WORKER_ID=$worker_id
             - WORKER_COUNT=$worker_count
+            - NAME=$name$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -373,6 +396,8 @@ compose_sentiment_server() {
         environment:
             - GRPC_PORT=50051
             - GRPC_WORKERS=30
+            - NAME=sentiment_server
+            - MONITOR_ADDRESSES=$monitor_addresses
         healthcheck:
             test: ncat -zv localhost 50051
             interval: 10s
@@ -392,6 +417,8 @@ compose_reduce_top_10_by_actor() {
         environment:
             - WORKER_ID=$worker_id
             - WORKER_COUNT=$number_of_reduce_top_10_by_actor
+            - NAME=reduce_top_10_by_actor$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -413,6 +440,8 @@ compose_reduce_by_movieId() {
             - WORKER_CONDI=1
             - WORKER_COUNT=$NUMBER_OF_REDUCE_BY_MOVIEID
             - PREFETCH=1
+            - NAME=reduce_by_movieid$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -449,21 +478,6 @@ compose_monitor(){
     "
 }
 
-
-NUMBER_OF_MONITORS=3
-MONITOR_PORT_BASE=9000
-monitor_addresses=""
-monitor_peers=""
-for i in $(seq 1 $NUMBER_OF_MONITORS); do
-    port=$((MONITOR_PORT_BASE + i))
-    monitor_addresses+="monitor$i:$port"
-    monitor_peers+="$i:monitor$i:$port"
-    if [[ $i -lt $NUMBER_OF_MONITORS ]]; then
-        monitor_addresses+=","
-        monitor_peers+=","
-    fi
-done
-
 compose_header > $file_name
 compose_rabbitmq >> $file_name
 compose_sentiment_server >> $file_name
@@ -475,9 +489,7 @@ done
 for i in $(seq 1 $number_of_nlp_workers); do
     compose_nlp_workers $i >> $file_name
 done
-#for i in $(seq 1 $number_of_lean_workers); do
-#   compose_lean_workers $i >> $file_name
-#done
+
 for i in $(seq 1 $number_of_joiners_credits); do
     compose_joiner_credits $i $number_of_joiners_credits >> $file_name
 done
@@ -502,10 +514,10 @@ done
 for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
 done
-# NUMBER_OF_REDUCE_BY_MOVIEID=10
-# for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
-#     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
-# done
+NUMBER_OF_REDUCE_BY_MOVIEID=10
+for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
+    compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
+done
 for i in $(seq 1 $NUMBER_OF_MONITORS); do
     compose_monitor $i $NUMBER_OF_MONITORS $((MONITOR_PORT_BASE + i)) $monitor_peers >> $file_name
 done

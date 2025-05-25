@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/signal"
 	"sync"
@@ -8,12 +9,14 @@ import (
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
 )
 
 var log = logger.NewConsoleLogger("endpoint", logger.Debug)
 
-
-func main() {	
+func main() {
+	name := os.Getenv("NAME")
+	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	finishChan := make(chan bool)
@@ -24,6 +27,8 @@ func main() {
 		return
 	}
 	go HandleSignals(endpoint, &wg, finishChan)
+	ctxHeartbeat, cancelHearbeat := context.WithCancel(context.Background())
+	go utils.SendHeartbeat(name, monitor_addrs, log, ctxHeartbeat)
 	err = endpoint.Run()
 	if err != nil {
 		log.Errorf("error recibiendo archivos: %v", err)
@@ -33,6 +38,7 @@ func main() {
 	}
 	close(finishChan)
 	wg.Wait()
+	cancelHearbeat()
 	log.Infof("endpoint finished")
 	time.Sleep(1000 * time.Millisecond)
 

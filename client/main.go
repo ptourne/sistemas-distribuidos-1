@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"os"
 	"os/signal"
@@ -20,7 +21,7 @@ type Client struct {
 }
 
 func main() {
-	name := os.Getenv("CLIENT_NAME")
+	name := os.Getenv("NAME")
 	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
 	var SERVER_PORT = os.Getenv("SERVER_PORT")
 	conn, err := net.Dial("tcp", SERVER_PORT)
@@ -34,9 +35,9 @@ func main() {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	finishChan := make(chan bool)
-	heartbeatStop := make(chan bool)
+	ctxHeartbeat, cancelHearbeat := context.WithCancel(context.Background())
 	go HandleSignals(client, &wg, finishChan)
-	go utils.SendStoppableHeartbeat(name, monitor_addrs, log, heartbeatStop)
+	go utils.SendHeartbeat(name, monitor_addrs, log, ctxHeartbeat)
 	err = client.Run()
 	if err != nil && client.Running {
 		log.Errorf("error sending files: %v", err)
@@ -46,8 +47,7 @@ func main() {
 	}
 	close(finishChan)
 	wg.Add(1)
-	heartbeatStop <- true
-	close(heartbeatStop)
+	cancelHearbeat()
 	go func() {
 		utils.SendExit(name, monitor_addrs, log)
 		wg.Done()

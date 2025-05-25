@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -10,13 +11,15 @@ import (
 
 func main() {
 
-	name := os.Getenv("WORKER_NAME")
+	name := os.Getenv("NAME")
 	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
 	var WORKER_ID = os.Getenv("WORKER_ID")
 	var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
 	worker := NewWorker()
-
-	go utils.SendHeartbeat(name, monitor_addrs, log)
-
+	ctxHeartbeat, cancelHearbeat := context.WithCancel(context.Background())
+	go utils.SendHeartbeat(name, monitor_addrs, log, ctxHeartbeat)
+	defer cancelHearbeat()
 	worker.Run()
+	
+	log.Infof("worker finished")
 }
