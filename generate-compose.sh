@@ -93,14 +93,14 @@ if ! [[ "$number_of_nlp_workers" =~ ^[0-9]+$ ]] || [ "$number_of_nlp_workers" -l
 fi
 
 # Verify number_of_sentiment_servers is a positive integer
-if ! [[ "$number_of_sentiment_servers" =~ ^[0-9]+$ ]] || [ "$number_of_sentiment_servers" -le -1 ]; then
-    echo "Error: Number of sentiment servers must be a positive integer"
+if ! [[ "$number_of_sentiment_servers" =~ ^[0-9]+$ ]] || [ "$number_of_sentiment_servers" -lt 1 ]; then
+    echo "Error: Number of sentiment servers must be an integer >= 1"
     exit 1
 fi
 
 # Verify number_of_monitors is a positive integer
-if ! [[ "$number_of_monitors" =~ ^[0-9]+$ ]] || [ "$number_of_monitors" -le -1 ]; then
-    echo "Error: Number of monitors must be a positive integer"
+if ! [[ "$number_of_monitors" =~ ^[0-9]+$ ]] || [ "$number_of_monitors" -lt 1 ]; then
+    echo "Error: Number of monitors must be a an integer >= 1"
     exit 1
 fi
 

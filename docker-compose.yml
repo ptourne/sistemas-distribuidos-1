@@ -62,8 +62,8 @@ services:
             - local_net
         environment:
             - NUMBER_OF_WORKERS=4
-            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=0
-            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=0
+            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=2
+            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=2
             - PREFETCH=1 # Potential optimization
             - NAME=coordinator
             - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
@@ -79,8 +79,8 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=1
-            - N_JOINERS_CREDITS=0
-            - N_JOINERS_RATINGS=0
+            - N_JOINERS_CREDITS=2
+            - N_JOINERS_RATINGS=2
             - N_WORKERS=4
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
@@ -100,8 +100,8 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=2
-            - N_JOINERS_CREDITS=0
-            - N_JOINERS_RATINGS=0
+            - N_JOINERS_CREDITS=2
+            - N_JOINERS_RATINGS=2
             - N_WORKERS=4
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
@@ -121,8 +121,8 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=3
-            - N_JOINERS_CREDITS=0
-            - N_JOINERS_RATINGS=0
+            - N_JOINERS_CREDITS=2
+            - N_JOINERS_RATINGS=2
             - N_WORKERS=4
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
@@ -142,8 +142,8 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=4
-            - N_JOINERS_CREDITS=0
-            - N_JOINERS_RATINGS=0
+            - N_JOINERS_CREDITS=2
+            - N_JOINERS_RATINGS=2
             - N_WORKERS=4
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
@@ -251,6 +251,192 @@ services:
             sentiment_server2:
                 condition: service_healthy
 
+    joiner_credits1:
+        container_name: joiner_credits1
+        build:
+            context: .
+            dockerfile: joiners/joiner_credits_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=1
+            - SERVER_PORT=1234
+            - WORKER_COUNT=2
+            - PREFETCH=1
+            - NAME=joiner_credits1
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
+
+    joiner_credits2:
+        container_name: joiner_credits2
+        build:
+            context: .
+            dockerfile: joiners/joiner_credits_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=2
+            - SERVER_PORT=1234
+            - WORKER_COUNT=2
+            - PREFETCH=1
+            - NAME=joiner_credits2
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
+
+    joiner_rating1:
+        container_name: joiner_rating1
+        build:
+            context: .
+            dockerfile: joiners/joiner_ratings_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=1
+            - SERVER_PORT=1234
+            - WORKER_COUNT=
+            - PREFETCH=1
+            - NAME=joiner_rating1
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
+
+    joiner_rating2:
+        container_name: joiner_rating2
+        build:
+            context: .
+            dockerfile: joiners/joiner_ratings_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=2
+            - SERVER_PORT=1234
+            - WORKER_COUNT=
+            - PREFETCH=1
+            - NAME=joiner_rating2
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
+
+    reduce_by_country_sum_budget1:
+        container_name: reduce_by_country_sum_budget1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=2
+            - NAME=reduce_by_country_sum_budget1
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_country_sum_budget2:
+        container_name: reduce_by_country_sum_budget2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=2
+            - NAME=reduce_by_country_sum_budget2
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_5_by_budget1:
+        container_name: reduce_top_5_by_budget1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=2
+            - NAME=reduce_top_5_by_budget1
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_5_by_budget2:
+        container_name: reduce_top_5_by_budget2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=2
+            - NAME=reduce_top_5_by_budget2
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_bottom_avg_rating1:
+        container_name: reduce_top_bottom_avg_rating1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_bottom_avg_rating/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=2
+            - NAME=reduce_top_bottom_avg_rating1
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_bottom_avg_rating2:
+        container_name: reduce_top_bottom_avg_rating2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_bottom_avg_rating/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=2
+            - NAME=reduce_top_bottom_avg_rating2
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
     reduce_by_sentiment1:
         container_name: reduce_by_sentiment1
         build:
@@ -278,6 +464,74 @@ services:
             - WORKER_ID=2
             - WORKER_COUNT=2
             - NAME=reduce_by_sentiment2
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_actor1:
+        container_name: reduce_by_actor1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=2
+            - NAME=reduce_by_actor1
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_actor2:
+        container_name: reduce_by_actor2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=2
+            - NAME=reduce_by_actor2
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_10_by_actor1:
+        container_name: reduce_top_10_by_actor1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_10_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=2
+            - NAME=reduce_top_10_by_actor1
+            - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_10_by_actor2:
+        container_name: reduce_top_10_by_actor2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_10_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=2
+            - NAME=reduce_top_10_by_actor2
             - MONITOR_ADDRESSES=monitor1:9001,monitor2:9002,monitor3:9003
         networks:
             - local_net
