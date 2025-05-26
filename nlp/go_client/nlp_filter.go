@@ -2,6 +2,7 @@ package nlp
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	pb "github.com/ptourne/sistemas-distribuidos-1/nlp/proto"
@@ -17,15 +18,26 @@ type SentimentAndRateMap struct {
 }
 
 func NewSentimentAndRateMap(addrs []string) (*SentimentAndRateMap, error) {
+
+	log.Infof("Connecting to gRPC %v", addrs)
+	id, errParsing := strconv.Atoi(WORKER_ID)
+	if errParsing != nil {
+		log.Errorf("Failed to parse WORKER_ID %s: %v", WORKER_ID, errParsing)
+		return nil, errParsing
+	}
+
 	var conn *grpc.ClientConn
 	var err error
-	log.Infof("Connecting to gRPC %v", addrs)
-	idx := 0
-	for i, addr := range addrs {
+	total := len(addrs)
+	start := id % len(addrs)
+
+	for i := range total {
+		index := (start + i) % total
+		addr := addrs[index]
 		conn, err = grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err == nil {
+			start = index
 			log.Infof("Connected to gRPC server at %s", addr)
-			idx = i
 			break
 		}
 	}
@@ -33,7 +45,7 @@ func NewSentimentAndRateMap(addrs []string) (*SentimentAndRateMap, error) {
 		return nil, err
 	}
 	client := pb.NewSentimentAnalyzerClient(conn)
-	return &SentimentAndRateMap{client: client, conn: conn, addrs: addrs, currentIndex: idx}, nil
+	return &SentimentAndRateMap{client: client, conn: conn, addrs: addrs, currentIndex: start}, nil
 }
 
 func (m *SentimentAndRateMap) Transform(row *model.Row, output *model.Row) error {

@@ -340,9 +340,9 @@ OuterLoop:
 	log.Infof("CSV processing completed")
 
 	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
-	// verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
-	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
-	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
+	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+	verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
+	verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
 	verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 
 	log.Infof("finish all querys verified")

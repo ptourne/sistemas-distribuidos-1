@@ -25,12 +25,10 @@ def serve(workers, port, heartbeat_proc, stop_event):
     server.start()
 
     def handle_sigterm(*args):
-        print("Received SIGTERM. Shutiing down gracefully...")
+        print("Received SIGTERM. Shuting down gracefully...")
         stop_event.set()
         heartbeat_proc.join()
         server.stop(grace=5) 
-
-        sys.exit(0)
 
     signal.signal(signal.SIGTERM, handle_sigterm)
     signal.signal(signal.SIGINT, handle_sigterm)
@@ -43,8 +41,4 @@ if __name__ == '__main__':
     name = os.getenv("NAME", "sentiment_server")
     monitor_addrs = os.getenv("MONITOR_ADDRESSES", "")
     stop_event, heartbeat_proc = start_heartbeat(name, monitor_addrs)
-    try:
-        serve(workers, port, heartbeat_proc, stop_event)
-    finally:
-        stop_event.set()
-        heartbeat_proc.join()
+    serve(workers, port, heartbeat_proc, stop_event)

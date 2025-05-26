@@ -245,10 +245,12 @@ func (m *Monitor) checkWorkers(cli *client.Client, ctx context.Context) {
 			return
 		case <-ticker.C:
 
-			var workerStatus map[string]WorkerStatus
+			workerStatus := make(map[string]WorkerStatus)
 
 			m.MuWorkers.Lock()
-			workerStatus = m.Workers
+			for k, v := range m.Workers {
+				workerStatus[k] = v
+			}
 			m.MuWorkers.Unlock()
 			now := time.Now()
 
