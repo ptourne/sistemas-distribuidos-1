@@ -6,8 +6,8 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterSentimentAndRate(input string, subscribers []string, grpcAddr string) task.Task[*model.Row, *model.Row] {
-	mapper, err := nlp.NewSentimentAndRateMap(grpcAddr)
+func NewFilterSentimentAndRate(input string, subscribers []string, grpcAddrs []string) task.Task[*model.Row, *model.Row] {
+	mapper, err := nlp.NewSentimentAndRateMap(grpcAddrs)
 	if err != nil {
 		log.Errorf("Error creating SentimentAndRateMap: %v", err)
 		return nil

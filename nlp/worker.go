@@ -145,10 +145,13 @@ func unwrap(err error, msg string) {
 }
 
 func NewWorker() Worker {
+	var addrs []string
+	grpcAddresses := os.Getenv("NLP_GRPC_ADDRS")
+	for _, addr := range strings.Split(grpcAddresses, ",") {
+		addrs = append(addrs, strings.TrimSpace(addr))
+	}
 
-	grpcAddress := os.Getenv("NLP_GRPC_ADDR")
-
-	map_nlp := filter.NewFilterSentimentAndRate("clean_movies", []string{"reduce_by_sentiment"}, grpcAddress)
+	map_nlp := filter.NewFilterSentimentAndRate("clean_movies", []string{"reduce_by_sentiment"}, addrs)
 
 	return Worker{
 		Tasks: []task.Task[*model.Row, *model.Row]{

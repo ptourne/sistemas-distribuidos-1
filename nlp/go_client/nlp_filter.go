@@ -10,18 +10,30 @@ import (
 )
 
 type SentimentAndRateMap struct {
-	client pb.SentimentAnalyzerClient
-	conn   *grpc.ClientConn
-	addr   string
+	client       pb.SentimentAnalyzerClient
+	conn         *grpc.ClientConn
+	addrs        []string
+	currentIndex int
 }
 
-func NewSentimentAndRateMap(addr string) (*SentimentAndRateMap, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func NewSentimentAndRateMap(addrs []string) (*SentimentAndRateMap, error) {
+	var conn *grpc.ClientConn
+	var err error
+	log.Infof("Connecting to gRPC %v", addrs)
+	idx := 0
+	for i, addr := range addrs {
+		conn, err = grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err == nil {
+			log.Infof("Connected to gRPC server at %s", addr)
+			idx = i
+			break
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
 	client := pb.NewSentimentAnalyzerClient(conn)
-	return &SentimentAndRateMap{client: client, conn: conn, addr: addr}, nil
+	return &SentimentAndRateMap{client: client, conn: conn, addrs: addrs, currentIndex: idx}, nil
 }
 
 func (m *SentimentAndRateMap) Transform(row *model.Row, output *model.Row) error {
@@ -56,20 +68,29 @@ func (m *SentimentAndRateMap) Transform(row *model.Row, output *model.Row) error
 }
 
 func (m *SentimentAndRateMap) reconnect() error {
-	log.Warnf("Reconnecting to gRPC server at %s", m.addr)
-
 	if m.conn != nil {
 		m.conn.Close()
 	}
 
-	conn, err := grpc.NewClient(m.addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	var conn *grpc.ClientConn
+	var err error
+	total := len(m.addrs)
+	start := m.currentIndex + 1
+
+	for i := range total {
+		index := (start + i) % total
+		addr := m.addrs[index]
+		conn, err = grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err == nil {
+			m.conn = conn
+			m.client = pb.NewSentimentAnalyzerClient(conn)
+			m.currentIndex = index
+			log.Infof("Reconnected to gRPC server at %s", addr)
+			break
+		}
+	}
 	if err != nil {
-		log.Errorf("Reconnection failed: %v", err)
 		return err
 	}
-
-	m.conn = conn
-	m.client = pb.NewSentimentAnalyzerClient(conn)
-	log.Infof("Reconnected to gRPC server")
 	return nil
 }
