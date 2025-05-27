@@ -40,8 +40,9 @@ type receiverRabbitmq[T codec.Serializable[T]] struct {
 	closeReceiver ReceiverChannel[*CloseNotification]
 	closeSender   SenderChannel[*CloseNotification]
 	finishCids    map[string]struct {
+		finishDoneIds     map[string]*amqp.Delivery
 		finishDonePending uint
-		msg               middleware.Envelope[T]
+		msgEOF            *amqp.Delivery // this is the envelope that will be returned when all finishDoneIds have been received. It contains the original msg with the eof tag.
 	} // this is used by the receiver that encounters the eof in the input channel. finishDonePending is decremented every time a peer receiver confirms it has pruned the cid from its prefetch. Then, msg is the original msg with the eof tag.
 	pendingPrune  []middleware.Envelope[T] // client ids with a pending prune msg
 	consumerCount uint
@@ -60,10 +61,24 @@ const (
 
 type CloseNotification struct {
 	notificationType CloseNotificationType
+	idWorker         string
 }
 
 func (c CloseNotification) Encode() ([]byte, error) {
-	return codec.Uint8Encode(uint8(c.notificationType))
+	// return codec.Uint8Encode(uint8(c.notificationType))
+	t, err := codec.Uint8Encode(uint8(c.notificationType))
+	if err != nil {
+		return nil, err
+	}
+	//encodeo el id
+	idWorker, err := codec.StringEncode(c.idWorker)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode idWorker: %v", err)
+	}
+	data := make([]byte, 0)
+	data = append(data, t...)
+	data = append(data, idWorker...)
+	return data, nil
 }
 
 func (c *CloseNotification) Decode(data []byte) (*CloseNotification, error) {
@@ -72,7 +87,11 @@ func (c *CloseNotification) Decode(data []byte) (*CloseNotification, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &CloseNotification{notificationType: CloseNotificationType(val)}, nil
+	idWorker, err := codec.StringDecode(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode idWorker: %v", err)
+	}
+	return &CloseNotification{notificationType: CloseNotificationType(val), idWorker: idWorker}, nil
 }
 
 func NewMiddleware[T codec.Serializable[T]](c *RabbitMQConnector, log *logger.ConsoleLogger) middleware.Connection[T] {
@@ -127,7 +146,6 @@ type SenderRabbitmq[T codec.Serializable[T]] struct {
 	isBlocked     atomic.Bool
 	isClosed      atomic.Bool
 	Log           *logger.ConsoleLogger
-	lastId        uint64
 	idSender      string
 	consumerCount uint
 }
@@ -240,14 +258,16 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 	}
 
 	var finishcCids map[string]struct {
+		finishDoneIds     map[string]*amqp.Delivery
 		finishDonePending uint
-		msg               middleware.Envelope[T]
+		msgEOF            *amqp.Delivery
 	}
 
 	if routingKey == "0" {
 		finishcCids = make(map[string]struct {
+			finishDoneIds     map[string]*amqp.Delivery
 			finishDonePending uint
-			msg               middleware.Envelope[T]
+			msgEOF            *amqp.Delivery
 		})
 	} else {
 		finishcCids = nil
@@ -353,7 +373,6 @@ func (m *middlewareRabbitmq[T]) writeToRK(outputName string, subscribers map[str
 		exchangeName:  outputName,
 		output:        output,
 		Log:           m.Log,
-		lastId:        0,
 		idSender:      idWorker,
 		consumerCount: consumerCount,
 	}
@@ -507,42 +526,46 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					//r.Log.Infof("Consumer count: %d for channel %s", r.consumerCount, r.input.exchangeName)
 					if r.routingKey == "0" {
 						r.Log.Debugf("EOF received on channel for Cid %s in %s", cid, r.input.queueName)
-						_, exists := r.finishCids[cid]
+						finishCid, exists := r.finishCids[cid]
 						if !exists {
 							r.Log.Infof("EOF received for non-existent Cid %s", cid)
 							r.finishCids[cid] = struct {
+								finishDoneIds     map[string]*amqp.Delivery
 								finishDonePending uint
-								msg               middleware.Envelope[T]
+								msgEOF            *amqp.Delivery
 							}{
+								finishDoneIds:     make(map[string]*amqp.Delivery),
 								finishDonePending: r.consumerCount,
-								msg:               newEOFEnvelope[T](cid),
+								msgEOF:            tag,
 							}
 						} else {
+							finishCid.msgEOF = tag
+							r.finishCids[cid] = finishCid
 							r.Log.Debugf("VAMOSS EOF received for Cid %s in %s", cid, r.input.queueName)
 						}
 						r.Log.Infof("LIDER eof received on channel for Cid %s in %s", cid, r.input.queueName)
 						r.Log.Debugf("%s added finishCid[%s] = %+v", r.input.exchangeName, cid, r.finishCids[cid])
 
-						err = r.closeSender.Prune(cid)
+						err = r.closeSender.Prune(cid) //ES NECESARIO?? sino borrar tmb en handleFinishNotification
 						if err != nil {
 							return nil, fmt.Errorf("failed to send message in close notification: %v", err)
 						}
-						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
+						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender, r.routingKey))
 
-						err = tag.Ack(false)
-						if err != nil {
-							r.Log.Errorf("failed to ack message in close notification: %v", err)
-						}
+						// err = tag.Ack(false)
+						// if err != nil {
+						// 	r.Log.Errorf("failed to ack message in close notification: %v", err)
+						// }
 						r.Log.Debugf("return prune callback envelope")
 						continue
 					} else {
-						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
+						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender, r.routingKey))
 						continue
 					}
 
 				}
 				r.Log.Debugf("return normal envelope")
-				return newNormalEnvelope(cid, msgbody, tag), nil
+				return newNormalEnvelope(cid, msgbody, tag, 0), nil //TODO
 
 			case <-ctxDone:
 				r.Log.Debugf("Timeout reached while waiting for message")
@@ -567,7 +590,9 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	if err != nil {
 		return false, true, nil, fmt.Errorf("failed to process close notification: %v", err)
 	}
-	defer tag.Ack(true)
+	if r.routingKey != "0" {
+		defer tag.Ack(true)
+	}
 	if t == prune {
 		return true, false, nil, nil
 	}
@@ -580,39 +605,39 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 			r.Log.Debugf("%s, Finish done received for Cid %s", r.input.exchangeName, cid)
 			finishCid, exists := r.finishCids[cid]
 			if !exists {
-				r.finishCids[cid] = struct {
+				finishCidNew := struct {
+					finishDoneIds     map[string]*amqp.Delivery
 					finishDonePending uint
-					msg               middleware.Envelope[T]
+					msgEOF            *amqp.Delivery
 				}{
-					finishDonePending: r.consumerCount - 1,
-					msg:               newEOFEnvelope[T](cid),
+					finishDoneIds:     make(map[string]*amqp.Delivery),
+					finishDonePending: r.consumerCount,
 				}
+				finishCidNew.finishDoneIds[notification.idWorker] = tag
+				r.finishCids[cid] = finishCidNew
 				r.Log.Debugf("Finish done received for non-existent Cid VAMOSS %s count: %d", cid, r.finishCids[cid].finishDonePending)
 				return true, false, nil, nil
 			} else {
 				r.Log.Debugf("Finish done pending for Cid before %s: %d | Receiver okk %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)
-				finishCid.finishDonePending--
-				r.finishCids[cid] = finishCid
-				r.Log.Debugf("Finish done pending for Cid %s: %d in %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)
-				if r.finishCids[cid].finishDonePending == 0 {
+				// finishCid.finishDonePending--
+				// r.finishCids[cid] = finishCid
+				// r.Log.Debugf("Finish done pending for Cid %s: %d in %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)
+				_, exists := finishCid.finishDoneIds[notification.idWorker]
+				if !exists {
+					finishCid.finishDoneIds[notification.idWorker] = tag
+				} else {
+					tag.Ack(true)
+				}
+				if finishCid.finishDonePending == uint(len(finishCid.finishDoneIds)) {
 					r.Log.Infof("Finishes done received for Cid %s in %s", cid, r.input.queueName)
 					delete(r.finishCids, cid)
-					return false, true, finishCid.msg, nil
+					return false, true, newEOFEnvelope[T](cid, finishCid.msgEOF, finishCid.finishDoneIds), nil
 				}
+				r.finishCids[cid] = finishCid
 			}
 		} else { //not leader
 			return true, false, nil, nil
 		}
-		// case closeNotificationFinishCid:
-		// 	_, exists := r.finishCids[cid]
-		// 	if exists {
-		// 		return true, false, nil, nil
-		// 	}
-		// 	r.Log.Infof("Finish received for Cid %s in %s", cid, r.input.queueName)
-		// 	// r.prefetchCids[cid] = r.prefetch + PREFETCH_MAX
-		// 	r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender))
-		// 	// r.Log.Debugf("r.prefetchCids[%s] = %d | Receiver %s", cid, r.prefetchCids[cid], name)
-		// 	return true, false, nil, nil
 	}
 	return false, false, nil, nil
 }
@@ -660,9 +685,8 @@ func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, c
 	return typeMessageInternal, cid, received, tag, nil
 }
 
-func (s *SenderRabbitmq[T]) Send(row T, cid string) error {
-	s.lastId++
-	lastRk := s.lastId % uint64(s.consumerCount)
+func (s *SenderRabbitmq[T]) Send(row T, cid string, id uint64) error {
+	lastRk := id % uint64(s.consumerCount)
 	s.Log.Infof("lastRk: %d", lastRk)
 	rk := fmt.Sprintf("%d", lastRk)
 	return s.SendRK(row, rk, cid)

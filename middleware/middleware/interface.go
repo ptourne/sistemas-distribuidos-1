@@ -10,7 +10,8 @@ import (
 // ver de declare, tratr de devovler un struct, ghacer read/write
 type Connection[T codec.Serializable[T]] interface {
 	ConsumeFrom(sourceName string, groupName string, routingkey string, prefetch int, consumerCount uint) (Receiver[T], error) // CONSUMER COUNT ES LA CANTIDAD DE SHARDS
-	WriteTo(writeExchangeName string, subscribers []string, idWorker string, consumerCount uint) (Sender[T], error)            // CONSUMER COUNT ES LA CANTIDAD DE SHARDS
+	WriteTo(writeExchangeName string, subscribers []string, idWorker string, consumerCount uint) (Sender[T], error)            //
+	// CONSUMER COUNT ES LA CANTIDAD DE SHARDS
 	Close() error
 }
 
@@ -31,6 +32,7 @@ type Envelope[T codec.Serializable[T]] interface {
 	Nack(multiple bool) error
 	Cid() string
 	Type() TypeMsg
+	Id() uint64
 }
 
 type TypeMsg int
@@ -73,7 +75,7 @@ func FromStringTypeMsg(s string) (TypeMsg, error) {
 }
 
 type Sender[T codec.Serializable[T]] interface {
-	Send(row T, cid string) error //usa el rk del sender id
+	Send(row T, cid string, id uint64) error //usa el rk del sender id
 	Prune(cid string) error
 	SendEOF(cid string) error               // manda el EOF a todos los shards
 	SendEOFONE(cid string, rk string) error //manda el EOF a ese rk NO USAR ES SOLO TESTING

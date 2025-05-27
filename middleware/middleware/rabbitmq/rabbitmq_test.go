@@ -112,7 +112,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		}
 
 		sentMsg := &Ball{1}
-		err = sender.Send(sentMsg, cid)
+		err = sender.Send(sentMsg, cid, 0)
 		assert.NoError(t, err)
 
 		timer, cancel = newTimer()
@@ -145,11 +145,11 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.EOF, received.Type())
-		assert.NoError(t, received.Ack(true))
+		assert.NoError(t, received.Ack(false))
 	})
 
 	t.Run("OneMessageID", func(t *testing.T) {
-		init := test3container
+		init := test2container
 		assert.NoError(t, init.Err)
 		senderId := "1"
 		consumerCount := 5
@@ -173,7 +173,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		}
 
 		sentMsg := &Ball{1}
-		err = sender.Send(sentMsg, cid)
+		err = sender.Send(sentMsg, cid, 0)
 		assert.NoError(t, err)
 
 		err = sender.Prune(cid)
@@ -195,16 +195,16 @@ func TestRabbitMQMiddleware(t *testing.T) {
 			case middleware.Normal:
 				cant_msg_received++
 				assert.Equal(t, sentMsg, e.Msg())
-				e.Ack(true)
+				e.Ack(false)
 
 				e, err = receivers[i].Next(ctx)
 				assert.NoError(t, err)
 				assert.Equal(t, middleware.Prune, e.Type())
-				e.Ack(true)
+				e.Ack(false)
 				cancel()
 			case middleware.Prune:
 				cant_msg_not_received++
-				e.Ack(true)
+				e.Ack(false)
 				cancel()
 			default:
 				assert.Fail(t, "should not be here")
@@ -216,7 +216,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		e, err := receivers[0].Next(ctx)
 		assert.NoError(t, err)
 		assert.Equal(t, middleware.EOF, e.Type())
-		e.Ack(true)
+		e.Ack(false)
 		cancel()
 
 		for i := 0; i < consumerCount; i++ {
@@ -256,7 +256,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		}
 
 		sentMsg := &Ball{1}
-		err = sender.Send(sentMsg, cid)
+		err = sender.Send(sentMsg, cid, 0)
 		assert.NoError(t, err)
 
 		err = sender.Prune(cid)
@@ -345,7 +345,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		cancel()
 
 		sentMsg1 := &Ball{1}
-		err = sender.Send(sentMsg1, cid)
+		err = sender.Send(sentMsg1, cid, 0)
 		assert.NoError(t, err)
 
 		timer, cancel = newTimer()
@@ -356,7 +356,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, received.Ack(true))
 
 		sentMsg2 := &Ball{2}
-		err = sender.Send(sentMsg2, cid)
+		err = sender.Send(sentMsg2, cid, 1)
 		assert.NoError(t, err)
 
 		timer, cancel = newTimer()
@@ -400,7 +400,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		cid := "1"
 
 		sentMsg := &Ball{1}
-		err = sender.Send(sentMsg, cid)
+		err = sender.Send(sentMsg, cid, 0)
 		assert.NoError(t, err)
 
 		err = sender.SendEOF(cid)
@@ -462,7 +462,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 
 		sentMsg1 := &Ball{1}
-		err = sender.Send(sentMsg1, cid)
+		err = sender.Send(sentMsg1, cid, 0)
 		assert.NoError(t, err)
 
 		handle1 := make(chan NextAsyncRes)
@@ -496,7 +496,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		}
 
 		sentMsg2 := &Ball{2}
-		err = sender.Send(sentMsg2, cid)
+		err = sender.Send(sentMsg2, cid, 1)
 		assert.NoError(t, err)
 
 		handle1 = make(chan NextAsyncRes)
@@ -615,7 +615,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 
 		sentMsg1 := &Ball{1}
-		err = sender.Send(sentMsg1, cid1)
+		err = sender.Send(sentMsg1, cid1, 0)
 		assert.NoError(t, err)
 
 		handle1 := make(chan NextAsyncRes)
@@ -649,7 +649,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		}
 
 		sentMsg2 := &Ball{2}
-		err = sender.Send(sentMsg2, cid1)
+		err = sender.Send(sentMsg2, cid1, 1)
 		assert.NoError(t, err)
 
 		handle1 = make(chan NextAsyncRes)
@@ -688,7 +688,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 
 		for i := range 20 {
 			ball := &Ball{uint64(i + 3)}
-			err = sender.Send(ball, cid2)
+			err = sender.Send(ball, cid2, uint64(i+2))
 			assert.NoError(t, err)
 		}
 
@@ -811,7 +811,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 
 		sentMsg1 := &Ball{1}
-		err = sender.Send(sentMsg1, cid)
+		err = sender.Send(sentMsg1, cid, 0)
 		assert.NoError(t, err)
 
 		ctx, cancel := newTimer()
@@ -898,7 +898,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		const countSender2 = uint64(100000)
 		for i := range countSender2 {
 			sentMsg := &Ball{i}
-			err = sender2.Send(sentMsg, cid)
+			err = sender2.Send(sentMsg, cid, uint64(i))
 			assert.NoError(t, err)
 		}
 		ref := time.Now()
@@ -940,7 +940,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 	})
 
 	t.Run("OnePubOneRec", func(t *testing.T) {
-		init := test8container
+		init := test10container
 		assert.NoError(t, init.Err)
 		senderId := "1"
 		consumerCount := 1
@@ -954,7 +954,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		countSender1 := uint64(200000)
 		for i := range countSender1 {
 			sentMsg := &Ball{i}
-			err := sender.Send(sentMsg, cid)
+			err := sender.Send(sentMsg, cid, uint64(i))
 			assert.NoError(t, err)
 		}
 		ref := time.Now()

@@ -12,11 +12,12 @@ import (
 
 var log2 = logger.NewConsoleLogger("envelope", logger.Info)
 
-func newNormalEnvelope[T codec.Serializable[T]](cid string, msgbody T, tag *amqp.Delivery) middleware.Envelope[T] {
+func newNormalEnvelope[T codec.Serializable[T]](cid string, msgbody T, tag *amqp.Delivery, id uint64) middleware.Envelope[T] {
 	return &EnvelopeRabbitmq[T]{
 		msg: msgbody,
 		tag: tag,
 		cid: cid,
+		id:  id,
 	}
 }
 
@@ -24,6 +25,7 @@ type EnvelopeRabbitmq[T codec.Serializable[T]] struct {
 	msg T
 	tag *amqp.Delivery
 	cid string
+	id  uint64
 }
 
 func (r *EnvelopeRabbitmq[T]) Msg() T {
@@ -38,11 +40,15 @@ func (r *EnvelopeRabbitmq[T]) Type() middleware.TypeMsg {
 	return middleware.Normal
 }
 
+func (r *EnvelopeRabbitmq[T]) Id() uint64 {
+	return r.id
+}
+
 func (r *EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	if r.tag == nil {
 		return fmt.Errorf("tag is not initialized or already acked")
 	}
-	err := r.tag.Ack(multiple)
+	err := r.tag.Ack(false)
 	if err != nil {
 		return fmt.Errorf("failed to ack message: %v", err)
 	}
@@ -54,7 +60,7 @@ func (r *EnvelopeRabbitmq[T]) Nack(multiple bool) error {
 	if r.tag == nil {
 		return fmt.Errorf("tag is not initialized or already acked")
 	}
-	err := r.tag.Nack(multiple, true)
+	err := r.tag.Nack(false, true)
 	if err != nil {
 		return fmt.Errorf("failed to ack message: %v", err)
 	}
@@ -62,22 +68,30 @@ func (r *EnvelopeRabbitmq[T]) Nack(multiple bool) error {
 	return nil
 }
 
+type eofEnvelopeRabbitmq[T codec.Serializable[T]] struct {
+	cid           string
+	finishDoneIds map[string]*amqp.Delivery
+	msgEOF        *amqp.Delivery
+}
+
 func newEOFEnvelope[T codec.Serializable[T]](
 	cid string,
+	msgEof *amqp.Delivery,
+	finishDoneIds map[string]*amqp.Delivery,
 ) middleware.Envelope[T] {
 	return &eofEnvelopeRabbitmq[T]{
-		cid: cid,
+		cid:           cid,
+		finishDoneIds: finishDoneIds,
+		msgEOF:        msgEof,
 	}
 }
 
 func NewEOFEnvelope[T codec.Serializable[T]](
 	cid string,
+	msgEof *amqp.Delivery,
+	finishDoneIds map[string]*amqp.Delivery,
 ) middleware.Envelope[T] {
-	return newEOFEnvelope[T](cid)
-}
-
-type eofEnvelopeRabbitmq[T codec.Serializable[T]] struct {
-	cid string
+	return newEOFEnvelope[T](cid, msgEof, finishDoneIds)
 }
 
 func (r *eofEnvelopeRabbitmq[T]) Msg() T {
@@ -93,7 +107,32 @@ func (r *eofEnvelopeRabbitmq[T]) Type() middleware.TypeMsg {
 	return middleware.EOF
 }
 
+func (r *eofEnvelopeRabbitmq[T]) Id() uint64 {
+	return 0 // EOF TIENE QUE TENER SU PROPPIO ID?
+}
+
 func (r *eofEnvelopeRabbitmq[T]) Ack(multiple bool) error {
+	log2.Infof("Acking EOF envelope for cid: %s", r.cid)
+	if r.msgEOF == nil {
+		return fmt.Errorf("msgEOF is not initialized or already acked")
+	}
+	if err := r.msgEOF.Ack(false); err != nil {
+		return fmt.Errorf("failed to ack EOF message: %v", err)
+	}
+	r.msgEOF = nil
+
+	// Acknowledge all finish done IDs
+	for id, tag := range r.finishDoneIds {
+		if id == "" {
+			return fmt.Errorf("finish done ID is empty for cid: %s", r.cid)
+		}
+		log2.Infof("Acking finish done ID: %v for cid: %s", id, r.cid)
+		if err := tag.Ack(false); err != nil {
+			return fmt.Errorf("failed to ack finish done ID %s: %v", id, err)
+		}
+		delete(r.finishDoneIds, id)
+	}
+
 	return nil
 }
 
@@ -104,16 +143,20 @@ func (r *eofEnvelopeRabbitmq[T]) Nack(multiple bool) error {
 func newPrune2Envelope[T codec.Serializable[T]](
 	cid string,
 	closeSender SenderChannel[*CloseNotification],
+	idWorker string,
 ) middleware.Envelope[T] {
+	log2.Infof("Creating prune2 envelope for cid: %s, idWorker: %s", cid, idWorker)
 	return &prune2EnvelopeRabbitmq[T]{
 		closeSender: closeSender,
 		cid:         cid,
+		idWorker:    idWorker,
 	}
 }
 
 type prune2EnvelopeRabbitmq[T codec.Serializable[T]] struct {
 	cid         string
 	closeSender SenderChannel[*CloseNotification]
+	idWorker    string
 }
 
 func (r *prune2EnvelopeRabbitmq[T]) Msg() T {
@@ -129,9 +172,13 @@ func (r *prune2EnvelopeRabbitmq[T]) Type() middleware.TypeMsg {
 	return middleware.Prune
 }
 
+func (r *prune2EnvelopeRabbitmq[T]) Id() uint64 {
+	return 0 //TODO TIENE QUE TENER UN ID PROPIO?
+}
+
 func (r *prune2EnvelopeRabbitmq[T]) Ack(multiple bool) error {
-	log2.Infof("Acking prune2 envelope for cid: %s, sending finishdone", r.cid)
-	if err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone}, r.cid); err != nil {
+	log2.Infof("Acking prune2 envelope for cid: %s, sending finishdone with idW: %s", r.cid, r.idWorker)
+	if err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone, r.idWorker}, r.cid); err != nil {
 		return fmt.Errorf("failed to ack message in close notification: %v", err)
 	} else {
 		err := r.closeSender.Prune(r.cid)
