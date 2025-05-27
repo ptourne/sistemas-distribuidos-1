@@ -178,7 +178,7 @@ func (r *prune2EnvelopeRabbitmq[T]) Id() uint64 {
 
 func (r *prune2EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	log2.Infof("Acking prune2 envelope for cid: %s, sending finishdone with idW: %s", r.cid, r.idWorker)
-	if err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone, r.idWorker}, r.cid); err != nil {
+	if err := r.closeSender.Publish(context.Background(), &CloseNotification{closeNotificationFinishCidDone, r.idWorker}, r.cid, uint64(0)); err != nil { //TODO: revisar id si puede ignorarse
 		return fmt.Errorf("failed to ack message in close notification: %v", err)
 	} else {
 		err := r.closeSender.Prune(r.cid)

@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -381,17 +382,19 @@ func (m *middlewareRabbitmq[T]) writeToRK(outputName string, subscribers map[str
 	return sender, nil
 }
 
-func (s *SenderChannel[T]) Publish(ctx context.Context, msg T, cid string) error {
+func (s *SenderChannel[T]) Publish(ctx context.Context, msg T, cid string, id uint64) error {
 	// s.Log.Debugf("Publish msg %+v in %s", msg, s.exchangeName)
-	return s.PublishRK(ctx, msg, "", cid)
+	return s.PublishRK(ctx, msg, "", cid, id)
 }
 
-func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey string, cid string) error {
+func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey string, cid string, id uint64) error {
 	buf, err := msg.Encode()
 	s.Log.Debugf("Publish msg %+v as %x and rk %s", msg, buf, routingKey)
 	if err != nil {
 		return fmt.Errorf("failed to encode message: %v", err)
 	}
+	bufId := make([]byte, 8)
+	binary.BigEndian.PutUint64(bufId, id)
 	err = s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
 		routingKey,     // routing key
@@ -403,6 +406,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 			Headers: amqp.Table{
 				"cid":  cid,
 				"type": normal.String(),
+				"id":   bufId,
 			},
 		})
 	if err != nil {
@@ -412,7 +416,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	return nil
 }
 
-func (s *SenderRabbitmq[T]) SendEOFONE(cid string, rk string) error {
+func (s *SenderRabbitmq[T]) SendEOFONE(cid string, rk string) error { //NO USAR SOLO TESTING
 	err := s.SendEOFRK(rk, cid)
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
@@ -440,6 +444,9 @@ func (s *SenderRabbitmq[T]) SendEOFRK(routingKey string, cid string) error {
 }
 
 func (s *SenderChannel[T]) SendEOFRK(ctx context.Context, routingKey string, cid string) error {
+	s.Log.Debugf("SendEOFRK in chan %s with routingKey %s and cid %s", s.exchangeName, routingKey, cid)
+	bufId := make([]byte, 8)
+	binary.BigEndian.PutUint64(bufId, uint64(0))
 	err := s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
 		routingKey,     // routing key
@@ -451,6 +458,7 @@ func (s *SenderChannel[T]) SendEOFRK(ctx context.Context, routingKey string, cid
 			Headers: amqp.Table{
 				"cid":  cid,
 				"type": eofCid.String(),
+				"id":   bufId,
 			},
 		})
 	if err != nil {
@@ -508,7 +516,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					return nil, fmt.Errorf("read channel was closed")
 				}
 				r.Log.Debugf("Received message from input in receiver %s", r.input.queueName)
-				t, cid, msgbody, tag, err := unpackMsg[T](msg)
+				t, cid, id, msgbody, tag, err := unpackMsg[T](msg)
 				if err != nil {
 					return nil, fmt.Errorf("failed to process close notification: %v", err)
 				}
@@ -565,7 +573,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 
 				}
 				r.Log.Debugf("return normal envelope")
-				return newNormalEnvelope(cid, msgbody, tag, 0), nil //TODO
+				return newNormalEnvelope(cid, msgbody, tag, id), nil //TODO
 
 			case <-ctxDone:
 				r.Log.Debugf("Timeout reached while waiting for message")
@@ -585,9 +593,9 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	if !ok {
 		return false, true, nil, fmt.Errorf("read channel was closed")
 	}
-	r.Log.Debugf("Received message from close receiver '%s'", r.closeReceiver.exchangeName)
-	t, cid, notification, tag, err := unpackMsg[*CloseNotification](msg)
+	t, cid, _, notification, tag, err := unpackMsg[*CloseNotification](msg)
 	if err != nil {
+		r.Log.Errorf("failed to unpack close notification: %v", err)
 		return false, true, nil, fmt.Errorf("failed to process close notification: %v", err)
 	}
 	if r.routingKey != "0" {
@@ -642,33 +650,40 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	return false, false, nil, nil
 }
 
-func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, cid string, received T, tag *amqp.Delivery, err error) {
+func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, cid string, id uint64, received T, tag *amqp.Delivery, err error) {
 	tag = &msg
 	cidRaw, ok := msg.Headers["cid"]
 	if !ok {
-		return t, cid, received, tag, fmt.Errorf("cid missing from header")
+		return t, cid, id, received, tag, fmt.Errorf("cid missing from header")
 	}
 
 	cid, ok = cidRaw.(string)
 	if !ok {
-		return t, cid, received, tag, fmt.Errorf("cd is not a string: %T", cidRaw)
+		return t, cid, id, received, tag, fmt.Errorf("cd is not a string: %T", cidRaw)
 	}
+
+	idBuf, ok := msg.Headers["id"]
+	if !ok {
+		return t, cid, id, received, tag, fmt.Errorf("id missing from header")
+	}
+
+	id = binary.BigEndian.Uint64(idBuf.([]byte))
 
 	typeMessageRaw, ok := msg.Headers["type"]
 	if !ok {
-		return t, cid, received, tag, fmt.Errorf("type missing from header")
+		return t, cid, id, received, tag, fmt.Errorf("type missing from header")
 	}
 
 	typeMessageInternal, err := FromStringTypeMsgInternal(typeMessageRaw.(string))
 	if err != nil {
-		return t, cid, received, tag, fmt.Errorf("failed to decode type message: %v", err)
+		return t, cid, id, received, tag, fmt.Errorf("failed to decode type message: %v", err)
 	}
 
 	if typeMessageInternal == normal {
 		var nul T
 		received, err = nul.Decode(msg.Body)
 		if err != nil {
-			return t, cid, received, tag, fmt.Errorf("failed to decode item: %v", err)
+			return t, cid, id, received, tag, fmt.Errorf("failed to decode item: %v", err)
 		}
 	}
 
@@ -682,14 +697,14 @@ func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, c
 	// 	cid: cid,
 	// 	t:   typeMessageInternal,
 	// }
-	return typeMessageInternal, cid, received, tag, nil
+	return typeMessageInternal, cid, id, received, tag, nil
 }
 
 func (s *SenderRabbitmq[T]) Send(row T, cid string, id uint64) error {
 	lastRk := id % uint64(s.consumerCount)
 	s.Log.Infof("lastRk: %d", lastRk)
 	rk := fmt.Sprintf("%d", lastRk)
-	return s.SendRK(row, rk, cid)
+	return s.SendRK(row, rk, cid, id)
 }
 
 // func (s *SenderRabbitmq[T]) SendMsgID(row T, cid string) error {
@@ -698,12 +713,12 @@ func (s *SenderRabbitmq[T]) Send(row T, cid string, id uint64) error {
 // 	return s.SendRK(row, rk, cid)
 // }
 
-func (s *SenderRabbitmq[T]) SendRK(row T, routingKey string, cid string) error {
+func (s *SenderRabbitmq[T]) SendRK(row T, routingKey string, cid string, id uint64) error {
 	if s.exchangeName == "" {
 		return fmt.Errorf("write exchange is not initialized")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	err := s.output.PublishRK(ctx, row, routingKey, cid)
+	err := s.output.PublishRK(ctx, row, routingKey, cid, id)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
@@ -724,6 +739,8 @@ func (s *SenderRabbitmq[T]) Prune(cid string) error {
 }
 
 func (s SenderChannel[T]) Prune(cid string) error {
+	bufId := make([]byte, 8)
+	binary.BigEndian.PutUint64(bufId, uint64(0))
 	c, err := s.ch.PublishWithDeferredConfirm(s.exchangeName, "", false, false,
 		amqp.Publishing{
 			ContentType: "application/message",
@@ -731,6 +748,7 @@ func (s SenderChannel[T]) Prune(cid string) error {
 			Headers: amqp.Table{
 				"cid":  cid,
 				"type": prune.String(),
+				"id":   bufId,
 			},
 		})
 	if err != nil {

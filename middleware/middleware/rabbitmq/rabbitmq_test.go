@@ -112,7 +112,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		}
 
 		sentMsg := &Ball{1}
-		err = sender.Send(sentMsg, cid, 0)
+		err = sender.Send(sentMsg, cid, 1)
 		assert.NoError(t, err)
 
 		timer, cancel = newTimer()
@@ -120,6 +120,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		cancel()
 		assert.NoError(t, err)
 		assert.Equal(t, sentMsg, received.Msg())
+		assert.Equal(t, uint64(1), received.Id())
 		assert.NoError(t, received.Ack(true))
 
 		timer, cancel = newTimer()
@@ -173,7 +174,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		}
 
 		sentMsg := &Ball{1}
-		err = sender.Send(sentMsg, cid, 0)
+		err = sender.Send(sentMsg, cid, 1)
 		assert.NoError(t, err)
 
 		err = sender.Prune(cid)
@@ -195,15 +196,18 @@ func TestRabbitMQMiddleware(t *testing.T) {
 			case middleware.Normal:
 				cant_msg_received++
 				assert.Equal(t, sentMsg, e.Msg())
+				assert.Equal(t, uint64(1), e.Id())
 				e.Ack(false)
 
 				e, err = receivers[i].Next(ctx)
 				assert.NoError(t, err)
 				assert.Equal(t, middleware.Prune, e.Type())
+				assert.Equal(t, uint64(0), e.Id())
 				e.Ack(false)
 				cancel()
 			case middleware.Prune:
 				cant_msg_not_received++
+				assert.Equal(t, uint64(0), e.Id())
 				e.Ack(false)
 				cancel()
 			default:
@@ -216,6 +220,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		e, err := receivers[0].Next(ctx)
 		assert.NoError(t, err)
 		assert.Equal(t, middleware.EOF, e.Type())
+		assert.Equal(t, uint64(0), e.Id())
 		e.Ack(false)
 		cancel()
 
@@ -345,7 +350,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		cancel()
 
 		sentMsg1 := &Ball{1}
-		err = sender.Send(sentMsg1, cid, 0)
+		err = sender.Send(sentMsg1, cid, 1)
 		assert.NoError(t, err)
 
 		timer, cancel = newTimer()
@@ -353,10 +358,11 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		cancel()
 		assert.NoError(t, err)
 		assert.Equal(t, sentMsg1, received.Msg())
+		assert.Equal(t, uint64(1), received.Id())
 		assert.NoError(t, received.Ack(true))
 
 		sentMsg2 := &Ball{2}
-		err = sender.Send(sentMsg2, cid, 1)
+		err = sender.Send(sentMsg2, cid, 2)
 		assert.NoError(t, err)
 
 		timer, cancel = newTimer()
@@ -364,6 +370,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		cancel()
 		assert.NoError(t, err)
 		assert.Equal(t, sentMsg2, received.Msg())
+		assert.Equal(t, uint64(2), received.Id())
 		assert.NoError(t, received.Ack(true))
 
 		err = sender.SendEOF(cid)
@@ -917,6 +924,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 			assert.NoError(t, err)
 			if assert.Equalf(t, middleware.Normal, received.Type(), "Received message of type %s instead of Ball{%d}", received.Type(), i) {
 				assert.Equal(t, i, received.Msg().ID)
+				assert.Equal(t, uint64(i), received.Id())
 				assert.NoError(t, received.Ack(true))
 			}
 		}
@@ -928,6 +936,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.Prune, received.Type())
+		assert.Equal(t, uint64(0), received.Id())
 		assert.NoError(t, received.Ack(true))
 
 		timer, cancel = newTimer()
@@ -936,6 +945,7 @@ func TestRabbitMQMiddleware(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, cid, received.Cid())
 		assert.Equal(t, middleware.EOF, received.Type())
+		assert.Equal(t, uint64(0), received.Id())
 		assert.NoError(t, received.Ack(true))
 	})
 
