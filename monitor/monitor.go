@@ -2,24 +2,31 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"maps"
+
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
 )
 
 const HEADER_SIZE = 1
 const MaxUDPMessageSize = 1024
-const CHECK_INTERVAL = 3 * time.Second    // ToDo: ajustar
-const TIMEOUT = 5 * time.Second           // ToDo: ajustar
-const STARTING_TIMEOUT = 1 * time.Minute  // ToDo: ajustar
-const ELECTION_TIMEOUT = 10 * time.Second // ToDo: ajustar
+const CHECK_INTERVAL = 3 * time.Second            // ToDo: ajustar
+const TIMEOUT = 10 * time.Second                  // ToDo: ajustar
+const STARTING_TIMEOUT = 1 * time.Minute          // ToDo: ajustar
+const ELECTION_TIMEOUT = 5 * time.Second          // ToDo: ajustar
+const HEARTBEAT_INTERVAL = 500 * time.Millisecond // ToDo: ajustar
+const READ_TIMEOUT = 1 * time.Second              // ToDo: ajustar
 
 type WorkerType int
 type Status int
@@ -44,40 +51,60 @@ type WorkerStatus struct {
 }
 
 type Monitor struct {
-	Workers      map[string]WorkerStatus
-	MuWorkers    sync.Mutex
-	Timeout      time.Duration
-	port         string
-	LeaderID     string
-	MuLeader     sync.Mutex
-	Peers        map[string]string // id -> address (IP:PORT)
-	inElection   bool
-	MuInElection sync.Mutex
-	answerChan   chan bool
-	MuAnswerChan sync.Mutex
+	id                   string
+	Workers              map[string]WorkerStatus
+	MuWorkers            sync.Mutex
+	Timeout              time.Duration
+	port                 string
+	LeaderID             string
+	MuLeader             sync.Mutex
+	Peers                map[string]string   // id -> address (IP:PORT)
+	PeersConnElection    map[string]net.Conn // id -> connection
+	MuPeersConnElection  sync.Mutex
+	PeersConnHeartbeat   map[string]net.Conn // id -> connection
+	MuPeersConnHeartbeat sync.Mutex
+	inElection           bool
+	MuInElection         sync.Mutex
+	answerChan           chan bool
+	MuAnswerChan         sync.Mutex
+	electionConnLocks    map[string]*sync.Mutex
+	MuElectionConnLocks  sync.Mutex
+	heartbeatConnLocks   map[string]*sync.Mutex
+	MuHeartbeatConnLocks sync.Mutex
+	log                  *logger.ConsoleLogger
 }
 
-func NewMonitor(port, rawPeers string) *Monitor {
+func NewMonitor(id, port, rawPeers string) *Monitor {
 	peers := make(map[string]string)
 	for _, peer := range strings.Split(rawPeers, ",") {
 		parts := strings.Split(peer, ":")
-		if len(parts) == 3 && parts[0] != MONITOR_ID {
+		if len(parts) == 3 && parts[0] != id {
 			peers[parts[0]] = fmt.Sprintf("%s:%s", parts[1], parts[2])
 		}
 	}
 
 	return &Monitor{
-		Workers:      make(map[string]WorkerStatus),
-		MuWorkers:    sync.Mutex{},
-		Timeout:      TIMEOUT,
-		port:         port,
-		Peers:        peers,
-		LeaderID:     "",
-		MuLeader:     sync.Mutex{},
-		inElection:   false,
-		MuInElection: sync.Mutex{},
-		answerChan:   nil,
-		MuAnswerChan: sync.Mutex{},
+		id:                   id,
+		Workers:              make(map[string]WorkerStatus),
+		MuWorkers:            sync.Mutex{},
+		Timeout:              TIMEOUT,
+		port:                 port,
+		Peers:                peers,
+		PeersConnElection:    make(map[string]net.Conn),
+		MuPeersConnElection:  sync.Mutex{},
+		PeersConnHeartbeat:   make(map[string]net.Conn),
+		MuPeersConnHeartbeat: sync.Mutex{},
+		LeaderID:             "",
+		MuLeader:             sync.Mutex{},
+		inElection:           false,
+		MuInElection:         sync.Mutex{},
+		answerChan:           nil,
+		MuAnswerChan:         sync.Mutex{},
+		electionConnLocks:    make(map[string]*sync.Mutex),
+		MuElectionConnLocks:  sync.Mutex{},
+		heartbeatConnLocks:   make(map[string]*sync.Mutex),
+		MuHeartbeatConnLocks: sync.Mutex{},
+		log:                  logger.NewConsoleLogger(fmt.Sprintf("monitor_%s", id), logger.Info),
 	}
 }
 
@@ -97,10 +124,10 @@ func (m *Monitor) Start(ctx context.Context) {
 
 	cli, err := client.NewClientWithOpts(client.WithHost("unix:///var/run/docker.sock"), client.WithAPIVersionNegotiation())
 	if err != nil {
-		log.Fatalf("Error creando cliente Docker: %v", err)
+		m.log.Fatalf("Error creando cliente Docker: %v", err)
 	}
 
-	log.Infof("Monitor listening on %s", addr.String())
+	m.log.Infof("Monitor listening on %s", addr.String())
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -114,7 +141,7 @@ func (m *Monitor) Start(ctx context.Context) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		m.sendHeartbeat(ctx)
+		m.sendHeartbeatToPeers(ctx)
 	}()
 	wg.Add(1)
 	go func() {
@@ -128,26 +155,29 @@ func (m *Monitor) Start(ctx context.Context) {
 		close(m.answerChan)
 	}
 	m.MuAnswerChan.Unlock()
-	log.Infof("Monitor %s exiting", MONITOR_ID)
-}
-
-func (m *Monitor) sendHeartbeat(ctx context.Context) {
-	name := m.name()
-	peerAddrs := m.peerAddrs()
-	log.Infof("Sending heartbeat to peers: %s", peerAddrs)
-	utils.SendHeartbeat(name, peerAddrs, log, ctx)
-}
-
-func (m *Monitor) peerAddrs() string {
-	addrs := make([]string, 0, len(m.Peers))
-	for _, addr := range m.Peers {
-		addrs = append(addrs, addr)
+	m.MuPeersConnElection.Lock()
+	for _, conn := range m.PeersConnElection {
+		conn.Close()
 	}
-	return strings.Join(addrs, ",")
+	m.MuPeersConnElection.Unlock()
+	m.log.Infof("Monitor %s exiting", m.id)
 }
 
-func (m *Monitor) name() string {
-	return "monitor" + MONITOR_ID
+func (m *Monitor) sendHeartbeatToPeers(ctx context.Context) {
+	msg := fmt.Sprintf("HEARTBEAT|%s", m.id)
+	ticker := time.NewTicker(HEARTBEAT_INTERVAL)
+	for {
+		select {
+		case <-ctx.Done():
+			m.log.Infof("Stopping sendHeartbeatToPeers")
+			ticker.Stop()
+			return
+		case <-ticker.C:
+			for peer, _ := range m.Peers {
+				m.sendMsgToPeer(peer, msg, false)
+			}
+		}
+	}
 }
 
 func (m *Monitor) restartContainer(cli *client.Client, containerName string) {
@@ -158,34 +188,48 @@ func (m *Monitor) restartContainer(cli *client.Client, containerName string) {
 	}
 	err := cli.ContainerRestart(ctx, containerName, stopOptions)
 	if err != nil {
-		log.Errorf("Failed to restart %s: %v", containerName, err)
+		m.log.Errorf("Failed to restart %s: %v", containerName, err)
 	} else {
-		log.Infof("Container %s restarted", containerName)
+		m.log.Infof("Restarting Container %s", containerName)
 	}
 }
 
 func (m *Monitor) listenHeartbeats(conn *net.UDPConn, ctx context.Context) {
 	buffer := make([]byte, MaxUDPMessageSize)
+
 	for {
 		select {
 		case <-ctx.Done():
-			log.Infof("Stopping listenHeartbeats")
+			m.log.Infof("Stopping listenHeartbeats")
 			return
 		default:
+			if err := conn.SetReadDeadline(time.Now().Add(READ_TIMEOUT)); err != nil {
+				m.log.Warnf("Error setting read deadline: %v", err)
+				continue
+			}
 			n, addr, err := conn.ReadFromUDP(buffer)
 			if err != nil {
-				log.Infof("Error reading UDP: %v", err)
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					select {
+					case <-ctx.Done():
+						m.log.Infof("Stopping listenHeartbeats")
+						return
+					default:
+						continue
+					}
+				}
+				m.log.Warnf("Error reading UDP: %v", err)
 				continue
 			}
 
 			if n < HEADER_SIZE {
-				log.Errorf("Received incomplete message: got %d bytes, expected at least %d", n, HEADER_SIZE)
+				m.log.Errorf("Received incomplete message: got %d bytes, expected at least %d", n, HEADER_SIZE)
 				continue
 			}
 
 			msgLen := int(buffer[0])
 			if n-HEADER_SIZE != msgLen {
-				log.Errorf("Received incomplete message: got %d bytes, expected %d", n-HEADER_SIZE, msgLen)
+				m.log.Errorf("Received incomplete message: got %d bytes, expected %d", n-HEADER_SIZE, msgLen)
 				continue
 			}
 
@@ -200,29 +244,26 @@ func (m *Monitor) listenHeartbeats(conn *net.UDPConn, ctx context.Context) {
 				client, exists := m.Workers[id]
 				m.MuWorkers.Unlock()
 				if exists && client.Status == EXITED {
-					log.Infof("Client %s already marked as exited", id)
+					m.log.Infof("Client %s already marked as exited", id)
 					continue
 				}
 				if len(parts) > 1 && parts[1] == "e" {
 					m.MuLeader.Lock()
 					if m.isLeader() {
-						log.Infof("%s exited, sending ACK", id)
+						m.log.Infof("%s exited, sending ACK", id)
 						packet := []byte("ACK")
-						utils.WriteUDP(addr, log, packet, conn)
+						utils.WriteUDP(addr, m.log, packet, conn)
 					}
 					m.MuLeader.Unlock()
 					m.MuWorkers.Lock()
 					if exists && !(client.Status == EXITED) {
 						m.Workers[id] = WorkerStatus{LastSeen: client.LastSeen, Type: CLIENT, Status: EXITED}
-						log.Infof("%s exited", id)
+						m.log.Infof("%s exited", id)
 					}
 					m.MuWorkers.Unlock()
 					continue
 				}
 
-			}
-			if strings.Contains(id, "monitor") {
-				workerType = MONITOR
 			}
 			if strings.Contains(id, "sentiment_server") {
 				workerType = SENTIMENT_SERVER
@@ -241,16 +282,14 @@ func (m *Monitor) checkWorkers(cli *client.Client, ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Infof("Stopping checkWorkers")
+			m.log.Infof("Stopping checkWorkers")
 			return
 		case <-ticker.C:
 
 			workerStatus := make(map[string]WorkerStatus)
 
 			m.MuWorkers.Lock()
-			for k, v := range m.Workers {
-				workerStatus[k] = v
-			}
+			maps.Copy(workerStatus, m.Workers)
 			m.MuWorkers.Unlock()
 			now := time.Now()
 
@@ -261,13 +300,11 @@ func (m *Monitor) checkWorkers(cli *client.Client, ctx context.Context) {
 					isLeader = m.isLeader()
 					m.MuLeader.Unlock()
 					if shouldRestart(isLeader, status) {
-						log.Infof("%s not responding. Restarting...", id)
+						m.log.Infof("%s not responding", id)
 						m.MuWorkers.Lock()
 						m.Workers[id] = WorkerStatus{LastSeen: status.LastSeen, Type: status.Type, Status: STARTING}
 						m.MuWorkers.Unlock()
-						m.restartContainer(cli, id)
-					} else {
-						log.Infof("%s not responding.", id)
+						go m.restartContainer(cli, id)
 					}
 				}
 			}
@@ -281,18 +318,116 @@ func shouldRestart(isLeader bool, status WorkerStatus) bool {
 }
 
 func (m *Monitor) isLeader() bool {
-	return m.LeaderID == MONITOR_ID
+	return m.LeaderID == m.id
 }
 
 func unwrap(err error, msg string) {
 	if err != nil {
-		log.Fatalf("%s: %s", msg, err)
+		//m.log.Fatalf("%s: %s", msg, err)
 		panic(err)
 
 	}
 }
 
-func sendMessage(addr, msg string) {
+func (m *Monitor) sendMsgToPeer(peer, msg string, electionMsg bool) {
+	var lock *sync.Mutex
+	if electionMsg {
+		lock = m.getElectionConnLock(peer)
+	} else {
+		lock = m.getHeartbeatConnLock(peer)
+	}
+	lock.Lock()
+	defer lock.Unlock()
+
+	var conn net.Conn
+	var err error
+	var c net.Conn
+	var exists bool
+	addr := m.Peers[peer]
+	if electionMsg {
+		m.MuPeersConnElection.Lock()
+		c, exists = m.PeersConnElection[peer]
+		m.MuPeersConnElection.Unlock()
+	} else {
+		m.MuPeersConnHeartbeat.Lock()
+		c, exists = m.PeersConnHeartbeat[peer]
+		m.MuPeersConnHeartbeat.Unlock()
+	}
+	reconnected := false
+	if exists {
+		conn = c
+	} else {
+		conn, err = m.connectToPeer(peer, addr, electionMsg)
+		if err != nil || conn == nil {
+			m.log.Warnf("Could not connect to peer %s with addr=%s: %v", peer, addr, err)
+			return
+		}
+		reconnected = true
+	}
+	packet := append([]byte{byte(len(msg))}, []byte(msg)...)
+	err = m.sendToPeer(peer, addr, packet, conn, electionMsg)
+
+	if (err != nil && reconnected) || err == nil {
+		return
+	}
+
+	// Retry If the connection was not reconnected
+	conn, err = m.connectToPeer(peer, addr, electionMsg)
+	if err != nil || conn == nil {
+		m.log.Warnf("Could not connect to %s: %v", addr, err)
+		return
+	}
+	m.sendToPeer(peer, addr, packet, conn, electionMsg)
+}
+
+func (m *Monitor) getElectionConnLock(peer string) *sync.Mutex {
+	m.MuElectionConnLocks.Lock()
+	defer m.MuElectionConnLocks.Unlock()
+	if m.electionConnLocks == nil {
+		m.electionConnLocks = make(map[string]*sync.Mutex)
+	}
+	lock, ok := m.electionConnLocks[peer]
+	if !ok {
+		lock = &sync.Mutex{}
+		m.electionConnLocks[peer] = lock
+	}
+	return lock
+}
+
+func (m *Monitor) getHeartbeatConnLock(peer string) *sync.Mutex {
+	m.MuHeartbeatConnLocks.Lock()
+	defer m.MuHeartbeatConnLocks.Unlock()
+	if m.heartbeatConnLocks == nil {
+		m.heartbeatConnLocks = make(map[string]*sync.Mutex)
+	}
+	lock, ok := m.heartbeatConnLocks[peer]
+	if !ok {
+		lock = &sync.Mutex{}
+		m.heartbeatConnLocks[peer] = lock
+	}
+	return lock
+}
+
+func (m *Monitor) sendToPeer(peer, addr string, packet []byte, conn net.Conn, electionMsg bool) error {
+	err := utils.WriteToConn(addr, packet, conn)
+	if err == nil {
+		return nil
+	}
+	m.log.Warnf("Error sending to peer %s with addr=%s: %v", peer, addr, err)
+	conn.Close()
+	if electionMsg {
+		m.MuPeersConnElection.Lock()
+		delete(m.PeersConnElection, peer)
+		m.MuPeersConnElection.Unlock()
+	} else {
+		m.MuPeersConnHeartbeat.Lock()
+		delete(m.PeersConnHeartbeat, peer)
+		m.MuPeersConnHeartbeat.Unlock()
+	}
+	return err
+}
+
+func (m *Monitor) connectToPeer(peer, addr string, electionMsg bool) (net.Conn, error) {
 	var conn net.Conn
 	var err error
 	for range 5 {
@@ -300,85 +435,91 @@ func sendMessage(addr, msg string) {
 		if err == nil {
 			break
 		}
-		time.Sleep(1 * time.Second)
+		time.Sleep(500 * time.Millisecond) // ToDo: ajustar
 	}
-	if err != nil || conn == nil {
-		log.Warnf("Could not connect to %s: %v", addr, err)
-		return
+	if err == nil {
+		if electionMsg {
+			m.MuPeersConnElection.Lock()
+			m.PeersConnElection[peer] = conn
+			m.MuPeersConnElection.Unlock()
+		} else {
+			m.MuPeersConnHeartbeat.Lock()
+			m.PeersConnHeartbeat[peer] = conn
+			m.MuPeersConnHeartbeat.Unlock()
+		}
 	}
-	defer conn.Close()
-	packet := append([]byte{byte(len(msg))}, []byte(msg)...)
-	utils.WriteToConn(addr, log, packet, conn)
+	return conn, err
 }
 
 func (m *Monitor) startElection() {
 	m.MuInElection.Lock()
 	if m.inElection {
-		//log.Infof("Monitor %s already in election", MONITOR_ID)
+		//m.log.Infof("Monitor %s already in election", m.id)
 		m.MuInElection.Unlock()
 		return
 	}
 	m.inElection = true
 	m.MuInElection.Unlock()
-	log.Infof("Monitor %s starting election", MONITOR_ID)
+	m.log.Infof("Starting election")
 
 	hasMaxId := true
-	myID, err := strconv.Atoi(MONITOR_ID)
+	myID, err := strconv.Atoi(m.id)
 	unwrap(err, "Failed to convert MONITOR_ID to int")
 
-	answerCh := make(chan bool, 1)
 	m.MuAnswerChan.Lock()
-	m.answerChan = answerCh
+	m.answerChan = make(chan bool, 1)
 	m.MuAnswerChan.Unlock()
 
-	for id, addr := range m.Peers {
+	for id, _ := range m.Peers {
 		peerID, err := strconv.Atoi(id)
 		unwrap(err, "Failed to convert peerID to int")
 		if peerID > myID {
-			go sendMessage(addr, fmt.Sprintf("ELECTION|%s", MONITOR_ID))
+			m.log.Infof("Sending ELECTION to %s", id)
+			go m.sendMsgToPeer(id, fmt.Sprintf("ELECTION|%s", m.id), true)
 			hasMaxId = false
 		}
 	}
 	if hasMaxId {
-		log.Infof("I have the highest ID. Selecting myself as leader.")
+		m.log.Infof("I have the highest ID. Selecting myself as leader.")
 		m.SelectMyselfAsLeader()
 		return
 	}
 
-	log.Infof("Waiting for ANSWER from peers")
+	m.log.Infof("Waiting for ANSWER from peers")
+
+	m.MuAnswerChan.Lock()
+	ch := m.answerChan
+	m.MuAnswerChan.Unlock()
 
 	select {
-	case <-answerCh:
-		log.Infof("Received ANSWER")
-		m.MuInElection.Lock()
-		m.inElection = false
-		m.MuInElection.Unlock()
+	case <-ch:
+		m.log.Infof("Received ANSWER")
 		m.MuAnswerChan.Lock()
 		m.answerChan = nil
 		m.MuAnswerChan.Unlock()
 	case <-time.After(ELECTION_TIMEOUT):
-		log.Infof("Timeout without ANSWER, selecting myself as leader.")
+		m.log.Infof("Timeout without ANSWER, selecting myself as leader.")
 		m.SelectMyselfAsLeader()
 	}
 
 }
 
 func (m *Monitor) SelectMyselfAsLeader() {
-	m.NewLeader(MONITOR_ID)
+	m.NewLeader(m.id)
 }
 
 func (m *Monitor) NewLeader(leaderId string) {
 	m.MuLeader.Lock()
 	m.LeaderID = leaderId
 	m.MuLeader.Unlock()
-	if leaderId == MONITOR_ID {
+	if leaderId == m.id {
 		m.announceCoordinatorToPeers()
 	}
 	m.MuInElection.Lock()
 	m.inElection = false
 	m.MuInElection.Unlock()
 	m.MuAnswerChan.Lock()
-	if m.answerChan != nil && leaderId != MONITOR_ID {
+	if m.answerChan != nil && leaderId != m.id {
 		select {
 		case m.answerChan <- true:
 		default:
@@ -390,80 +531,118 @@ func (m *Monitor) NewLeader(leaderId string) {
 }
 
 func (m *Monitor) announceCoordinatorToPeers() {
-	for _, addr := range m.Peers {
-		m.announceCoordinator(addr)
+	for peer, _ := range m.Peers {
+		m.announceCoordinator(peer)
 	}
 }
 
-func (m *Monitor) announceCoordinator(addr string) {
-	log.Infof("Announcing myself as coordinator to %s", addr)
-	go sendMessage(addr, fmt.Sprintf("COORDINATOR|%s", MONITOR_ID))
+func (m *Monitor) announceCoordinator(peer string) {
+	m.log.Infof("Announcing myself as coordinator to %s", peer)
+	go m.sendMsgToPeer(peer, fmt.Sprintf("COORDINATOR|%s", m.id), true)
 }
+
 func (m *Monitor) startTCPServer(ctx context.Context) {
 	listener, err := net.Listen("tcp", ":"+m.port)
 	if err != nil {
-		log.Fatalf("TCP Listen error: %v", err)
+		m.log.Fatalf("TCP Listen error: %v", err)
 	}
-	log.Infof("TCP server on port %s", m.port)
+	m.log.Infof("TCP server on port %s", m.port)
 
+	wg := sync.WaitGroup{}
+
+	go func() {
+		<-ctx.Done()
+		m.log.Infof("Stopping TCP listener")
+		listener.Close()
+	}()
+
+outerLoop:
 	for {
-		select {
-		case <-ctx.Done():
-			log.Infof("Stopping TCP server")
-			listener.Close()
-			return
-		default:
-			conn, err := listener.Accept()
-			if err != nil {
-				log.Warnf("Accept error: %v", err)
+		conn, err := listener.Accept()
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				break outerLoop
+			default:
+				m.log.Warnf("Accept error: %v", err)
 				continue
 			}
-			go m.handleConnection(conn, ctx)
 		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.handleConnection(conn, ctx)
+			conn.Close()
+		}()
 	}
+	wg.Wait()
+	m.log.Infof("Stopping TCP server")
 }
 
 func (m *Monitor) handleConnection(conn net.Conn, ctx context.Context) {
 	defer conn.Close()
 
-	msg, err := utils.ReceiveTCPMessage(conn, ctx)
-	if err != nil {
-		log.Errorf("Error receiving message: %v", err)
-		return
-	}
-	parts := strings.Split(msg, "|")
+	peer := ""
 
-	switch parts[0] {
-	case "ELECTION":
-		senderID := parts[1]
-		go sendMessage(m.Peers[senderID], fmt.Sprintf("ANSWER|%s", MONITOR_ID))
+	for {
+		select {
+		case <-ctx.Done():
+			m.log.Infof("Stopping handleConnection | peer: %s", peer)
+			return
+		default:
+			msg, err := utils.ReceiveTCPMessage(conn)
+			if err != nil {
+				if ctx.Err() != nil {
+					m.log.Infof("Error receiving from TCP conn: %s. Stopping handleConnection | peer: %s", err, peer)
+					return
+				}
+				if errors.Is(err, io.EOF) {
+					m.log.Infof("Connection closed by peer. Stopping handleConnection | peer: %s", peer)
+					return
+				}
+				continue
+			}
+			parts := strings.Split(msg, "|")
+			senderID := parts[1]
+			peer = senderID
+			sender := "monitor" + senderID
+			switch parts[0] {
+			case "ELECTION":
+				go m.sendMsgToPeer(senderID, fmt.Sprintf("ANSWER|%s", m.id), true)
 
-		log.Infof("Received ELECTION from %s", senderID)
-		go m.startElection()
-	case "ANSWER":
-		log.Infof("Received ANSWER from %s", parts[1])
-		m.MuAnswerChan.Lock()
-		if m.answerChan == nil {
-			select {
-			case m.answerChan <- true:
-			default:
-				// no bloquear
+				m.log.Infof("Received ELECTION from %s", senderID)
+				go m.startElection()
+			case "ANSWER":
+				m.log.Infof("Received ANSWER from %s", parts[1])
+				m.MuAnswerChan.Lock()
+				if m.answerChan != nil {
+					select {
+					case m.answerChan <- true:
+					default:
+						// no bloquear
+					}
+				}
+				m.MuAnswerChan.Unlock()
+			case "COORDINATOR":
+				myID, err := strconv.Atoi(m.id)
+				unwrap(err, "Failed to convert MONITOR_ID to int")
+				newLeaderID, err := strconv.Atoi(senderID)
+				unwrap(err, "Failed to convert newLeaderID to int")
+
+				if newLeaderID < myID {
+					m.log.Infof("Ignoring COORDINATOR %s because I have higher ID", senderID)
+					continue
+				}
+				m.log.Infof("New coordinator is %s", senderID)
+				m.NewLeader(senderID)
+
+			case "HEARTBEAT":
+				//m.log.Infof("Received HEARTBEAT from %s", senderID)
+				m.MuWorkers.Lock()
+				m.Workers[sender] = WorkerStatus{LastSeen: time.Now(), Type: MONITOR, Status: RUNNING}
+				m.MuWorkers.Unlock()
 			}
 		}
-		m.MuAnswerChan.Unlock()
-	case "COORDINATOR":
-		newLeader := parts[1]
-		myID, err := strconv.Atoi(MONITOR_ID)
-		unwrap(err, "Failed to convert MONITOR_ID to int")
-		newLeaderID, err := strconv.Atoi(newLeader)
-		unwrap(err, "Failed to convert newLeaderID to int")
-
-		if newLeaderID < myID {
-			log.Infof("Ignoring COORDINATOR %s because I have higher ID", newLeader)
-			return
-		}
-		log.Infof("New coordinator is %s", newLeader)
-		m.NewLeader(newLeader)
 	}
 }
 
@@ -473,7 +652,7 @@ func (m *Monitor) checkLeaderAlive(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Infof("Stopping checkWorkers")
+			m.log.Infof("Stopping checkLeaderAlive")
 			return
 		case <-ticker.C:
 			var leader string
@@ -483,8 +662,8 @@ func (m *Monitor) checkLeaderAlive(ctx context.Context) {
 			isLeader = m.isLeader()
 
 			m.MuLeader.Unlock()
-			if m.LeaderID == "" {
-				log.Infof("No leader elected yet. Starting election.")
+			if leader == "" {
+				m.log.Infof("No leader elected yet. Starting election.")
 				go m.startElection()
 				continue
 			}
@@ -495,10 +674,10 @@ func (m *Monitor) checkLeaderAlive(ctx context.Context) {
 
 			m.MuWorkers.Lock()
 			status, ok := m.Workers["monitor"+leader]
+			last_seen := time.Since(status.LastSeen)
 			m.MuWorkers.Unlock()
-
-			if !ok || time.Since(status.LastSeen) > m.Timeout {
-				log.Warnf("Leader %s not responding. Starting election.", leader)
+			if !ok || last_seen > m.Timeout {
+				m.log.Warnf("Leader %s not responding.", leader)
 				go m.startElection()
 			}
 		}

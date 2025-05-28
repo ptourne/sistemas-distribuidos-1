@@ -11,9 +11,10 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 )
 
-const HEATBEAT_INTERVAL = 1 * time.Second // ToDo: ajustar
+const HEATBEAT_INTERVAL = 500 * time.Millisecond // ToDo: ajustar
 const HEADER_SIZE = 1
 const UDP_TIMEOUT = 1 * time.Second
+const READ_TIMEOUT = 1 * time.Second
 
 func SendHeartbeat(id string, addrs string, log *logger.ConsoleLogger, ctx context.Context) {
 	sendHeartbeat(id, addrs, log, false, ctx)
@@ -50,17 +51,20 @@ func SendExit(idClient string, addrs string, log *logger.ConsoleLogger) {
 	}
 }
 
-func WriteToConn(addr string, log *logger.ConsoleLogger, packet []byte, conn net.Conn) {
+func WriteToConn(addr string, packet []byte, conn net.Conn) error {
 	totalSent := 0
+
+	conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
 
 	for totalSent < len(packet) {
 		sent, err := conn.Write(packet[totalSent:])
 		if err != nil {
-			log.Errorf("Failed to write to %s: %v", addr, err)
-			continue
+			return err
 		}
 		totalSent += sent
 	}
+	conn.SetWriteDeadline(time.Time{})
+	return nil
 }
 
 func WriteUDP(addr *net.UDPAddr, log *logger.ConsoleLogger, packet []byte, conn *net.UDPConn) {
@@ -145,15 +149,14 @@ func ReceiveUDPMessage(conn *net.UDPConn) (string, error) {
 	return string(buffer[:n]), nil
 }
 
-func ReceiveTCPMessage(conn net.Conn, ctx context.Context) (string, error) {
-	if deadline, ok := ctx.Deadline(); ok {
-		if err := conn.SetReadDeadline(deadline); err != nil {
-			return "", fmt.Errorf("could not set read deadline: %w", err)
-		}
+func ReceiveTCPMessage(conn net.Conn) (string, error) {
+	if err := conn.SetReadDeadline(time.Now().Add(READ_TIMEOUT)); err != nil {
+		return "", fmt.Errorf("could not set read deadline: %w", err)
 	}
 
 	header, err := recvHeader(conn, HEADER_SIZE)
 	if err != nil {
+		conn.SetWriteDeadline(time.Time{})
 		return "", fmt.Errorf("error receiving message: %w", err)
 	}
 
@@ -161,6 +164,7 @@ func ReceiveTCPMessage(conn net.Conn, ctx context.Context) (string, error) {
 
 	buffer, err := recvMessage(msgSize, conn)
 	if err != nil {
+		conn.SetWriteDeadline(time.Time{})
 		return "", fmt.Errorf("error receiving message: %w", err)
 	}
 
