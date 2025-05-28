@@ -46,7 +46,7 @@ const (
 
 type WorkerStatus struct {
 	LastSeen time.Time
-	Type     WorkerType // ToDo: client
+	Type     WorkerType
 	Status   Status
 }
 
@@ -631,17 +631,23 @@ func (m *Monitor) handleConnection(conn net.Conn, ctx context.Context) {
 
 				if newLeaderID < myID {
 					m.log.Infof("Ignoring COORDINATOR %s because I have higher ID", senderID)
-					continue
+					go m.startElection()
+				} else {
+					m.log.Infof("New coordinator is %s", senderID)
+					m.NewLeader(senderID)
 				}
-				m.log.Infof("New coordinator is %s", senderID)
-				m.NewLeader(senderID)
 
 			case "HEARTBEAT":
 				//m.log.Infof("Received HEARTBEAT from %s", senderID)
 				m.MuWorkers.Lock()
 				m.Workers[sender] = WorkerStatus{LastSeen: time.Now(), Type: MONITOR, Status: RUNNING}
 				m.MuWorkers.Unlock()
+				continue
 			}
+			// Update worker status if an election message is received
+			m.MuWorkers.Lock()
+			m.Workers[sender] = WorkerStatus{LastSeen: time.Now(), Type: MONITOR, Status: RUNNING}
+			m.MuWorkers.Unlock()
 		}
 	}
 }
@@ -663,7 +669,7 @@ func (m *Monitor) checkLeaderAlive(ctx context.Context) {
 
 			m.MuLeader.Unlock()
 			if leader == "" {
-				m.log.Infof("No leader elected yet. Starting election.")
+				//m.log.Infof("No leader elected yet. Starting election.")
 				go m.startElection()
 				continue
 			}
