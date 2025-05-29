@@ -702,18 +702,19 @@ func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, c
 
 func (s *SenderRabbitmq[T]) Send(row T, cid string, id uint64) error {
 	lastRk := id % uint64(s.consumerCount)
-	s.Log.Infof("lastRk: %d", lastRk)
+	// s.Log.Infof("lastRk: %d", lastRk)
 	rk := fmt.Sprintf("%d", lastRk)
-	return s.SendRK(row, rk, cid, id)
+	return s.sendRK(row, rk, cid, id)
 }
 
-// func (s *SenderRabbitmq[T]) SendMsgID(row T, cid string) error {
-// 	last := fmt.Sprintf("%d", s.lastId)
-// 	rk := string(last[len(last)-1])
-// 	return s.SendRK(row, rk, cid)
-// }
+func (s *SenderRabbitmq[T]) SendRK(row T, cid string, id uint64, routingKey string) error {
+	if routingKey == "" {
+		return fmt.Errorf("routing key cannot be empty")
+	}
+	return s.sendRK(row, routingKey, cid, id)
+}
 
-func (s *SenderRabbitmq[T]) SendRK(row T, routingKey string, cid string, id uint64) error {
+func (s *SenderRabbitmq[T]) sendRK(row T, routingKey string, cid string, id uint64) error {
 	if s.exchangeName == "" {
 		return fmt.Errorf("write exchange is not initialized")
 	}

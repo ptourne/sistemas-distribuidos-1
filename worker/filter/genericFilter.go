@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
@@ -56,17 +55,19 @@ type Map interface {
 }
 
 type GenericFilter struct {
-	name              string
-	input             string
-	Conditions        []Condition
-	KeptStringFields  []string
-	KeptNumericFields []string
-	KeptFloatFields   []string
-	KeptArrayFields   []string
-	Maps              []Map
-	taskReceiver      middleware.Receiver[*model.Row]
-	taskSender        middleware.Sender[*model.Row]
-	subscribers       []string
+	name                string
+	input               string
+	Conditions          []Condition
+	KeptStringFields    []string
+	KeptNumericFields   []string
+	KeptFloatFields     []string
+	KeptArrayFields     []string
+	Maps                []Map
+	taskReceiver        middleware.Receiver[*model.Row]
+	taskSender          middleware.Sender[*model.Row]
+	subscribers         []string
+	cantConsumersSender uint
+	cantWorkers         uint
 }
 
 func (f *GenericFilter) Name() string {
@@ -77,9 +78,18 @@ func (f *GenericFilter) Input() string {
 	return f.input
 }
 
+func (f *GenericFilter) CantConsumers() uint {
+	return f.cantConsumersSender
+}
+
+func (f *GenericFilter) CantWorkers() uint {
+	return f.cantWorkers
+}
+
 func (f GenericFilter) ProcessAndSend(envelope middleware.Envelope[*model.Row]) error {
 	row := envelope.Msg()
 	cid := envelope.Cid()
+	id := envelope.Id()
 	t := envelope.Type()
 	switch t {
 	case middleware.EOF:
@@ -103,7 +113,7 @@ func (f GenericFilter) ProcessAndSend(envelope middleware.Envelope[*model.Row]) 
 			log.Debugf("Row dropped: %+v by cleaner", row)
 			return nil
 		}
-		err := f.taskSender.Send(output, cid)
+		err := f.taskSender.Send(output, cid, id)
 		if err != nil {
 			return fmt.Errorf("failed to send message: %w", err)
 		}
@@ -169,20 +179,16 @@ func (f GenericFilter) String() string {
 
 func (f *GenericFilter) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
-	// prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
 	prefetch := 1000
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
-	// }
-	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse N_WORKERS: %w", err)
+	id_worker := os.Getenv("WORKER_ID")
+	if id_worker == "" {
+		return nil, fmt.Errorf("WORKER_ID environment variable is not set")
 	}
-	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), uint(n_workers), prefetch)
+	f.taskReceiver, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), id_worker, prefetch, f.CantWorkers())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), f.subscribers)
+	f.taskSender, err = middlewareConnection.WriteTo(f.Name(), f.subscribers, id_worker, f.CantConsumers())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create write queue for task %s", f.Name())
 	}

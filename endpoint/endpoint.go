@@ -74,7 +74,7 @@ func (e *Endpoint) Run() error {
 		defer e.wg.Done()
 		allQuerysToEndpointName := "all_querys_to_endpoint"
 		prefetch := 100
-		receiverAllQuerysToEndpoint, err := middlewareChanRow.ConsumeFrom(allQuerysToEndpointName, allQuerysToEndpointName, 1, prefetch)
+		receiverAllQuerysToEndpoint, err := middlewareChanRow.ConsumeFrom(allQuerysToEndpointName, allQuerysToEndpointName, "0", prefetch, 1)
 		if err != nil {
 			log.Errorf("failed to create read queue %s: %v", allQuerysToEndpointName, err)
 		}
@@ -233,13 +233,14 @@ OuterLoop:
 
 func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.Connection[*common.PackageFile], cid string) error {
 	fileBytes := "file_bytes"
-	fileBytesSender, err := middlewareChan.WriteTo(fileBytes, []string{"file_bytes"})
+	fileBytesSender, err := middlewareChan.WriteTo(fileBytes, []string{"file_bytes"}, "0", 1)
 	if err != nil {
 		return fmt.Errorf("failed to create write queue %s: %v", fileBytes, err)
 	}
 	defer fileBytesSender.Close()
 
 	log.Infof("Receiving files")
+	id_last_send := uint64(0)
 OuterLoop:
 	for {
 		// Leer los primeros 8 bytes (tamaño y type)
@@ -278,7 +279,8 @@ OuterLoop:
 					Bytes: []byte(data),
 				},
 			}
-			err = fileBytesSender.Send(msg, cid)
+			err = fileBytesSender.Send(msg, cid, id_last_send)
+			id_last_send++
 			if err != nil {
 				log.Errorf("Error escribiendo al archivo: %v", err)
 				break OuterLoop
@@ -295,7 +297,8 @@ OuterLoop:
 				Bytes: []byte(data),
 			},
 		}
-		err = fileBytesSender.Send(msg, cid)
+		err = fileBytesSender.Send(msg, cid, id_last_send)
+		id_last_send++
 		if err != nil {
 			log.Errorf("Error escribiendo al archivo: %v", err)
 			break OuterLoop

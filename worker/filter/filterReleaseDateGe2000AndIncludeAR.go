@@ -7,17 +7,19 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterReleaseDateGe2000AndIncludeAR(input string, subscribers []string) task.Task[*model.Row, *model.Row] {
+func NewFilterReleaseDateGe2000AndIncludeAR(input string, subscribers []string, cantConsumersSender uint, cantWorkers uint) task.Task[*model.Row, *model.Row] {
 	return &GenericFilter{
-		name:              "filter_release_date_ge_2000_and_include_ar",
-		input:             input,
-		Conditions:        []Condition{NumericCondition{"release_date", GreaterThanOrEqual, 2000}, ArrayIncludes{"production_countries", "AR"}},
-		KeptStringFields:  []string{"movieID", "title"},
-		KeptNumericFields: []string{"release_date"},
-		KeptFloatFields:   []string{},
-		KeptArrayFields:   []string{"production_countries", "genres"},
-		Maps:              []Map{},
-		subscribers:       subscribers,
+		name:                "filter_release_date_ge_2000_and_include_ar",
+		input:               input,
+		Conditions:          []Condition{NumericCondition{"release_date", GreaterThanOrEqual, 2000}, ArrayIncludes{"production_countries", "AR"}},
+		KeptStringFields:    []string{"movieID", "title"},
+		KeptNumericFields:   []string{"release_date"},
+		KeptFloatFields:     []string{},
+		KeptArrayFields:     []string{"production_countries", "genres"},
+		Maps:                []Map{},
+		subscribers:         subscribers,
+		cantConsumersSender: cantConsumersSender,
+		cantWorkers:         cantWorkers,
 	}
 }
 

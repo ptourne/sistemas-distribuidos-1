@@ -115,6 +115,7 @@ compose_rabbitmq() {
 # volumes:
     # - ${PWD}/rabbitmq_config/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
+NUMBER_OF_REDUCE_BY_MOVIEID=10
 compose_coordinator() {
     echo "    coordinator:
         container_name: coordinator
@@ -125,9 +126,8 @@ compose_coordinator() {
         networks:
             - local_net
         environment:
-            - NUMBER_OF_WORKERS=$number_of_workers
-            - NUMBER_OF_REDUCE_BY_COUNTRY_SUM_BUDGETS=$number_of_reduce_by_country_sum_budgets
-            - NUMBER_OF_REDUCE_TOP_5_BY_BUDGETS=$number_of_reduce_top_5_by_budgets
+            - N_WORKERS=$number_of_workers
+            - N_RATINGS_CONSUMERS=$NUMBER_OF_REDUCE_BY_MOVIEID
             - PREFETCH=1 # Potential optimization
         depends_on:
             rabbitmq:
@@ -148,9 +148,8 @@ compose_workers() {
         entrypoint: /worker
         environment: 
             - WORKER_ID=$worker_id
-            - N_JOINERS_CREDITS=$number_of_joiners_credits
-            - N_JOINERS_RATINGS=$number_of_joiners_ratings
             - N_WORKERS=$number_of_workers
+            - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=$number_of_reduce_by_country_sum_budgets
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
         networks:
@@ -186,29 +185,6 @@ compose_nlp_workers() {
                 condition: service_healthy
 "
 }
-
-#compose_lean_workers() {
-#    local worker_id=$1
-#    echo "    lean_worker$worker_id:
-#        container_name: lean_worker$worker_id
-#        build:
-#            context: .
-#            dockerfile: lean_worker/Dockerfile
-#        entrypoint: /lean_worker
-#        environment:
-#            - WORKER_ID=$worker_id
-#            - SERVER_PORT=1234
-#            - N_WORKERS=$number_of_lean_workers
-#            - PREFETCH=30 # Potential optimization
-#        networks:
-#            - local_net
-#        depends_on:
-#            rabbitmq:
-#                condition: service_healthy
-#            sentiment_server:
-#                condition: service_healthy
-#"
-#}
 
 compose_joiner_rating() {
     local worker_id=$1
@@ -420,44 +396,40 @@ compose_header > $file_name
 compose_rabbitmq >> $file_name
 compose_sentiment_server >> $file_name
 compose_coordinator >> $file_name
-for i in $(seq 1 $number_of_workers); do
+for i in $(seq 0 $((number_of_workers-1))); do
     compose_workers $i >> $file_name
 done
-for i in $(seq 1 $number_of_nlp_workers); do
-    compose_nlp_workers $i >> $file_name
-done
-#for i in $(seq 1 $number_of_lean_workers); do
-#   compose_lean_workers $i >> $file_name
-#done
-for i in $(seq 1 $number_of_joiners_credits); do
-    compose_joiner_credits $i $number_of_joiners_credits >> $file_name
-done
-for i in $(seq 1 $number_of_joiners_ratings); do
-    compose_joiner_rating $i >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_by_country_sum_budgets); do
-    compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_5_by_budgets); do
-    compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_bottom_avg_ratings); do
-    compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_by_sentiment); do
-    compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_by_actor); do
-    compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
-done
-for i in $(seq 1 $number_of_reduce_top_10_by_actor); do
-    compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
-done
-NUMBER_OF_REDUCE_BY_MOVIEID=10
-for i in $(seq 1 $NUMBER_OF_REDUCE_BY_MOVIEID); do
-    compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
-done
-for i in $(seq 1 $number_of_clients); do
+# for i in $(seq 0 $((number_of_nlp_workers-1))); do
+#     compose_nlp_workers $i >> $file_name
+# done
+# for i in $(seq 0 $((number_of_joiners_credits-1))); do
+#     compose_joiner_credits $i $number_of_joiners_credits >> $file_name
+# done
+# for i in $(seq 0 $((number_of_joiners_ratings-1))); do
+#     compose_joiner_rating $i >> $file_name
+# done
+# for i in $(seq 0 $((number_of_reduce_by_country_sum_budgets-1))); do
+#     compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
+# done
+# for i in $(seq 0 $((number_of_reduce_top_5_by_budgets-1))); do
+#     compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
+# done
+# for i in $(seq 0 $((number_of_reduce_top_bottom_avg_ratings-1))); do
+#     compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
+# done
+# for i in $(seq 0 $((number_of_reduce_by_sentiment-1))); do
+#     compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
+# done
+# for i in $(seq 0 $((number_of_reduce_by_actor-1))); do
+#     compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
+# done
+# for i in $(seq 0 $((number_of_reduce_top_10_by_actor-1))); do
+#     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
+# done
+# for i in $(seq 0 $((NUMBER_OF_REDUCE_BY_MOVIEID-1))); do
+#     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
+# done
+for i in $(seq 0 $((number_of_clients-1))); do
     compose_client $i $number_of_clients >> $file_name
 done
 compose_endpoint >> $file_name

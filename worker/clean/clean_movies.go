@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
@@ -13,14 +12,16 @@ import (
 )
 
 type CleanMovies struct {
-	input        task.Task[*model.Row, *model.Row]
-	taskReceiver middleware.Receiver[*model.Row]
-	taskSender   middleware.Sender[*model.Row]
-	subscribers  []string
+	input         task.Task[*model.Row, *model.Row]
+	taskReceiver  middleware.Receiver[*model.Row]
+	taskSender    middleware.Sender[*model.Row]
+	subscribers   []string
+	cantConsumers uint
+	cantWorkers   uint
 }
 
-func NewCleanMovies(input task.Task[*model.Row, *model.Row], subscribers []string) task.Task[*model.Row, *model.Row] {
-	return &CleanMovies{input, nil, nil, subscribers}
+func NewCleanMovies(input task.Task[*model.Row, *model.Row], subscribers []string, nConsumers uint, cantWorkers uint) task.Task[*model.Row, *model.Row] {
+	return &CleanMovies{input, nil, nil, subscribers, nConsumers, cantWorkers}
 }
 
 func (f CleanMovies) Input() string {
@@ -31,9 +32,18 @@ func (f CleanMovies) Name() string {
 	return "clean_movies"
 }
 
+func (f CleanMovies) CantConsumers() uint {
+	return f.cantConsumers
+}
+
+func (f CleanMovies) CantWorkers() uint {
+	return f.cantWorkers
+}
+
 func (f CleanMovies) ProcessAndSend(envelope middleware.Envelope[*model.Row]) error {
 	row := envelope.Msg()
 	cid := envelope.Cid()
+	id := envelope.Id()
 	t := envelope.Type()
 
 	switch t {
@@ -58,7 +68,7 @@ func (f CleanMovies) ProcessAndSend(envelope middleware.Envelope[*model.Row]) er
 		if output == nil {
 			return nil
 		}
-		err := f.taskSender.Send(output, cid)
+		err := f.taskSender.Send(output, cid, id)
 		if err != nil {
 			return fmt.Errorf("failed to send message: %w", err)
 		}
@@ -154,15 +164,16 @@ func (f *CleanMovies) Connect(inputMiddleware middleware.Connection[*model.Row],
 	// 	return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
 	// }
 	prefetch := 1000
-	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse N_WORKERS: %w", err)
+	workerId := os.Getenv("WORKER_ID")
+	if workerId == "" {
+		return nil, fmt.Errorf("WORKER_ID environment variable is not set")
 	}
-	f.taskReceiver, err = inputMiddleware.ConsumeFrom(f.Input(), f.Name(), uint(n_workers), prefetch)
+
+	f.taskReceiver, err = inputMiddleware.ConsumeFrom(f.Input(), f.Name(), workerId, prefetch, f.CantWorkers())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = outputMiddleware.WriteTo(f.Name(), f.subscribers)
+	f.taskSender, err = outputMiddleware.WriteTo(f.Name(), f.subscribers, workerId, f.CantConsumers())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create write queue for task %s", f.Name())
 	}

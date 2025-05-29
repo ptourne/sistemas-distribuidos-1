@@ -6,7 +6,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterSentimentAndRate(input string, subscribers []string, grpcAddr string) task.Task[*model.Row, *model.Row] {
+func NewFilterSentimentAndRate(input string, subscribers []string, grpcAddr string, cantConsumersSender uint, cantWorkers uint) task.Task[*model.Row, *model.Row] {
 	mapper, err := nlp.NewSentimentAndRateMap(grpcAddr)
 	if err != nil {
 		log.Errorf("Error creating SentimentAndRateMap: %v", err)
@@ -14,14 +14,16 @@ func NewFilterSentimentAndRate(input string, subscribers []string, grpcAddr stri
 	}
 
 	return &GenericFilter{
-		name:              "map_sentiment_rate",
-		input:             input,
-		Conditions:        []Condition{NumericCondition{"revenue", NotEqual, 0}, NumericCondition{"budget", NotEqual, 0}},
-		KeptStringFields:  []string{"movieID", "title"},
-		KeptNumericFields: []string{},
-		KeptFloatFields:   []string{}, // rate lo agrega el map
-		KeptArrayFields:   []string{},
-		Maps:              []Map{mapper},
-		subscribers:       subscribers,
+		name:                "map_sentiment_rate",
+		input:               input,
+		Conditions:          []Condition{NumericCondition{"revenue", NotEqual, 0}, NumericCondition{"budget", NotEqual, 0}},
+		KeptStringFields:    []string{"movieID", "title"},
+		KeptNumericFields:   []string{},
+		KeptFloatFields:     []string{}, // rate lo agrega el map
+		KeptArrayFields:     []string{},
+		Maps:                []Map{mapper},
+		subscribers:         subscribers,
+		cantConsumersSender: cantConsumersSender,
+		cantWorkers:         cantWorkers,
 	}
 }

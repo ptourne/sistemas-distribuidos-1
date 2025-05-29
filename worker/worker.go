@@ -242,46 +242,49 @@ func (t *SourceTask[O]) Connect(_ middleware.Connection[*model.Row], _ middlewar
 
 func NewWorker() Worker {
 	movies_metadata := NewSourceTask[*model.Row]("movies_metadata")
-	credits := NewSourceTask[*model.Row]("credits")
-	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country", "map_sentiment_rate"})
+	// credits := NewSourceTask[*model.Row]("credits")
 
-	n_worker, err := strconv.Atoi(os.Getenv("N_JOINERS_CREDITS"))
+	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
 	if err != nil {
-		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
+		log.Fatalf("Failed to convert N_WORKERS to int: %s", err)
 	}
 
-	var joiner_credits_subscribers []string
-	for i := range n_worker {
-		joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
-	}
+	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar"}, uint(n_workers), uint(n_workers)) //, "filter_one_production_country", "map_sentiment_rate"
 
-	credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers)
+	// var joiner_credits_subscribers []string
+	// for i := range n_workers {
+	// 	joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
+	// }
 
-	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits", "joiner_ratings"})
-	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"})
-	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"})
+	// credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers, uint(n_workers), uint(n_workers))
 
-	filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"})
+	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es"}, uint(n_workers), uint(n_workers)) //, "joiner_credits", "joiner_ratings"
+	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"}, 1, uint(n_workers))
 
-	n_worker_ratings, err := strconv.Atoi(os.Getenv("N_JOINERS_RATINGS"))
-	if err != nil {
-		log.Fatalf("Failed to convert N_JOINERS to int: %s", err)
-	}
-	var joiner_ratings_subscribers []string
-	for i := range n_worker_ratings {
-		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
-	}
-	filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers)
+	// n_reducers_by_country_sum_budgets, err := strconv.Atoi(os.Getenv("N_REDUCERS_BY_COUNTRY_SUM_BUDGETS"))
+	// if err != nil {
+	// 	log.Fatalf("Failed to convert N_REDUCERS_BY_COUNTRY_SUM_BUDGETS to int: %s", err)
+	// }
+
+	// filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"}, uint(n_reducers_by_country_sum_budgets), uint(n_workers))
+
+	// filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"}, 1, uint(n_workers))
+
+	// var joiner_ratings_subscribers []string
+	// for i := range n_workers {
+	// 	joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
+	// }
+	// filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers, uint(n_workers), uint(n_workers))
 
 	return Worker{
 		Tasks: []task.Task[*model.Row, *model.Row]{
 			movies_metadata_clean,
-			credits_clean,
+			// credits_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
-			filter_one_production_country,
-			filter_avg_rate,
-			filter_avg_rating,
+			// filter_one_production_country,
+			// filter_avg_rate,
+			// filter_avg_rating,
 		},
 	}
 }

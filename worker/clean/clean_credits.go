@@ -13,14 +13,16 @@ import (
 )
 
 type CleanCredits struct {
-	input        task.Task[*model.Row, *model.Row]
-	taskReceiver middleware.Receiver[*model.Row]
-	taskSender   middleware.Sender[*model.Row]
-	subscribers  []string
+	input         task.Task[*model.Row, *model.Row]
+	taskReceiver  middleware.Receiver[*model.Row]
+	taskSender    middleware.Sender[*model.Row]
+	subscribers   []string
+	cantConsumers uint
+	cantWorkers   uint
 }
 
-func NewCleanCredits(input task.Task[*model.Row, *model.Row], subscribers []string) task.Task[*model.Row, *model.Row] {
-	return &CleanCredits{input, nil, nil, subscribers}
+func NewCleanCredits(input task.Task[*model.Row, *model.Row], subscribers []string, cantConsumers uint, cantWorkers uint) task.Task[*model.Row, *model.Row] {
+	return &CleanCredits{input, nil, nil, subscribers, cantConsumers, cantWorkers}
 }
 
 func (f CleanCredits) Input() string {
@@ -31,9 +33,17 @@ func (f CleanCredits) Name() string {
 	return "clean_credits"
 }
 
+func (f CleanCredits) CantConsumers() uint {
+	return f.cantConsumers
+}
+func (f CleanCredits) CantWorkers() uint {
+	return f.cantWorkers
+}
+
 func (f CleanCredits) ProcessAndSend(envelope middleware.Envelope[*model.Row]) error {
 	row := envelope.Msg()
 	cid := envelope.Cid()
+	id := envelope.Id()
 	t := envelope.Type()
 	switch t {
 	case middleware.EOF:
@@ -58,7 +68,7 @@ func (f CleanCredits) ProcessAndSend(envelope middleware.Envelope[*model.Row]) e
 			log.Debugf("Row dropped: %+v by cleaner", row)
 			return nil
 		}
-		return f.taskSender.Send(output, cid)
+		return f.taskSender.Send(output, cid, id)
 	}
 }
 
@@ -104,15 +114,15 @@ func (f *CleanCredits) Connect(inputMiddleware middleware.Connection[*model.Row]
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
 	}
-	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse N_WORKERS: %w", err)
+	idWorker := os.Getenv("WORKER_ID")
+	if idWorker == "" {
+		return nil, fmt.Errorf("WORKER_ID environment variable is not set")
 	}
-	f.taskReceiver, err = inputMiddleware.ConsumeFrom(f.Input(), f.Name(), uint(n_workers), prefetch)
+	f.taskReceiver, err = inputMiddleware.ConsumeFrom(f.Input(), f.Name(), idWorker, prefetch, f.CantWorkers())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue for task %s", f.Name())
 	}
-	f.taskSender, err = outputMiddleware.WriteTo(f.Name(), f.subscribers)
+	f.taskSender, err = outputMiddleware.WriteTo(f.Name(), f.subscribers, idWorker, f.CantConsumers())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create write queue for task %s", f.Name())
 	}

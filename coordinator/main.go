@@ -156,24 +156,37 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context) {
 	defer wg.Done()
 	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%s", cid), logger.Info)
-	moviesMetadataSender, err := (*c.MiddlewareChan).WriteTo(c.MoviesMetadataName, []string{"clean_movies"})
+	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
+	if err != nil {
+		log.Errorf("Failed to parse n_workers: %v", err)
+		panic(err)
+	}
+	ratingsConsumers, err := strconv.Atoi(os.Getenv("N_RATINGS_CONSUMERS"))
+	if err != nil {
+		log.Errorf("Failed to parse N_RATINGS_CONSUMERS: %v", err)
+		panic(err)
+	}
+
+	moviesMetadataSender, err := (*c.MiddlewareChan).WriteTo(c.MoviesMetadataName, []string{"clean_movies"}, "0", uint(n_workers))
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
 	}
 
-	creditsSender, err := (*c.MiddlewareChan).WriteTo(c.CreditsName, []string{"clean_credits"})
+	creditsSender, err := (*c.MiddlewareChan).WriteTo(c.CreditsName, []string{"clean_credits"}, "0", uint(n_workers))
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
 	}
-	ratingsSender, err := (*c.MiddlewareChanByte).WriteToRKID(c.RatingsName, []string{"reduce_by_movieId"})
+	ratingsSender, err := (*c.MiddlewareChanByte).WriteTo(c.RatingsName, []string{"reduce_by_movieId"}, "0", uint(ratingsConsumers))
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
 	}
-	allQuerysToEndpointSender, err := (*c.MiddlewareChan).WriteTo(c.AllQuerysToEndpointName, []string{c.AllQuerysToEndpointName})
+	allQuerysToEndpointSender, err := (*c.MiddlewareChan).WriteTo(c.AllQuerysToEndpointName, []string{c.AllQuerysToEndpointName}, "0", uint(1))
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
 	}
 	defer allQuerysToEndpointSender.Close()
+
+	lastIdSent := uint64(0)
 
 OuterLoop:
 	for {
@@ -193,8 +206,6 @@ OuterLoop:
 			msg := msgEnvelope.Msg()
 			bytes := msg.Buf.Bytes
 			t := msg.PackageType
-			// log.Infof("Received message type: %v", t)
-			// log.Infof("Received message cid: %v", cid)
 			msgEnvelope.Ack(false)
 			switch t {
 			case common.FileName:
@@ -263,7 +274,7 @@ OuterLoop:
 							} else {
 								for i := range 10 {
 									rk := fmt.Sprintf("%d", i)
-									err := ratingsSender.SendEOFRK(rk, cid)
+									err := ratingsSender.SendEOF(cid)
 									if err != nil {
 										log.Errorf("failed to send EOFRK to %s: %v", rk, err)
 									}
@@ -281,7 +292,8 @@ OuterLoop:
 
 					if fileName != c.RatingsName {
 						row := create(data)
-						sender.Send(row, cid)
+						sender.Send(row, cid, lastIdSent)
+						lastIdSent++
 					} else {
 						movieId := data[1]
 						num, err := strconv.Atoi(movieId)
@@ -297,7 +309,8 @@ OuterLoop:
 							Rating: uint8(val),
 						}
 						routingKey := string(movieId[len(movieId)-1])
-						ratingsSender.SendRK(&rating, routingKey, cid)
+						ratingsSender.SendRK(&rating, cid, lastIdSent, routingKey)
+						lastIdSent++
 					}
 
 				}
@@ -381,37 +394,37 @@ func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQCon
 	config.CoordinatorPrefetch = prefetch
 	config.ReceiverTest = "clean_movies"
 
-	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, config.CoordinatorsCant, config.CoordinatorPrefetch)
+	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, "0", config.CoordinatorPrefetch, 1)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
 	config.ReceiverFileByte = receiverFileByte
 
-	q1Receiver, err := middlewareChan.ConsumeFrom(config.Q1Output, "q1", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	q1Receiver, err := middlewareChan.ConsumeFrom(config.Q1Output, "q1", "0", config.CoordinatorPrefetch, 1)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
 	config.ReceiverQ1 = q1Receiver
 
-	q2Receiver, err := middlewareChan.ConsumeFrom(config.Q2Output, "q2", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	q2Receiver, err := middlewareChan.ConsumeFrom(config.Q2Output, "q2", "0", config.CoordinatorPrefetch, 1)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
 	config.ReceiverQ2 = q2Receiver
 
-	q3Receiver, err := middlewareChan.ConsumeFrom(config.Q3Output, "q3", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	q3Receiver, err := middlewareChan.ConsumeFrom(config.Q3Output, "q3", "0", config.CoordinatorPrefetch, 1)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
 	config.ReceiverQ3 = q3Receiver
 
-	q4Receiver, err := middlewareChan.ConsumeFrom(config.Q4Output, "q4", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	q4Receiver, err := middlewareChan.ConsumeFrom(config.Q4Output, "q4", "0", config.CoordinatorPrefetch, 1)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
 	config.ReceiverQ4 = q4Receiver
 
-	q5Receiver, err := middlewareChan.ConsumeFrom(config.Q5Output, "q5", config.CoordinatorsCant, config.CoordinatorPrefetch)
+	q5Receiver, err := middlewareChan.ConsumeFrom(config.Q5Output, "q5", "0", config.CoordinatorPrefetch, 1)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
@@ -622,8 +635,10 @@ func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 }
 
 func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row], queryNumber string, expectedOutput []*model.Row, remove func([]*model.Row, *model.Row, *logger.ConsoleLogger, string) []*model.Row, lastQuery bool) {
+	lastIdSent := uint64(0)
 	log.Infof("Verifying %s", queryNumber)
-	err := allQuerysToEndpointSender.Send(model.RowQueryName(queryNumber), cid)
+	err := allQuerysToEndpointSender.Send(model.RowQueryName(queryNumber), cid, lastIdSent)
+	lastIdSent++
 	if err != nil {
 		log.Errorf("Failed to send message: %v", err)
 	}
@@ -662,7 +677,8 @@ OuterLoop:
 			continue
 		}
 		receivedRow := envelope.Msg()
-		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedRow), cid)
+		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedRow), cid, lastIdSent)
+		lastIdSent++
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)
 			continue

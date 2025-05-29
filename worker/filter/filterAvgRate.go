@@ -5,17 +5,19 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
 
-func NewFilterAvgRate(input string, subscribers []string) task.Task[*model.Row, *model.Row] {
+func NewFilterAvgRate(input string, subscribers []string, cantConsumersSender uint, cantWorkers uint) task.Task[*model.Row, *model.Row] {
 	return &GenericFilter{
-		name:              "filter_avg_rate",
-		input:             input,
-		Conditions:        []Condition{},
-		KeptStringFields:  []string{"sentiment"},
-		KeptNumericFields: []string{},
-		KeptFloatFields:   []string{},
-		KeptArrayFields:   []string{},
-		Maps:              []Map{MapAvgRate{}},
-		subscribers:       subscribers,
+		name:                "filter_avg_rate",
+		input:               input,
+		Conditions:          []Condition{},
+		KeptStringFields:    []string{"sentiment"},
+		KeptNumericFields:   []string{},
+		KeptFloatFields:     []string{},
+		KeptArrayFields:     []string{},
+		Maps:                []Map{MapAvgRate{}},
+		subscribers:         subscribers,
+		cantConsumersSender: cantConsumersSender,
+		cantWorkers:         cantWorkers,
 	}
 }
 
