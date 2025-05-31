@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"os"
 	"os/signal"
@@ -9,10 +10,10 @@ import (
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
 )
 
 var log = logger.NewConsoleLogger("client", logger.Debug)
-
 
 type Client struct {
 	conn    net.Conn
@@ -20,6 +21,8 @@ type Client struct {
 }
 
 func main() {
+	name := os.Getenv("NAME")
+	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
 	var SERVER_PORT = os.Getenv("SERVER_PORT")
 	conn, err := net.Dial("tcp", SERVER_PORT)
 	if err != nil {
@@ -32,7 +35,9 @@ func main() {
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	finishChan := make(chan bool)
+	ctxHeartbeat, cancelHearbeat := context.WithCancel(context.Background())
 	go HandleSignals(client, &wg, finishChan)
+	go utils.SendHeartbeat(name, monitor_addrs, log, ctxHeartbeat)
 	err = client.Run()
 	if err != nil && client.Running {
 		log.Errorf("error sending files: %v", err)
@@ -41,6 +46,12 @@ func main() {
 		finishChan <- true
 	}
 	close(finishChan)
+	wg.Add(1)
+	cancelHearbeat()
+	go func() {
+		utils.SendExit(name, monitor_addrs, log)
+		wg.Done()
+	}()
 	wg.Wait()
 	log.Infof("client finished")
 	time.Sleep(1000 * time.Millisecond)
@@ -64,5 +75,3 @@ func HandleSignals(c *Client, wg *sync.WaitGroup, finishChan chan bool) {
 		c.StopClient()
 	}
 }
-
-

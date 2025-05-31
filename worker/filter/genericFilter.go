@@ -108,12 +108,16 @@ func (f GenericFilter) ProcessAndSend(envelope middleware.Envelope[*model.Row]) 
 		return nil
 	default:
 		// log.Infof("NORMAL arrived for cid: %s in %s movieID: %s", cid, f.Name(), row.Strings["movieID"])
-		output := f.process(row)
+		output, err := f.process(row)
+		if err != nil {
+			log.Errorf("cid %s | Error processing row: %v", cid, err)
+			return err
+		}
 		if output == nil {
 			log.Debugf("Row dropped: %+v by cleaner", row)
 			return nil
 		}
-		err := f.taskSender.Send(output, cid, id)
+		err = f.taskSender.Send(output, cid, id)
 		if err != nil {
 			return fmt.Errorf("failed to send message: %w", err)
 		}
@@ -121,16 +125,16 @@ func (f GenericFilter) ProcessAndSend(envelope middleware.Envelope[*model.Row]) 
 	}
 }
 
-func (f GenericFilter) process(row *model.Row) *model.Row {
+func (f GenericFilter) process(row *model.Row) (*model.Row, error) {
 	for _, condition := range f.Conditions {
 		passes, err := condition.Passes(row)
 		if err != nil {
 			log.Errorf("Error processing condition: %v", err)
-			return nil
+			return nil, err
 		}
 		if !passes {
 			f.Logf("Row %+v failed condition: %+v", row, condition)
-			return nil
+			return nil, nil
 		}
 	}
 	res := &model.Row{
@@ -163,10 +167,10 @@ func (f GenericFilter) process(row *model.Row) *model.Row {
 		err := mapf.Transform(row, res)
 		if err != nil {
 			log.Errorf("Error during map transformation: %v", err)
-			return nil
+			return nil, err
 		}
 	}
-	return res
+	return res, nil
 }
 
 func (f GenericFilter) Logf(format string, args ...any) {

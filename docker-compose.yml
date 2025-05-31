@@ -14,22 +14,40 @@ services:
             timeout: 10s
             retries: 10
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
-    sentiment_server:
-        container_name: sentiment_server
+    sentiment_server0:
+        container_name: sentiment_server0
         build:
             context: .
             dockerfile: nlp/python_server/Dockerfile
-        ports:
-            - "50051:50051"
+        networks:
+            - local_net
+        environment:
+            - GRPC_PORT=50050
+            - GRPC_WORKERS=30
+            - NAME=sentiment_server0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        healthcheck:
+            test: ['CMD', 'sh', '-c', 'nc -z localhost 50050']
+            interval: 10s
+            timeout: 10s
+            retries: 10
+
+    sentiment_server1:
+        container_name: sentiment_server1
+        build:
+            context: .
+            dockerfile: nlp/python_server/Dockerfile
         networks:
             - local_net
         environment:
             - GRPC_PORT=50051
             - GRPC_WORKERS=30
+            - NAME=sentiment_server1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         healthcheck:
-            test: ncat -zv localhost 50051
+            test: ['CMD', 'sh', '-c', 'nc -z localhost 50051']
             interval: 10s
             timeout: 10s
             retries: 10
@@ -46,10 +64,10 @@ services:
             - N_WORKERS=2
             - N_RATINGS_CONSUMERS=10
             - PREFETCH=1 # Potential optimization
+            - NAME=coordinator
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         depends_on:
             rabbitmq:
-                condition: service_healthy
-            sentiment_server:
                 condition: service_healthy
 
     worker0:
@@ -64,12 +82,12 @@ services:
             - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=2
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
+            - NAME=worker0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
             rabbitmq:
-                condition: service_healthy
-            sentiment_server:
                 condition: service_healthy
 
     worker1:
@@ -84,12 +102,12 @@ services:
             - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=2
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
+            - NAME=worker1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
             rabbitmq:
-                condition: service_healthy
-            sentiment_server:
                 condition: service_healthy
 
     client0:
@@ -100,28 +118,72 @@ services:
         entrypoint: /client
         environment:
             - SERVER_PORT=endpoint:9876
+            - NAME=client0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
             - endpoint
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/client/datasets:/datasets
 
-    client1:
-        container_name: client1
+    monitor0:
+        container_name: monitor0
         build:
             context: .
-            dockerfile: client/Dockerfile
-        entrypoint: /client
-        environment:
-            - SERVER_PORT=endpoint:9876
+            dockerfile: monitor/Dockerfile
+        entrypoint: /monitor
         networks:
             - local_net
+        environment:
+            - PORT=9000
+            - MONITOR_COUNT=3
+            - MONITOR_ID=0
+            - PEERS=0:monitor0:9000,1:monitor1:9001,2:monitor2:9002
         depends_on:
-            - endpoint
+            rabbitmq:
+                condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
-
+            - /var/run/docker.sock:/var/run/docker.sock
+    
+    monitor1:
+        container_name: monitor1
+        build:
+            context: .
+            dockerfile: monitor/Dockerfile
+        entrypoint: /monitor
+        networks:
+            - local_net
+        environment:
+            - PORT=9001
+            - MONITOR_COUNT=3
+            - MONITOR_ID=1
+            - PEERS=0:monitor0:9000,1:monitor1:9001,2:monitor2:9002
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+    
+    monitor2:
+        container_name: monitor2
+        build:
+            context: .
+            dockerfile: monitor/Dockerfile
+        entrypoint: /monitor
+        networks:
+            - local_net
+        environment:
+            - PORT=9002
+            - MONITOR_COUNT=3
+            - MONITOR_ID=2
+            - PEERS=0:monitor0:9000,1:monitor1:9001,2:monitor2:9002
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+    
     endpoint:
         container_name: endpoint
         build:
@@ -130,6 +192,8 @@ services:
         entrypoint: /endpoint
         environment:
             - ENDPOINT_PORT=9876
+            - NAME=endpoint
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:

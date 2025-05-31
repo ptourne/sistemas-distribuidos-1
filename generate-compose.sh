@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [ "$#" -eq 11 ]; then
+if [ "$#" -eq 13 ]; then
     file_name=./docker-compose.yml
     number_of_workers=$1
     number_of_joiners_credits=$2
@@ -13,8 +13,10 @@ if [ "$#" -eq 11 ]; then
     number_of_reduce_top_bottom_avg_ratings=${9}
     number_of_clients=${10}
     number_of_nlp_workers=${11}
+    number_of_sentiment_servers=${12}
+    number_of_monitors=${13}
 
-elif [ "$#" -eq 12 ]; then
+elif [ "$#" -eq 14 ]; then
     file_name=$1
     number_of_workers=$2
     number_of_joiners_credits=$3
@@ -27,18 +29,22 @@ elif [ "$#" -eq 12 ]; then
     number_of_reduce_top_bottom_avg_ratings=${10}
     number_of_clients=${11}
     number_of_nlp_workers=${12}
+    number_of_sentiment_servers=${13}
+    number_of_monitors=${14}
 else
     echo "Error: Incorrect number of arguments"
     echo "Use: ./generar-compose.sh [file_name] <number_of_workers>,<number_of_joiners_credits>,<number_of_joiners_ratings>,
     <number_of_reduce_by_country_sum_budgets>, <number_of_reduce_top_5_by_budgets>,
     <number_of_reduce_by_sentiment>, <number_of_reduce_by_actor>, <number_of_reduce_top_10_by_actor>,
-    <number_of_reduce_top_bottom_avg_ratings>, <number_of_clients>, <number_of_nlp_workers>"
+    <number_of_reduce_top_bottom_avg_ratings>, <number_of_clients>, <number_of_nlp_workers>,
+    <number_of_sentiment_servers>, <number_of_monitors>"
     exit 1
 fi
 
 # Verify number_of_workers is a positive integer
 if ! [[ "$number_of_workers" =~ ^[0-9]+$ ]] || [ "$number_of_workers" -le -1 ]; then
     echo "Error: Number of workers must be a positive integer"
+    echo $number_of_workers
     exit 1
 fi
 
@@ -87,7 +93,41 @@ if ! [[ "$number_of_nlp_workers" =~ ^[0-9]+$ ]] || [ "$number_of_nlp_workers" -l
     exit 1
 fi
 
+# Verify number_of_sentiment_servers is a positive integer
+if ! [[ "$number_of_sentiment_servers" =~ ^[0-9]+$ ]] || [ "$number_of_sentiment_servers" -lt 1 ]; then
+    echo "Error: Number of sentiment servers must be an integer >= 1"
+    exit 1
+fi
 
+# Verify number_of_monitors is a positive integer
+if ! [[ "$number_of_monitors" =~ ^[0-9]+$ ]] || [ "$number_of_monitors" -lt 1 ]; then
+    echo "Error: Number of monitors must be a an integer >= 1"
+    exit 1
+fi
+
+MONITOR_PORT_BASE=9000
+SENTIMENT_SERVER_PORT_BASE=50050
+monitor_addresses=""
+sentimen_server_addresses=""
+monitor_peers=""
+
+for i in $(seq 0 $((number_of_monitors-1))); do
+    port=$((MONITOR_PORT_BASE + i))
+    monitor_addresses+="monitor$i:$port"
+    monitor_peers+="$i:monitor$i:$port"
+    if [[ $i -lt $((number_of_monitors-1)) ]]; then
+        monitor_addresses+=","
+        monitor_peers+=","
+    fi
+done
+
+for i in $(seq 0 $((number_of_sentiment_servers-1))); do
+    port=$((SENTIMENT_SERVER_PORT_BASE + i))
+    sentimen_server_addresses+="sentiment_server$i:$port"
+    if [[ $i -lt $number_of_sentiment_servers ]]; then
+        sentimen_server_addresses+=","
+    fi
+done
 
 compose_header() {
     echo "name: analisis-peliculas
@@ -112,8 +152,6 @@ compose_rabbitmq() {
             - ${PWD}/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 "
 }
-# volumes:
-    # - ${PWD}/rabbitmq_config/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
 NUMBER_OF_REDUCE_BY_MOVIEID=10
 compose_coordinator() {
@@ -129,14 +167,13 @@ compose_coordinator() {
             - N_WORKERS=$number_of_workers
             - N_RATINGS_CONSUMERS=$NUMBER_OF_REDUCE_BY_MOVIEID
             - PREFETCH=1 # Potential optimization
+            - NAME=coordinator
+            - MONITOR_ADDRESSES=$monitor_addresses
         depends_on:
             rabbitmq:
                 condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
 "
 }
-# TODO: entrypoint: /coordinator en compose_coordinador() y el command en compose_client()
 
 compose_workers() {
     local worker_id=$1
@@ -152,14 +189,21 @@ compose_workers() {
             - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=$number_of_reduce_by_country_sum_budgets
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
+            - NAME=worker$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
 "
+}
+
+generate_sentiment_dependencies() {
+    for i in $(seq 0 $((number_of_sentiment_servers-1))); do
+        echo "            sentiment_server$i:"
+        echo "                condition: service_healthy"
+    done
 }
 
 compose_nlp_workers() {
@@ -173,17 +217,18 @@ compose_nlp_workers() {
         environment: 
             - WORKER_ID=$worker_id
             - N_WORKERS=$number_of_nlp_workers
-            - NLP_GRPC_ADDR=sentiment_server:50051
+            - NLP_GRPC_ADDRS=$sentimen_server_addresses
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
+            - NAME=nlp_worker$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
             rabbitmq:
-                condition: service_healthy
-            sentiment_server:
-                condition: service_healthy
-"
+                condition: service_healthy"
+    generate_sentiment_dependencies
+    echo ""
 }
 
 compose_joiner_rating() {
@@ -200,12 +245,12 @@ compose_joiner_rating() {
             - SERVER_PORT=1234
             - WORKER_COUNT=$worker_count
             - PREFETCH=1
+            - NAME=joiner_rating$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
             rabbitmq:
-                condition: service_healthy
-            sentiment_server:
                 condition: service_healthy
         volumes:
             - ${PWD}/joiner_ratings:/joiner_ratings
@@ -226,12 +271,12 @@ compose_joiner_credits() {
             - SERVER_PORT=1234
             - WORKER_COUNT=$worker_count
             - PREFETCH=1
+            - NAME=joiner_credits$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
             rabbitmq:
-                condition: service_healthy
-            sentiment_server:
                 condition: service_healthy
         volumes:
             - ${PWD}/joiner_credits:/joiner_credits
@@ -240,6 +285,7 @@ compose_joiner_credits() {
 
 compose_client() {
     local client_id=$1
+    local client_count=$2
     echo "    client$client_id:
         container_name: client$client_id
         build:
@@ -248,6 +294,8 @@ compose_client() {
         entrypoint: /client
         environment:
             - SERVER_PORT=endpoint:9876
+            - NAME=client$client_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -266,6 +314,8 @@ compose_endpoint() {
         entrypoint: /endpoint
         environment:
             - ENDPOINT_PORT=9876
+            - NAME=endpoint
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -310,6 +360,8 @@ compose_reduce() {
         environment:
             - WORKER_ID=$worker_id
             - WORKER_COUNT=$worker_count
+            - NAME=$name$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -331,20 +383,22 @@ compose_network() {
 }
 
 compose_sentiment_server() {
-    echo "    sentiment_server:
-        container_name: sentiment_server
+    local id=$1
+    local port=$3
+    echo "    sentiment_server$id:
+        container_name: sentiment_server$id
         build:
             context: .
             dockerfile: nlp/python_server/Dockerfile
-        ports:
-            - \"50051:50051\"
         networks:
             - local_net
         environment:
-            - GRPC_PORT=50051
+            - GRPC_PORT=$port
             - GRPC_WORKERS=30
+            - NAME=sentiment_server$id
+            - MONITOR_ADDRESSES=$monitor_addresses
         healthcheck:
-            test: ncat -zv localhost 50051
+            test: ['CMD', 'sh', '-c', 'nc -z localhost $port']
             interval: 10s
             timeout: 10s
             retries: 10
@@ -362,6 +416,8 @@ compose_reduce_top_10_by_actor() {
         environment:
             - WORKER_ID=$worker_id
             - WORKER_COUNT=$number_of_reduce_top_10_by_actor
+            - NAME=reduce_top_10_by_actor$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -383,6 +439,8 @@ compose_reduce_by_movieId() {
             - WORKER_CONDI=1
             - WORKER_COUNT=$NUMBER_OF_REDUCE_BY_MOVIEID
             - PREFETCH=1
+            - NAME=reduce_by_movieid$worker_id
+            - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
         depends_on:
@@ -391,10 +449,37 @@ compose_reduce_by_movieId() {
 "
 }
 
+compose_monitor(){
+    local worker_id=$1
+    local number_of_monitors=$2
+    local port=$3
+    local monitor_peers=$4
+    echo "    monitor$worker_id:
+        container_name: monitor$worker_id
+        build:
+            context: .
+            dockerfile: monitor/Dockerfile
+        entrypoint: /monitor
+        networks:
+            - local_net
+        environment:
+            - PORT=$port
+            - MONITOR_COUNT=$number_of_monitors
+            - MONITOR_ID=$worker_id
+            - PEERS=$monitor_peers
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+    "
+}
 
 compose_header > $file_name
 compose_rabbitmq >> $file_name
-compose_sentiment_server >> $file_name
+for i in $(seq 0 $((number_of_sentiment_servers-1))); do
+    compose_sentiment_server $i $number_of_sentiment_servers $((SENTIMENT_SERVER_PORT_BASE + i)) >> $file_name
+done
 compose_coordinator >> $file_name
 for i in $(seq 0 $((number_of_workers-1))); do
     compose_workers $i >> $file_name
@@ -431,6 +516,9 @@ done
 # done
 for i in $(seq 0 $((number_of_clients-1))); do
     compose_client $i $number_of_clients >> $file_name
+done
+for i in $(seq 0 $((number_of_monitors-1))); do
+    compose_monitor $i $number_of_monitors $((MONITOR_PORT_BASE + i)) $monitor_peers >> $file_name
 done
 compose_endpoint >> $file_name
 compose_network >> $file_name

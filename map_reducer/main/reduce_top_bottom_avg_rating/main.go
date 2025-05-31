@@ -12,6 +12,7 @@ import (
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
 	map_reducer "github.com/ptourne/sistemas-distribuidos-1/map_reducer"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
@@ -35,6 +36,8 @@ type Acc struct {
 type Res = *model.Row
 
 func main() {
+	name := os.Getenv("NAME")
+	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
 	connector, err := rabbitmq.Connector()
 	if err != nil {
 		log.Errorf("failed to create connector: %s", err)
@@ -64,6 +67,9 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctxHeartbeat, cancelHearbeat := context.WithCancel(context.Background())
+	defer cancelHearbeat()
+	go utils.SendHeartbeat(name, monitor_addrs, log, ctxHeartbeat)
 	err = mapReducer.Run(ctx) // TODO: use context to handle sigterm
 	if err != nil {
 		log.Errorf("error running map reducer: %s", err)

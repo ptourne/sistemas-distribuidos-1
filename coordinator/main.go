@@ -16,13 +16,19 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common"
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
 func main() {
+
+	name := os.Getenv("NAME")
+	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
+
 	log := logger.NewConsoleLogger("coordinator", logger.Info)
-	// logMiddleware := logger.NewConsoleLogger("coordinator_mid", logger.Info)
+	ctxHeartbeat, cancelHearbeat := context.WithCancel(context.Background())
+	go utils.SendHeartbeat(name, monitor_addrs, log, ctxHeartbeat)
 	connector, err := rabbitmq.Connector()
 	if err != nil {
 		log.Errorf("Failed to connect middleware: %v", err)
@@ -32,15 +38,15 @@ func main() {
 	defer config.Close()
 
 	wg := sync.WaitGroup{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, cancelHearbeat := context.WithCancel(context.Background())
+	defer cancelHearbeat()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
 		log.Infof("Received SIGTERM. Shutting down gracefully...")
-		cancel()
+		cancelHearbeat()
 	}()
 	inputsChannelMap := map[string]*ChannelsCid{}
 	inputChannelMapLock := sync.Mutex{}
@@ -103,6 +109,7 @@ func main() {
 	for _, channelCid := range inputsChannelMap {
 		channelCid.Close()
 	}
+	cancelHearbeat()
 	log.Infof("EXITING COORDINATOR")
 }
 
@@ -129,12 +136,14 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 			log.Errorf("Channel not found: %v", cid)
 			continue
 		}
+		finished := false
 		switch envelope.Type() {
 		case middleware.EOF:
 			if lastQuery {
 				log.Infof("cid %s finished receiving", cid)
 				inputChannelMapLock.Lock()
-				close(getFuc(channelsCid))
+				//close(getFuc(channelsCid))
+				finished = true
 				delete(inputsChannelMap, envelope.Cid())
 				inputChannelMapLock.Unlock()
 			}
@@ -142,6 +151,13 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 		}
 
 		queue := getFuc(channelsCid)
+		inputChannelMapLock.Lock()
+		_, stillExists := inputsChannelMap[cid]
+		inputChannelMapLock.Unlock()
+		if !stillExists && !finished {
+			continue
+		}
+
 		select {
 		case queue <- envelope:
 			// enviado con éxito
