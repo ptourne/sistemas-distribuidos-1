@@ -60,7 +60,7 @@ var log *logger.ConsoleLogger = logger.NewConsoleLogger("test", logger.Debug)
 
 func (s sumMapReducer) Map(in i) []a {
 	log.Debugf("Mapping input %d", in.val)
-	return []*sum{&sum{val: in.val}}
+	return []*sum{{val: in.val}}
 }
 
 func (s sumMapReducer) Reduce(in []a) a {
@@ -75,18 +75,36 @@ func (s sumMapReducer) Reduce(in []a) a {
 
 func (s sumMapReducer) Output(in a) []r {
 	log.Debugf("Outputting reduced sum %d", in.val)
-	return []*num{&num{val: in.val}}
+	return []*num{{val: in.val}}
 }
 
-func newTimer() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 10*time.Second)
+type sumMapReducer2 struct{}
+
+func (s sumMapReducer2) Map(in i) []a {
+	log.Debugf("Mapping input %d", in.val)
+	return []*sum{{val: in.val}}
+}
+
+func (s sumMapReducer2) Reduce(in []a) a {
+	log.Debugf("Reducing %d inputs", len(in))
+	var red uint64
+	for _, v := range in {
+		red += v.val
+	}
+	log.Debugf("Reduced sum is %d", red)
+	return &sum{val: red}
+}
+
+func (s sumMapReducer2) Output(in a) []r {
+	log.Debugf("Outputting reduced sum %d", in.val)
+	return []*num{{val: in.val}, {val: in.val + 1}, {val: in.val + 2}}
 }
 
 const RABBITMQ_EXPOSED_PORT_BASE = uint16(4000)
 
 var baseConfig = rabbitmq.NewConfiguration("guest", "guest", "localhost", RABBITMQ_EXPOSED_PORT_BASE)
 
-func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, shardCount uint, shardCountOutput uint) (
+func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, shardCount uint, shardCountOutput uint, mapReducer MapReduce[i, a, r]) (
 	sender middleware.Sender[i],
 	receivers []middleware.Receiver[r],
 	stopReducers context.CancelFunc,
@@ -112,7 +130,7 @@ func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, sh
 			"map_reducer",
 			"input",
 			2,
-			sumMapReducer{},
+			mapReducer,
 			[]string{"receiver"},
 			id,
 			shardCount,
@@ -191,7 +209,7 @@ func TestMapReducer(t *testing.T) {
 		cid := "1"
 		shardCount := uint(1)
 		shardCountOutput := uint(1)
-		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput)
+		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{})
 		assert.NoError(t, err)
 
 		err = sender.Send(&num{val: 1}, cid, 0)
@@ -275,7 +293,7 @@ func TestMapReducer(t *testing.T) {
 		shardCountOutput := uint(1)
 
 		cid := "1"
-		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput)
+		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{})
 		assert.NoError(t, err)
 
 		err = sender.Send(&num{val: 1}, cid, 0)
@@ -360,7 +378,7 @@ func TestMapReducer(t *testing.T) {
 		shardCountOutput := uint(1)
 
 		cid := "1"
-		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput)
+		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{})
 		assert.NoError(t, err)
 
 		expected := uint64(0)
@@ -448,7 +466,7 @@ func TestMapReducer(t *testing.T) {
 		shardCountOutput := uint(1)
 
 		cid := "1"
-		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput)
+		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{})
 		assert.NoError(t, err)
 
 		expected := uint64(0)
@@ -529,18 +547,119 @@ func TestMapReducer(t *testing.T) {
 		log.Infof("All handlers finisheded YESSS")
 	})
 
-	t.Run("10Reducer1Cid1000Msg2Receivers", func(t *testing.T) {
+	t.Run("10Reducer1Cid10Msg2ReceiversMultipleOutputs", func(t *testing.T) {
 		init := test5container
 		assert.NoError(t, init.Err)
 		shardCount := uint(10)
 		shardCountOutput := uint(2)
 
 		cid := "1"
-		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput)
+		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer2{})
 		assert.NoError(t, err)
 
 		expected := uint64(0)
-		for i := range uint64(1) {
+		for i := range uint64(10) {
+			err = sender.SendRK(&num{val: i}, cid, i, fmt.Sprintf("%d", i%uint64(shardCountOutput)))
+			assert.NoError(t, err)
+			expected += i
+		}
+
+		for i := 0; i < int(shardCountOutput); i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			_, err = receivers[i].Next(ctx)
+			cancel()
+			assert.Error(t, err)
+		}
+
+		err = sender.Prune(cid)
+		assert.NoError(t, err)
+
+		err = sender.SendEOF(cid)
+		assert.NoError(t, err)
+
+		cant_msg_received := 0
+		cant_msg_not_received := 0
+
+		for i := 0; i < int(shardCountOutput); i++ {
+			log.Debugf("Waiting for message")
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+			e, err := receivers[i].Next(ctx)
+			assert.NoError(t, err)
+			log.Debugf("Received message type %s", e.Type())
+			switch e.Type() {
+			case middleware.Normal:
+				cant_msg_received++
+				if i == 0 {
+					assert.Equal(t, expected, e.Msg().val)
+					assert.Equal(t, uint64(0), e.Id())
+				} else {
+					assert.Equal(t, expected+1, e.Msg().val)
+					assert.Equal(t, uint64(1), e.Id())
+				}
+				e.Ack(true)
+				if i == 0 {
+					e, err = receivers[i].Next(ctx)
+					assert.NoError(t, err)
+					assert.Equal(t, middleware.Normal, e.Type())
+					assert.Equal(t, expected+2, e.Msg().val)
+					assert.Equal(t, uint64(2), e.Id())
+					e.Ack(true)
+				}
+
+				e, err = receivers[i].Next(ctx)
+				assert.NoError(t, err)
+				assert.Equal(t, middleware.Prune, e.Type())
+				e.Ack(true)
+				cancel()
+			case middleware.Prune:
+				cant_msg_not_received++
+				e.Ack(true)
+
+				cancel()
+			default:
+				assert.Fail(t, "should not be here")
+				cancel()
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+		e, err := receivers[0].Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(false)
+		cancel()
+
+		for i := 0; i < int(shardCountOutput); i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			_, err = receivers[i].Next(ctx)
+			cancel()
+			assert.Error(t, err)
+		}
+
+		assert.Equal(t, 2, cant_msg_received)
+		assert.Equal(t, 0, cant_msg_not_received)
+
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
+		}
+		log.Infof("All handlers finisheded YESSS")
+	})
+
+	t.Run("10Reducer1Cid1000Msg2Receivers", func(t *testing.T) {
+		init := test6container
+		assert.NoError(t, init.Err)
+		shardCount := uint(10)
+		shardCountOutput := uint(2)
+
+		cid := "1"
+		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{})
+		assert.NoError(t, err)
+
+		expected := uint64(0)
+		for i := range uint64(1000) {
 			err = sender.Send(&num{val: i}, cid, i)
 			assert.NoError(t, err)
 			expected += i
@@ -634,7 +753,7 @@ func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes,
 	}
 	shardCount := uint(10)
 	shardCountOutput := uint(1)
-	sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput)
+	sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{})
 	assert.NoError(t, err)
 
 	expecteds := 0

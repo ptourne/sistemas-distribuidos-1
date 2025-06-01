@@ -372,9 +372,9 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 					mr.log.Debugf("Final : %s | clientBatch before: %v", e.Cid(), clientBatch)
 					reduced := mr.MapReduce.Reduce(clientBatch.flush())
 					output := mr.MapReduce.Output(reduced)
-					for _, o := range output {
+					for i, o := range output {
 						mr.log.Infof("Final : %s | Sending partial result to output: %v", e.Cid(), o)
-						err = mr.Output.Send(o, e.Cid(), 0) // TODO id!!
+						err = mr.Output.Send(o, e.Cid(), uint64(i))
 					}
 					if err != nil {
 						e.Nack(false)
