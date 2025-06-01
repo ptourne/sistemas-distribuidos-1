@@ -32,6 +32,12 @@ func main() {
 		log.Errorf("failed to parse worker count: %s", err)
 		return
 	}
+	count_output_str := os.Getenv("WORKER_OUTPUT_COUNT")
+	count_output, err := strconv.Atoi(count_output_str)
+	if err != nil {
+		log.Errorf("failed to parse worker count: %s", err)
+		return
+	}
 	mapReducer, err := top_map_reduce.NewTopMapReducer(
 		connector,
 		"reduce_top_5_by_budget",
@@ -41,6 +47,7 @@ func main() {
 		[]string{"q2"},
 		id,
 		uint(count),
+		uint(count_output),
 	)
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)

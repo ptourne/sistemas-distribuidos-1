@@ -325,32 +325,33 @@ compose_endpoint() {
 }
 
 compose_reduce_top_5_by_budgets() {
-    compose_reduce $1 $2 reduce_top_5_by_budget map_reducer/main/reduce_top_5_by_budget map_reducer
+    compose_reduce $1 $2 $3 reduce_top_5_by_budget map_reducer/main/reduce_top_5_by_budget map_reducer
 }
 
 compose_reduce_top_bottom_avg_ratings() {
-    compose_reduce $1 $2 reduce_top_bottom_avg_rating map_reducer/main/reduce_top_bottom_avg_rating map_reducer
+    compose_reduce $1 $2 $3 reduce_top_bottom_avg_rating map_reducer/main/reduce_top_bottom_avg_rating map_reducer
 }
 
 compose_reduce_by_country_sum_budgets() {
-    compose_reduce $1 $2 reduce_by_country_sum_budget map_reducer/main/reduce_by_country_sum_budget map_reducer
+    compose_reduce $1 $2 $3 reduce_by_country_sum_budget map_reducer/main/reduce_by_country_sum_budget map_reducer
 }
 
 compose_reduce_by_sentiment() {
-    compose_reduce $1 $2 reduce_by_sentiment map_reducer/main/reduce_by_sentiment map_reducer
+    compose_reduce $1 $2 $3 reduce_by_sentiment map_reducer/main/reduce_by_sentiment map_reducer
 }
 
 compose_reduce_by_actor() {
-    compose_reduce $1 $2 reduce_by_actor map_reducer/main/reduce_by_actor map_reducer
+    compose_reduce $1 $2 $3 reduce_by_actor map_reducer/main/reduce_by_actor map_reducer
 }
 
 
 compose_reduce() {
     local worker_id=$1
     local worker_count=$2
-    local name=$3
-    local dockerfile_path=$4
-    local entrypoint=$5
+    local worker_output_count=$3
+    local name=$4
+    local dockerfile_path=$5
+    local entrypoint=$6
     echo "    $name$worker_id:
         container_name: $name$worker_id
         build:
@@ -360,6 +361,7 @@ compose_reduce() {
         environment:
             - WORKER_ID=$worker_id
             - WORKER_COUNT=$worker_count
+            - WORKER_OUTPUT_COUNT=$worker_output_count
             - NAME=$name$worker_id
             - MONITOR_ADDRESSES=$monitor_addresses
         networks:
@@ -493,12 +495,12 @@ done
 # for i in $(seq 0 $((number_of_joiners_ratings-1))); do
 #     compose_joiner_rating $i >> $file_name
 # done
-# for i in $(seq 0 $((number_of_reduce_by_country_sum_budgets-1))); do
-#     compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets >> $file_name
-# done
-# for i in $(seq 0 $((number_of_reduce_top_5_by_budgets-1))); do
-#     compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets >> $file_name
-# done
+for i in $(seq 0 $((number_of_reduce_by_country_sum_budgets-1))); do
+    compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets $number_of_reduce_top_5_by_budgets >> $file_name
+done
+for i in $(seq 0 $((number_of_reduce_top_5_by_budgets-1))); do
+    compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets 1 >> $file_name
+done
 # for i in $(seq 0 $((number_of_reduce_top_bottom_avg_ratings-1))); do
 #     compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
 # done

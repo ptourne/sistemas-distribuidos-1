@@ -249,7 +249,7 @@ func NewWorker() Worker {
 		log.Fatalf("Failed to convert N_WORKERS to int: %s", err)
 	}
 
-	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar"}, uint(n_workers), uint(n_workers)) //, "filter_one_production_country", "map_sentiment_rate"
+	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country"}, uint(n_workers), uint(n_workers)) //, "map_sentiment_rate"
 
 	// var joiner_credits_subscribers []string
 	// for i := range n_workers {
@@ -261,12 +261,12 @@ func NewWorker() Worker {
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es"}, uint(n_workers), uint(n_workers)) //, "joiner_credits", "joiner_ratings"
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"}, 1, uint(n_workers))
 
-	// n_reducers_by_country_sum_budgets, err := strconv.Atoi(os.Getenv("N_REDUCERS_BY_COUNTRY_SUM_BUDGETS"))
-	// if err != nil {
-	// 	log.Fatalf("Failed to convert N_REDUCERS_BY_COUNTRY_SUM_BUDGETS to int: %s", err)
-	// }
+	n_reducers_by_country_sum_budgets, err := strconv.Atoi(os.Getenv("N_REDUCERS_BY_COUNTRY_SUM_BUDGETS"))
+	if err != nil {
+		log.Fatalf("Failed to convert N_REDUCERS_BY_COUNTRY_SUM_BUDGETS to int: %s", err)
+	}
 
-	// filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"}, uint(n_reducers_by_country_sum_budgets), uint(n_workers))
+	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"}, uint(n_reducers_by_country_sum_budgets), uint(n_workers))
 
 	// filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"}, 1, uint(n_workers))
 
@@ -282,7 +282,7 @@ func NewWorker() Worker {
 			// credits_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
-			// filter_one_production_country,
+			filter_one_production_country,
 			// filter_avg_rate,
 			// filter_avg_rating,
 		},

@@ -14,7 +14,7 @@ services:
             timeout: 10s
             retries: 10
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
     sentiment_server0:
         container_name: sentiment_server0
@@ -79,7 +79,7 @@ services:
         environment: 
             - WORKER_ID=0
             - N_WORKERS=2
-            - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=2
+            - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=3
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=worker0
@@ -99,10 +99,100 @@ services:
         environment: 
             - WORKER_ID=1
             - N_WORKERS=2
-            - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=2
+            - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=3
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=worker1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_country_sum_budget0:
+        container_name: reduce_by_country_sum_budget0
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=0
+            - WORKER_COUNT=3
+            - WORKER_OUTPUT_COUNT=2
+            - NAME=reduce_by_country_sum_budget0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_country_sum_budget1:
+        container_name: reduce_by_country_sum_budget1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=3
+            - WORKER_OUTPUT_COUNT=2
+            - NAME=reduce_by_country_sum_budget1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_country_sum_budget2:
+        container_name: reduce_by_country_sum_budget2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_country_sum_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=3
+            - WORKER_OUTPUT_COUNT=2
+            - NAME=reduce_by_country_sum_budget2
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_5_by_budget0:
+        container_name: reduce_top_5_by_budget0
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=0
+            - WORKER_COUNT=2
+            - WORKER_OUTPUT_COUNT=1
+            - NAME=reduce_top_5_by_budget0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_5_by_budget1:
+        container_name: reduce_top_5_by_budget1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=2
+            - WORKER_OUTPUT_COUNT=1
+            - NAME=reduce_top_5_by_budget1
             - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
@@ -125,7 +215,41 @@ services:
         depends_on:
             - endpoint
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/client/datasets:/datasets
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+
+    client1:
+        container_name: client1
+        build:
+            context: .
+            dockerfile: client/Dockerfile
+        entrypoint: /client
+        environment:
+            - SERVER_PORT=endpoint:9876
+            - NAME=client1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            - endpoint
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+
+    client2:
+        container_name: client2
+        build:
+            context: .
+            dockerfile: client/Dockerfile
+        entrypoint: /client
+        environment:
+            - SERVER_PORT=endpoint:9876
+            - NAME=client2
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            - endpoint
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
 
     monitor0:
         container_name: monitor0

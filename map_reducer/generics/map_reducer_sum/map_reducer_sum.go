@@ -24,20 +24,19 @@ func NewMapReducerSum(
 	batchSize uint,
 	subscribers []string,
 	id string,
-	count uint,
+	workersCount uint,
+	workerOutputCount uint,
 ) (*MapReducerSum, error) {
-	return map_reducer.NewMapReducer[In, *Acc, Res](
+	return map_reducer.NewMapReducer(
 		connector,
 		name,
 		input,
 		batchSize,
 		&SumMapReduce{},
 		subscribers,
-		"",
-		[]string{},
 		id,
-		count,
-		1,
+		workersCount,
+		workerOutputCount,
 	)
 }
 
