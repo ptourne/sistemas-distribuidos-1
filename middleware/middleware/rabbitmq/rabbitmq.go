@@ -536,7 +536,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 						r.Log.Debugf("EOF received on channel for Cid %s in %s", cid, r.input.queueName)
 						finishCid, exists := r.finishCids[cid]
 						if !exists {
-							r.Log.Infof("EOF received for non-existent Cid %s", cid)
+							r.Log.Infof("EOF received for non-existent Cid %s in %s", cid, r.input.queueName)
 							r.finishCids[cid] = struct {
 								finishDoneIds     map[string]*amqp.Delivery
 								finishDonePending uint
@@ -567,6 +567,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 						r.Log.Debugf("return prune callback envelope")
 						continue
 					} else {
+						r.Log.Debugf("EOF received on channel YEII NOT LEADER for Cid %s in %s", cid, r.input.queueName)
 						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender, r.routingKey))
 						continue
 					}
@@ -589,7 +590,6 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	e middleware.Envelope[T],
 	err error,
 ) {
-	r.Log.Debugf("Received message from close receiver '%s'", r.closeReceiver.exchangeName)
 	if !ok {
 		return false, true, nil, fmt.Errorf("read channel was closed")
 	}
