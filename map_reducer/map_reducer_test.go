@@ -230,26 +230,24 @@ func TestMapReducer(t *testing.T) {
 				assert.Equal(t, middleware.Prune, e.Type())
 				e.Ack(true)
 
-				if i == 0 {
-					e, err = receivers[i].Next(ctx)
-					assert.NoError(t, err)
-					assert.Equal(t, middleware.EOF, e.Type())
-					e.Ack(true)
-				}
 				cancel()
 			case middleware.Prune:
 				cant_msg_not_received++
 				e.Ack(true)
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
+
 				cancel()
 			default:
 				assert.Fail(t, "should not be here")
 				cancel()
 			}
 		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+		e, err := receivers[0].Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(false)
+		cancel()
 
 		for i := 0; i < int(shardCountOutput); i++ {
 			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -317,24 +315,24 @@ func TestMapReducer(t *testing.T) {
 				assert.Equal(t, middleware.Prune, e.Type())
 				e.Ack(true)
 
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
 				cancel()
 			case middleware.Prune:
 				cant_msg_not_received++
 				e.Ack(true)
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
+
 				cancel()
 			default:
 				assert.Fail(t, "should not be here")
 				cancel()
 			}
 		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+		e, err := receivers[0].Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(false)
+		cancel()
 
 		for i := 0; i < int(shardCountOutput); i++ {
 			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -405,24 +403,24 @@ func TestMapReducer(t *testing.T) {
 				assert.Equal(t, middleware.Prune, e.Type())
 				e.Ack(true)
 
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
 				cancel()
 			case middleware.Prune:
 				cant_msg_not_received++
 				e.Ack(true)
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
+
 				cancel()
 			default:
 				assert.Fail(t, "should not be here")
 				cancel()
 			}
 		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+		e, err := receivers[0].Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(false)
+		cancel()
 
 		for i := 0; i < int(shardCountOutput); i++ {
 			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -444,7 +442,7 @@ func TestMapReducer(t *testing.T) {
 	})
 
 	t.Run("10Reducer1Cid1000Msg", func(t *testing.T) {
-		init := test5container
+		init := test4container
 		assert.NoError(t, init.Err)
 		shardCount := uint(10)
 		shardCountOutput := uint(1)
@@ -493,24 +491,24 @@ func TestMapReducer(t *testing.T) {
 				assert.Equal(t, middleware.Prune, e.Type())
 				e.Ack(true)
 
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
 				cancel()
 			case middleware.Prune:
 				cant_msg_not_received++
 				e.Ack(true)
-				e, err = receivers[i].Next(ctx)
-				assert.NoError(t, err)
-				assert.Equal(t, middleware.EOF, e.Type())
-				e.Ack(true)
+
 				cancel()
 			default:
 				assert.Fail(t, "should not be here")
 				cancel()
 			}
 		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+		e, err := receivers[0].Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(false)
+		cancel()
 
 		for i := 0; i < int(shardCountOutput); i++ {
 			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -521,6 +519,93 @@ func TestMapReducer(t *testing.T) {
 
 		assert.Equal(t, 1, cant_msg_received)
 		assert.Equal(t, 0, cant_msg_not_received)
+
+		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
+		}
+		log.Infof("All handlers finisheded YESSS")
+	})
+
+	t.Run("10Reducer1Cid1000Msg2Receivers", func(t *testing.T) {
+		init := test5container
+		assert.NoError(t, init.Err)
+		shardCount := uint(10)
+		shardCountOutput := uint(2)
+
+		cid := "1"
+		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput)
+		assert.NoError(t, err)
+
+		expected := uint64(0)
+		for i := range uint64(1) {
+			err = sender.Send(&num{val: i}, cid, i)
+			assert.NoError(t, err)
+			expected += i
+		}
+
+		for i := 0; i < int(shardCountOutput); i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			_, err = receivers[i].Next(ctx)
+			cancel()
+			assert.Error(t, err)
+		}
+
+		err = sender.Prune(cid)
+		assert.NoError(t, err)
+
+		err = sender.SendEOF(cid)
+		assert.NoError(t, err)
+
+		cant_msg_received := 0
+		cant_msg_not_received := 0
+
+		for i := 0; i < int(shardCountOutput); i++ {
+			log.Debugf("Waiting for message")
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+			e, err := receivers[i].Next(ctx)
+			assert.NoError(t, err)
+			log.Debugf("Received message type %s", e.Type())
+			switch e.Type() {
+			case middleware.Normal:
+				cant_msg_received++
+				assert.Equal(t, expected, e.Msg().val)
+				e.Ack(true)
+
+				e, err = receivers[i].Next(ctx)
+				assert.NoError(t, err)
+				assert.Equal(t, middleware.Prune, e.Type())
+				e.Ack(true)
+				cancel()
+			case middleware.Prune:
+				cant_msg_not_received++
+				e.Ack(true)
+
+				cancel()
+			default:
+				assert.Fail(t, "should not be here")
+				cancel()
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+		e, err := receivers[0].Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(false)
+		cancel()
+
+		for i := 0; i < int(shardCountOutput); i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			_, err = receivers[i].Next(ctx)
+			cancel()
+			assert.Error(t, err)
+		}
+
+		assert.Equal(t, 1, cant_msg_received)
+		assert.Equal(t, 1, cant_msg_not_received)
 
 		time.Sleep(time.Second * 7) // we make sure the reducer doesn't crashes.
 
