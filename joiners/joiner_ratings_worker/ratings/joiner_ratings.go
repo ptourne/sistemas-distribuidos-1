@@ -24,6 +24,7 @@ type JoinerRatings struct {
 	taskSender          middleware.Sender[*model.Row]
 	ratingsProcessed    int
 	pendingMovies       map[string]map[string]*model.Row
+	processedMovies     map[string]map[string]*model.Row
 	subscribers         []string
 	finishedRatings     map[string]bool
 	id                  string
@@ -31,8 +32,8 @@ type JoinerRatings struct {
 }
 
 func NewJoinerRatings(inputToProcess task.Task[*model.Row, *model.Row], inputToSave task.Task[*model.Row, *model.Row], subscribers []string, id string, log *logger.ConsoleLogger) task.JoinerTask[*model.Row, *model.Row] {
-	pendingMovies := reloadPendingMoviesFromDisk(id, log)
-	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, 0, pendingMovies, subscribers, make(map[string]bool), id, log}
+	pendingMovies, processedMovies := reloadPendingMoviesFromDisk(id, log)
+	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, 0, pendingMovies, processedMovies, subscribers, make(map[string]bool), id, log}
 	return &joiner
 }
 
@@ -72,11 +73,9 @@ func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row) error {
 	if ok {
 		_, isPending = f.pendingMovies[clientID][movieID]
 	}
-	if !isPending {
-		processed := f.wasProcessed(movieID, clientID)
-		if processed {
-			return nil
-		}
+	_, wasProcessed := f.processedMovies[clientID]
+	if !isPending && wasProcessed {
+		return nil
 	}
 
 	output, id, err := f.processMovie(row)
@@ -290,44 +289,6 @@ func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, uint64, error)
 
 }
 
-func (f *JoinerRatings) wasProcessed(movieID string, clientID string) bool {
-	filename, err := f.getProcessedMoviesFilename(clientID, movieID)
-	if err != nil {
-		return false
-	}
-	file, err := os.Open(filename)
-	if err != nil {
-		return false
-
-	}
-	defer file.Close()
-
-	reader := csv.NewReader(file)
-	_, err = reader.Read()
-	if err != nil {
-		f.log.Errorf("Failed to read header: %s", err)
-		return false
-	}
-
-	var found = false
-	for {
-		data, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil || len(data) < 2 {
-			f.log.Errorf("Invalid ratings row: %v", err)
-			continue
-		}
-
-		if data[0] == movieID {
-			found = true
-			break
-		}
-	}
-	return found
-}
-
 func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
 	var WORKER_COUNT_STR = os.Getenv("WORKER_COUNT")
@@ -478,14 +439,15 @@ func (f *JoinerRatings) Logger() *logger.ConsoleLogger {
 	return f.log
 }
 
-func reloadPendingMoviesFromDisk(id string, log *logger.ConsoleLogger) map[string]map[string]*model.Row {
+func reloadPendingMoviesFromDisk(id string, log *logger.ConsoleLogger) (map[string]map[string]*model.Row, map[string]map[string]*model.Row) {
 	rootDir := fmt.Sprintf("joiner_ratings/joiner%s", id)
 	log.Infof("Reloading pending movies from: %s", rootDir)
 
 	pendingMovies := make(map[string]map[string]*model.Row)
+	processedMovies := make(map[string]map[string]*model.Row)
 	clientDirs, err := os.ReadDir(rootDir)
 	if err != nil {
-		return pendingMovies
+		return pendingMovies, processedMovies
 	}
 
 	for _, clientDir := range clientDirs {
@@ -519,6 +481,8 @@ func reloadPendingMoviesFromDisk(id string, log *logger.ConsoleLogger) map[strin
 			}
 		}
 
+		processedMovies[clientId] = processed
+
 		for movieID, row := range movies {
 			if _, ok := processed[movieID]; !ok {
 				if _, exists := pendingMovies[clientId]; !exists {
@@ -528,7 +492,7 @@ func reloadPendingMoviesFromDisk(id string, log *logger.ConsoleLogger) map[strin
 			}
 		}
 	}
-	return pendingMovies
+	return pendingMovies, processedMovies
 }
 
 func readCSVToMap(fileName string, movies map[string]*model.Row) error {
