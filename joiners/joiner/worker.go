@@ -13,11 +13,11 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/joiners/joiner_credits_worker/credits"
-	"github.com/ptourne/sistemas-distribuidos-1/joiners/joiner_ratings_worker/ratings"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
+	"github.com/rabbitmq/amqp091-go"
 )
 
 const MIDDLEWARE = "rabbitmq"
@@ -46,6 +46,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 	closed := 0
 	clientsFinishedMovies := make(map[string]middleware.Envelope[*model.Row])
 	clientsFinishedInput := make(map[string]middleware.Envelope[*model.Row])
+	clientsFinished := make(map[string]bool)
 	var envelope middleware.Envelope[*model.Row]
 	var envelopeEOF middleware.Envelope[*model.Row]
 	var ok bool
@@ -55,9 +56,6 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 	defer stop()
 	groupQueueName := currentTask.NameWithId()
 
-	receiverMoviesEOFs, err := middlewareConnection.ConsumeFrom("moviesEOFs", groupQueueName, 0, 1)
-	unwrap(err, "Failed to create channel for task", log)
-	moviesEOFsChan := make(chan middleware.Envelope[*model.Row])
 	var WORKER_COUNT_STR = os.Getenv("WORKER_COUNT")
 	if WORKER_COUNT_STR == "" {
 		log.Errorf("WORKER_COUNT environment variable not set. It will be set to 1")
@@ -65,16 +63,21 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 	}
 	peers, err := strconv.Atoi(WORKER_COUNT_STR)
 	unwrap(err, "Failed to convert WORKER_COUNT to int", log)
+
+	receiverMoviesEOFs, err := middlewareConnection.ConsumeFrom("moviesEOFs", groupQueueName, "0", 1, uint(1))
+	unwrap(err, "Failed to create channel for task", log)
+	moviesEOFsChan := make(chan middleware.Envelope[*model.Row])
+
 	subscribers := make([]string, peers)
 
 	for i := range peers {
 		if strings.Contains(currentTask.Name(), "ratings") {
-			subscribers[i] = fmt.Sprintf("joiner_%d_ratings", i+1)
+			subscribers[i] = fmt.Sprintf("joiner_%d_ratings", i)
 		} else {
-			subscribers[i] = fmt.Sprintf("joiner_%d_credits", i+1)
+			subscribers[i] = fmt.Sprintf("joiner_%d_credits", i)
 		}
 	}
-	senderMoviesEOFs, err := middlewareConnection.WriteTo("moviesEOFs", subscribers)
+	senderMoviesEOFs, err := middlewareConnection.WriteTo("moviesEOFs", subscribers, id, uint(peers))
 	unwrap(err, "Failed to create channel for task", log)
 
 	go func() {
@@ -125,7 +128,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 					continue
 				}
 				clientsFinishedMovies[envelope.Cid()] = envelope
-				senderMoviesEOFs.Send(&model.Row{}, envelope.Cid())
+				senderMoviesEOFs.Send(&model.Row{}, envelope.Cid(), envelope.Id())
 			} else if envelope != nil && envelope.Type() == middleware.Prune {
 				log.Infof("Movies: Received prune message for client %s", envelope.Cid())
 				err = envelope.Ack(false)
@@ -162,10 +165,11 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 		case envelopeEOF, ok = <-moviesEOFsChan:
 			if ok && envelopeEOF != nil {
 				_, exists := clientsFinishedMovies[envelopeEOF.Cid()]
-				if !exists {
+				_, finished := clientsFinished[envelopeEOF.Cid()]
+				if !exists && !finished {
 
 					log.Infof("MoviesEOFs: EOF message received for %s", envelopeEOF.Cid())
-					envelope = rabbitmq.NewEOFEnvelope[*model.Row](envelopeEOF.Cid())
+					envelope = rabbitmq.NewEOFEnvelope[*model.Row](envelopeEOF.Cid(), nil, make(map[string]*amqp091.Delivery))
 					clientsFinishedMovies[envelopeEOF.Cid()] = envelope
 				}
 				err = envelopeEOF.Ack(false)
@@ -187,7 +191,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 				log.Infof("Client %s finished", envelope.Cid())
 				delete(clientsFinishedMovies, envelope.Cid())
 				delete(clientsFinishedInput, envelope.Cid())
-				if id == "1" {
+				if id == "0" {
 					err = currentTask.FinishProcessingClient(envelope.Cid(), true)
 				} else {
 					err = currentTask.FinishProcessingClient(envelope.Cid(), false)
@@ -203,13 +207,14 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 				}
 				err = eofInput.Ack(false)
 				unwrap(err, "Failed to ack EOF message", log)
+				clientsFinished[envelope.Cid()] = true
 			}
 			continue
 
 		}
 
 		if envelope == nil || envelope.Msg() == nil {
-			log.Warnf("Received nil message from %s: %+v", envelope.Cid(), envelope)
+			log.Warnf("Received nil message")
 			continue
 		}
 
@@ -222,7 +227,10 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 		}
 		log.Debugf("TO ACK msg %v worker", envelope.Msg())
 		err = envelope.Ack(false)
-		unwrap(err, "Failed to ack message", log)
+		if err != nil {
+			log.Warnf("Failed to ack message: %v", err)
+		}
+		//unwrap(err, "Failed to ack message", log)
 	}
 	currentTask.Finish()
 }
@@ -276,13 +284,13 @@ func NewCreditsWorker(subscribers []string, id string, workerLogger *logger.Cons
 	}
 }
 
-func NewRatingsWorker(subscribers []string, id string, workerLogger *logger.ConsoleLogger) Worker {
-	movies_metadata := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
-	filter_avg_rating := NewSourceTask[*model.Row]("filter_avg_rating")
+// func NewRatingsWorker(subscribers []string, id string, workerLogger *logger.ConsoleLogger) Worker {
+// 	movies_metadata := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
+// 	filter_avg_rating := NewSourceTask[*model.Row]("filter_avg_rating")
 
-	joiner_ratings := ratings.NewJoinerRatings(movies_metadata, filter_avg_rating, subscribers, id, workerLogger)
+// 	joiner_ratings := ratings.NewJoinerRatings(movies_metadata, filter_avg_rating, subscribers, id, workerLogger)
 
-	return Worker{
-		Tasks: joiner_ratings,
-	}
-}
+// 	return Worker{
+// 		Tasks: joiner_ratings,
+// 	}
+// }
