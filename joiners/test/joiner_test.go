@@ -406,115 +406,121 @@ func TestJoiner(t *testing.T) {
 
 	})
 
-	// t.Run("Ratings", func(t *testing.T) {
-	// 	t.Run("OneJoinerOneClient", func(t *testing.T) {
-	// 		init := test5container
-	// 		require.NotNil(t, init)
-	// 		require.NoError(t, init.Err)
+	t.Run("Ratings", func(t *testing.T) {
+		t.Run("OneJoinerOneClient", func(t *testing.T) {
+			init := test5container
+			require.NotNil(t, init)
+			require.NoError(t, init.Err)
 
-	// 		middlewareConnection := ConnectToRabbit(t, init, "1")
+			middlewareConnection := ConnectToRabbit(t, init, "0")
 
-	// 		inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test1_ratings", middlewareConnection)
+			inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test1_ratings", middlewareConnection)
 
-	// 		cid := "client1"
-	// 		SendRows(t, inputMovies, cid,
-	// 			&model.Row{Strings: map[string]string{"movieID": "A", "title": "Movie A"}},
-	// 			&model.Row{Strings: map[string]string{"movieID": "B", "title": "Movie B"}},
-	// 		)
+			cid := "client1"
+			SendRows(t, inputMovies, cid,
+				uint64(0),
+				&model.Row{Strings: map[string]string{"movieID": "A", "title": "Movie A"}},
+				&model.Row{Strings: map[string]string{"movieID": "B", "title": "Movie B"}},
+			)
 
-	// 		SendRows(t, inputRatings, cid,
-	// 			&model.Row{
-	// 				Strings: map[string]string{"movieID": "A"},
-	// 				Floats:  map[string]float64{"avg_rating": 3.5},
-	// 			})
+			SendRows(t, inputRatings, cid,
+				uint64(2),
+				&model.Row{
+					Strings: map[string]string{"movieID": "A"},
+					Floats:  map[string]float64{"avg_rating": 3.5},
+				})
 
-	// 		go func() {
-	// 			joinerConnection := ConnectToRabbit(t, init, "1")
-	// 			worker.Run(joinerConnection)
-	// 			joinerConnection.Close()
-	// 		}()
+			go func() {
+				joinerConnection := ConnectToRabbit(t, init, "0")
+				worker.Run(joinerConnection)
+				joinerConnection.Close()
+			}()
 
-	// 		// Verificar salida
-	// 		expected := map[string][]map[string]any{
-	// 			"client1": {{
-	// 				"movieID":    "A",
-	// 				"title":      "Movie A",
-	// 				"avg_rating": 3.5,
-	// 			}},
-	// 		}
-	// 		AssertResults(t, outputJoiner, expected)
+			// Verificar salida
+			expected := map[string][]map[string]any{
+				"client1": {{
+					"movieID":    "A",
+					"title":      "Movie A",
+					"avg_rating": 3.5,
+				}},
+			}
+			AssertResults(t, outputJoiner, expected)
 
-	// 		inputMovies.Close()
-	// 		inputRatings.Close()
-	// 		outputJoiner.Close()
-	// 		middlewareConnection.Close()
-	// 		outputConnection.Close()
-	// 		worker.Tasks.Finish()
-	// 	})
+			inputMovies.Close()
+			inputRatings.Close()
+			outputJoiner.Close()
+			middlewareConnection.Close()
+			outputConnection.Close()
+			worker.Tasks.Finish()
+		})
 
-	// 	t.Run("OneJoinerMultipleClients", func(t *testing.T) {
-	// 		init := test6container
-	// 		require.NotNil(t, init)
-	// 		require.NoError(t, init.Err)
+		t.Run("OneJoinerMultipleClients", func(t *testing.T) {
+			init := test6container
+			require.NotNil(t, init)
+			require.NoError(t, init.Err)
 
-	// 		middlewareConnection := ConnectToRabbit(t, init, "1")
+			middlewareConnection := ConnectToRabbit(t, init, "0")
 
-	// 		inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test2_ratings", middlewareConnection)
+			inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test2_ratings", middlewareConnection)
 
-	// 		cid := "client1"
-	// 		SendRows(t, inputMovies, cid,
-	// 			&model.Row{Strings: map[string]string{"movieID": "A", "title": "Movie A"}},
-	// 			&model.Row{Strings: map[string]string{"movieID": "B", "title": "Movie B"}},
-	// 		)
+			cid := "client1"
+			SendRows(t, inputMovies, cid,
+				uint64(0),
+				&model.Row{Strings: map[string]string{"movieID": "A", "title": "Movie A"}},
+				&model.Row{Strings: map[string]string{"movieID": "B", "title": "Movie B"}},
+			)
 
-	// 		SendRows(t, inputRatings, cid,
-	// 			&model.Row{
-	// 				Strings: map[string]string{"movieID": "A"},
-	// 				Floats:  map[string]float64{"avg_rating": 3.5},
-	// 			})
+			SendRows(t, inputRatings, cid,
+				uint64(2),
+				&model.Row{
+					Strings: map[string]string{"movieID": "A"},
+					Floats:  map[string]float64{"avg_rating": 3.5},
+				})
 
-	// 		cid = "client2"
-	// 		SendRows(t, inputMovies, cid,
-	// 			&model.Row{Strings: map[string]string{"movieID": "C", "title": "Movie C"}},
-	// 			&model.Row{Strings: map[string]string{"movieID": "D", "title": "Movie D"}},
-	// 		)
+			cid = "client2"
+			SendRows(t, inputMovies, cid,
+				uint64(4),
+				&model.Row{Strings: map[string]string{"movieID": "C", "title": "Movie C"}},
+				&model.Row{Strings: map[string]string{"movieID": "D", "title": "Movie D"}},
+			)
 
-	// 		SendRows(t, inputRatings, cid,
-	// 			&model.Row{
-	// 				Strings: map[string]string{"movieID": "D"},
-	// 				Floats:  map[string]float64{"avg_rating": 1.0},
-	// 			})
+			SendRows(t, inputRatings, cid,
+				uint64(6),
+				&model.Row{
+					Strings: map[string]string{"movieID": "D"},
+					Floats:  map[string]float64{"avg_rating": 1.0},
+				})
 
-	// 		go func() {
-	// 			joinerConnection := ConnectToRabbit(t, init, "1")
-	// 			worker.Run(joinerConnection)
-	// 			joinerConnection.Close()
-	// 		}()
+			go func() {
+				joinerConnection := ConnectToRabbit(t, init, "0")
+				worker.Run(joinerConnection)
+				joinerConnection.Close()
+			}()
 
-	// 		// Verificar salida
-	// 		expected := map[string][]map[string]any{
-	// 			"client1": {{
-	// 				"movieID":    "A",
-	// 				"title":      "Movie A",
-	// 				"avg_rating": 3.5,
-	// 			}},
-	// 			"client2": {{
-	// 				"movieID":    "D",
-	// 				"title":      "Movie D",
-	// 				"avg_rating": 1.0,
-	// 			}},
-	// 		}
-	// 		AssertResults(t, outputJoiner, expected)
+			// Verificar salida
+			expected := map[string][]map[string]any{
+				"client1": {{
+					"movieID":    "A",
+					"title":      "Movie A",
+					"avg_rating": 3.5,
+				}},
+				"client2": {{
+					"movieID":    "D",
+					"title":      "Movie D",
+					"avg_rating": 1.0,
+				}},
+			}
+			AssertResults(t, outputJoiner, expected)
 
-	// 		worker.Tasks.Finish()
-	// 		inputMovies.Close()
-	// 		inputRatings.Close()
-	// 		outputJoiner.Close()
-	// 		middlewareConnection.Close()
-	// 		outputConnection.Close()
-	// 		worker.Tasks.Finish()
-	// 	})
-	// })
+			worker.Tasks.Finish()
+			inputMovies.Close()
+			inputRatings.Close()
+			outputJoiner.Close()
+			middlewareConnection.Close()
+			outputConnection.Close()
+			worker.Tasks.Finish()
+		})
+	})
 }
 
 func RunCommand(t *testing.T, name string, args ...string) {
@@ -685,18 +691,18 @@ func AsserEOFs(t *testing.T, outputJoiner middleware.Receiver[*model.Row], clien
 	ExpectNoMoreRows(t, outputJoiner)
 }
 
-// func configTestJoinerRatings(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, output string, middlewareConnection middleware.Connection[*model.Row]) (middleware.Sender[*model.Row], middleware.Sender[*model.Row], joiner.Worker, middleware.Receiver[*model.Row], middleware.Connection[*model.Row]) {
-// 	movies := joiner.NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
-// 	filter_ratings := joiner.NewSourceTask[*model.Row]("filter_avg_rating")
-// 	inputMovies, err := middlewareConnection.WriteTo(movies.Name(), []string{"joiner_ratings"})
-// 	assert.NoError(t, err)
-// 	inputCredits, err := middlewareConnection.WriteTo(filter_ratings.Name(), []string{"joiner_1_ratings"})
-// 	assert.NoError(t, err)
-// 	workerLogger := logger.NewConsoleLogger("joiner_1", logger.Debug)
-// 	worker := joiner.NewRatingsWorker([]string{output}, "1", workerLogger)
-// 	currentTask := worker.Tasks
-// 	outputConnection := ConnectToRabbit(t, init, output)
-// 	outputJoiner, err := outputConnection.ConsumeFrom(currentTask.Name(), output, 1, 20)
-// 	assert.NoError(t, err)
-// 	return inputMovies, inputCredits, worker, outputJoiner, outputConnection
-// }
+func configTestJoinerRatings(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, output string, middlewareConnection middleware.Connection[*model.Row]) (middleware.Sender[*model.Row], middleware.Sender[*model.Row], joiner.Worker, middleware.Receiver[*model.Row], middleware.Connection[*model.Row]) {
+	movies := joiner.NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
+	filter_ratings := joiner.NewSourceTask[*model.Row]("filter_avg_rating")
+	inputMovies, err := middlewareConnection.WriteTo(movies.Name(), []string{"joiner_ratings"}, "0", uint(1))
+	assert.NoError(t, err)
+	inputCredits, err := middlewareConnection.WriteTo(filter_ratings.Name(), []string{"joiner_0_ratings"}, "0", uint(1))
+	assert.NoError(t, err)
+	workerLogger := logger.NewConsoleLogger("joiner_0", logger.Debug)
+	worker := joiner.NewRatingsWorker([]string{output}, "0", workerLogger)
+	currentTask := worker.Tasks
+	outputConnection := ConnectToRabbit(t, init, output)
+	outputJoiner, err := outputConnection.ConsumeFrom(currentTask.Name(), output, "0", 1, uint(1))
+	assert.NoError(t, err)
+	return inputMovies, inputCredits, worker, outputJoiner, outputConnection
+}

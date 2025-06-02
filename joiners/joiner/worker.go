@@ -13,6 +13,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/joiners/joiner_credits_worker/credits"
+	"github.com/ptourne/sistemas-distribuidos-1/joiners_ratings_workers/joiner_ratings_worker/ratings"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
@@ -284,13 +285,13 @@ func NewCreditsWorker(subscribers []string, id string, workerLogger *logger.Cons
 	}
 }
 
-// func NewRatingsWorker(subscribers []string, id string, workerLogger *logger.ConsoleLogger) Worker {
-// 	movies_metadata := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
-// 	filter_avg_rating := NewSourceTask[*model.Row]("filter_avg_rating")
+func NewRatingsWorker(subscribers []string, id string, workerLogger *logger.ConsoleLogger) Worker {
+	movies_metadata := NewSourceTask[*model.Row]("filter_release_date_ge_2000_and_include_ar")
+	filter_avg_rating := NewSourceTask[*model.Row]("filter_avg_rating")
 
-// 	joiner_ratings := ratings.NewJoinerRatings(movies_metadata, filter_avg_rating, subscribers, id, workerLogger)
+	joiner_ratings := ratings.NewJoinerRatings(movies_metadata, filter_avg_rating, subscribers, id, workerLogger)
 
-// 	return Worker{
-// 		Tasks: joiner_ratings,
-// 	}
-// }
+	return Worker{
+		Tasks: joiner_ratings,
+	}
+}
