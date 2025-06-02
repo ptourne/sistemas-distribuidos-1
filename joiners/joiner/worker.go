@@ -125,7 +125,9 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 				if exists {
 					log.Errorf("Client %s finished but already registered", envelope.Cid())
 					err = envelope.Ack(false)
-					unwrap(err, "Failed to ack EOF message", log)
+					if err != nil {
+						log.Warnf("Failed to ack EOF message for movies: %v", err)
+					}
 					continue
 				}
 				clientsFinishedMovies[envelope.Cid()] = envelope
@@ -133,7 +135,9 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 			} else if envelope != nil && envelope.Type() == middleware.Prune {
 				log.Infof("Movies: Received prune message for client %s", envelope.Cid())
 				err = envelope.Ack(false)
-				unwrap(err, "Failed to ack prune message", log)
+				if err != nil {
+					log.Warnf("Failed to ack prune message for movies: %v", err)
+				}
 				continue
 			} else if !ok {
 				log.Infof("Channel closed 0, exiting...")
@@ -147,7 +151,9 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 				if exists {
 					log.Errorf("Client %s finished but already registered", envelope.Cid())
 					err = envelope.Ack(false)
-					unwrap(err, "Failed to ack EOF message", log)
+					if err != nil {
+						log.Warnf("Failed to ack EOF message for credits/ratings: %v", err)
+					}
 					continue
 				}
 				clientsFinishedInput[envelope.Cid()] = envelope
@@ -155,7 +161,9 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 			} else if envelope != nil && envelope.Type() == middleware.Prune {
 				log.Infof("Credits/Ratings: Received prune message for client %s", envelope.Cid())
 				err = envelope.Ack(false)
-				unwrap(err, "Failed to ack prune message", log)
+				if err != nil {
+					log.Warnf("Failed to ack prune message for credits/ratings: %v", err)
+				}
 				continue
 
 			} else if !ok {
@@ -174,7 +182,9 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 					clientsFinishedMovies[envelopeEOF.Cid()] = envelope
 				}
 				err = envelopeEOF.Ack(false)
-				unwrap(err, "Failed to ack EOF message", log)
+				if err != nil {
+					log.Warnf("Failed to ack EOF message for movies: %v", err)
+				}
 			}
 		}
 
@@ -207,7 +217,9 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 					log.Warnf("Failed to ack EOF message for movies: %v", err)
 				}
 				err = eofInput.Ack(false)
-				unwrap(err, "Failed to ack EOF message", log)
+				if err != nil {
+					log.Warnf("Failed to ack EOF message for credits/ratings: %v", err)
+				}
 				clientsFinished[envelope.Cid()] = true
 			}
 			continue
@@ -231,7 +243,6 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 		if err != nil {
 			log.Warnf("Failed to ack message: %v", err)
 		}
-		//unwrap(err, "Failed to ack message", log)
 	}
 	currentTask.Finish()
 }

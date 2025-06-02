@@ -34,6 +34,7 @@ func TestJoiner(t *testing.T) {
 	test5 := provider.AsyncDeployRabbit()
 	test6 := provider.AsyncDeployRabbit()
 	test7 := provider.AsyncDeployRabbit()
+	test8 := provider.AsyncDeployRabbit()
 
 	test1container := <-test1
 	defer test1container.Container.Teardown()
@@ -49,6 +50,8 @@ func TestJoiner(t *testing.T) {
 	defer test6container.Container.Teardown()
 	test7container := <-test7
 	defer test7container.Container.Teardown()
+	test8container := <-test8
+	defer test8container.Container.Teardown()
 
 	t.Run("Credits", func(t *testing.T) {
 
@@ -342,8 +345,12 @@ func TestJoiner(t *testing.T) {
 			}, cid, uint64(2))
 
 			joinerConnection := ConnectToRabbit(t, init, "1")
+			wg := sync.WaitGroup{}
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				worker.Run(joinerConnection)
+				joinerConnection.Close()
 			}()
 
 			expected := map[string][]map[string]any{
@@ -370,6 +377,7 @@ func TestJoiner(t *testing.T) {
 			assert.Equal(t, env.Msg().Strings["actor"], "Actor 2")
 
 			worker.Tasks.Finish()
+			wg.Wait()
 
 			SendRows(t, inputCredits, cid,
 				uint64(3),
@@ -519,6 +527,82 @@ func TestJoiner(t *testing.T) {
 			middlewareConnection.Close()
 			outputConnection.Close()
 			worker.Tasks.Finish()
+		})
+
+		t.Run("RestartProcessesPendingMovies", func(t *testing.T) {
+			init := test8container
+			require.NotNil(t, init)
+			require.NoError(t, init.Err)
+
+			middlewareConnection := ConnectToRabbit(t, init, "0")
+
+			inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test8", middlewareConnection)
+
+			cid := "client1"
+			SendRows(t, inputMovies, cid,
+				uint64(0),
+				&model.Row{Strings: map[string]string{"movieID": "A", "title": "Movie A"}},
+				&model.Row{Strings: map[string]string{"movieID": "B", "title": "Movie B"}},
+			)
+
+			inputRatings.Send(&model.Row{
+				Strings: map[string]string{"movieID": "A"},
+				Floats:  map[string]float64{"avg_rating": 3.5}}, cid, uint64(2))
+
+			joinerConnection := ConnectToRabbit(t, init, "0")
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				worker.Run(joinerConnection)
+				joinerConnection.Close()
+			}()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+			defer cancel()
+			env, err := outputJoiner.Next(ctx)
+			assert.NoError(t, err)
+			env.Ack(false)
+			assert.Equal(t, env.Type(), middleware.Normal)
+			assert.Equal(t, env.Msg().Strings["movieID"], "A")
+			assert.Equal(t, env.Msg().Floats["avg_rating"], 3.5)
+
+			worker.Tasks.Finish()
+			wg.Wait()
+
+			t.Log("Worker finished, sending more ratings")
+
+			SendRows(t, inputRatings, cid,
+				uint64(3),
+				&model.Row{
+					Strings: map[string]string{"movieID": "B"},
+					Floats:  map[string]float64{"avg_rating": 1.0}},
+			)
+
+			workerLogger := logger.NewConsoleLogger("joiner_0", logger.Info)
+
+			worker2 := joiner.NewRatingsWorker([]string{"output_test8"}, "0", workerLogger)
+
+			joinerConnection = ConnectToRabbit(t, init, "0")
+			go func() {
+				worker2.Run(joinerConnection)
+				joinerConnection.Close()
+			}()
+
+			expected := map[string][]map[string]any{
+				"client1": {
+					{"movieID": "B", "avg_rating": 1.0, "title": "Movie B"},
+				},
+			}
+			AssertResults(t, outputJoiner, expected)
+
+			worker.Tasks.Finish()
+
+			inputMovies.Close()
+			inputRatings.Close()
+			outputJoiner.Close()
+			middlewareConnection.Close()
+			outputConnection.Close()
 		})
 	})
 }
