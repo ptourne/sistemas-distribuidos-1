@@ -316,6 +316,9 @@ func TestJoiner(t *testing.T) {
 			wg.Wait()
 		})
 
+		os.Unsetenv("WORKER_COUNT")
+		os.Unsetenv("WORKER_ID")
+
 		t.Run("RestartProcessesPendingMovies", func(t *testing.T) {
 			init := test7container
 			require.NotNil(t, init)
@@ -402,9 +405,6 @@ func TestJoiner(t *testing.T) {
 		})
 
 	})
-
-	os.Unsetenv("WORKER_COUNT")
-	os.Unsetenv("WORKER_ID")
 
 	// t.Run("Ratings", func(t *testing.T) {
 	// 	t.Run("OneJoinerOneClient", func(t *testing.T) {
