@@ -376,6 +376,8 @@ func TestJoiner(t *testing.T) {
 			assert.Equal(t, env.Msg().Strings["movieID"], "A")
 			assert.Equal(t, env.Msg().Strings["actor"], "Actor 2")
 
+			waitForFile(t, "joiner_credits/joiner0/client1/movies_B.csv", 5*time.Second)
+
 			worker.Tasks.Finish()
 			wg.Wait()
 
@@ -566,6 +568,8 @@ func TestJoiner(t *testing.T) {
 			assert.Equal(t, env.Type(), middleware.Normal)
 			assert.Equal(t, env.Msg().Strings["movieID"], "A")
 			assert.Equal(t, env.Msg().Floats["avg_rating"], 3.5)
+
+			waitForFile(t, "joiner_ratings/joiner0/client1/movies_B.csv", 5*time.Second)
 
 			worker.Tasks.Finish()
 			wg.Wait()
@@ -789,4 +793,20 @@ func configTestJoinerRatings(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, o
 	outputJoiner, err := outputConnection.ConsumeFrom(currentTask.Name(), output, "0", 1, uint(1))
 	assert.NoError(t, err)
 	return inputMovies, inputCredits, worker, outputJoiner, outputConnection
+}
+
+func waitForFile(t *testing.T, path string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("Timeout esperando el archivo: %s", path)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
 }

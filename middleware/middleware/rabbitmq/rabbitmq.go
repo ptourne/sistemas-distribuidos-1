@@ -794,7 +794,7 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 	m.Log.Debugf("createQueue: Creating queue '%s' for exchange '%s'", queueName, exchangeName)
 	queue, err := ch.QueueDeclare(
 		queueName, // name
-		false,     // durable
+		true,      // durable
 		false,     // delete when unused
 		false,     // exclusive
 		false,     // no-wait
