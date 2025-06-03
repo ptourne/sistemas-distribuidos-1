@@ -173,11 +173,11 @@ func (f *JoinerCredits) getProcessedMoviesFilename(clientId string, movieID stri
 func (f *JoinerCredits) ProcessAndSend(env middleware.Envelope[*model.Row]) error {
 	var err error
 	row := env.Msg()
-	row.Strings["cid"] = env.Cid()
+	cid := env.Cid()
 	if movieID, ok := row.Strings["movieID"]; ok && movieID != "" {
-		err = f.processMovieAndSendActors(row)
+		err = f.processMovieAndSendActors(row, cid)
 	} else if _, ok := row.Strings["ID"]; ok {
-		err = f.processCredit(row, env.Id())
+		err = f.processCredit(row, env.Id(), cid)
 	} else {
 		f.log.Warnf("Received row with no recognizable ID: %+v", row)
 	}
@@ -185,8 +185,7 @@ func (f *JoinerCredits) ProcessAndSend(env middleware.Envelope[*model.Row]) erro
 	return err
 }
 
-func (f *JoinerCredits) wasProcessed(row *model.Row) bool {
-	clientID := row.Strings["cid"]
+func (f *JoinerCredits) wasProcessed(row *model.Row, clientID string) bool {
 	movieID := row.Strings["movieID"]
 	if _, exists := f.processedMovies[clientID]; exists {
 		if _, wasProcessed := f.processedMovies[clientID][movieID]; wasProcessed {
@@ -196,9 +195,8 @@ func (f *JoinerCredits) wasProcessed(row *model.Row) bool {
 	return false
 }
 
-func (f *JoinerCredits) processMovieAndSendActors(row *model.Row) error {
+func (f *JoinerCredits) processMovieAndSendActors(row *model.Row, clientID string) error {
 
-	clientID := row.Strings["cid"]
 	movieID := row.Strings["movieID"]
 	isPending := false
 	_, ok := f.pendingMovies[clientID]
@@ -206,12 +204,12 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row) error {
 		_, isPending = f.pendingMovies[clientID][movieID]
 	}
 
-	if !isPending && f.wasProcessed(row) {
+	if !isPending && f.wasProcessed(row, clientID) {
 		f.log.Infof("Movie %s already processed for client %s", movieID, clientID)
 		return nil
 	}
 
-	output, id, err := f.processMovie(row)
+	output, id, err := f.processMovie(row, clientID)
 	if err != nil {
 		if err.Error() == "no cast found" {
 			_, hasFinished := f.finishedCredits[clientID]
@@ -238,7 +236,7 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row) error {
 		}
 		return err
 	}
-	err = f.sendActors(output, err, row.Strings["cid"], id)
+	err = f.sendActors(output, err, clientID, id)
 	if err != nil {
 		return err
 	}
@@ -266,13 +264,12 @@ func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string, i
 	return nil
 }
 
-func (f *JoinerCredits) processCredit(row *model.Row, id uint64) error {
+func (f *JoinerCredits) processCredit(row *model.Row, id uint64, clientId string) error {
 	movieID := row.Strings["ID"]
 	cast := row.Arrays["cast"]
 	if len(cast) == 0 {
 		return nil
 	}
-	clientId := row.Strings["cid"]
 	f.log.Debugf("Processing credit: %s for client %s", movieID, clientId)
 	fileName, err := f.getCreditFilename(clientId, movieID)
 	if err != nil {
@@ -321,7 +318,6 @@ func (f *JoinerCredits) processCredit(row *model.Row, id uint64) error {
 		return err
 	}
 
-	clientId = row.Strings["cid"]
 	found := false
 	_, ok := f.pendingMovies[clientId]
 	if ok {
@@ -341,12 +337,11 @@ func (f *JoinerCredits) processCredit(row *model.Row, id uint64) error {
 	return nil
 }
 
-func (f *JoinerCredits) processMovie(row *model.Row) ([]*model.Row, uint64, error) {
+func (f *JoinerCredits) processMovie(row *model.Row, clientId string) ([]*model.Row, uint64, error) {
 	var flattenCast []*model.Row
 	movieID := row.Strings["movieID"]
 	lastDigit := string(movieID[len(movieID)-1])
 	var id uint64
-	clientId := row.Strings["cid"]
 
 	f.log.Debugf("Processing movie: %s for client %s", movieID, clientId)
 	dirPath := fmt.Sprintf("joiner_credits/joiner%s/%s", f.id, clientId)
@@ -604,7 +599,7 @@ func (f *JoinerCredits) ProcessPendingMovies(clientID string) error {
 
 	var err error
 	for _, row := range pendings {
-		err = f.processMovieAndSendActors(row)
+		err = f.processMovieAndSendActors(row, clientID)
 		if err != nil {
 			return err
 		}

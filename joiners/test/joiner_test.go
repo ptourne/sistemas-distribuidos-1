@@ -35,6 +35,7 @@ func TestJoiner(t *testing.T) {
 	test6 := provider.AsyncDeployRabbit()
 	test7 := provider.AsyncDeployRabbit()
 	test8 := provider.AsyncDeployRabbit()
+	tets9 := provider.AsyncDeployRabbit()
 
 	test1container := <-test1
 	defer test1container.Container.Teardown()
@@ -52,6 +53,8 @@ func TestJoiner(t *testing.T) {
 	defer test7container.Container.Teardown()
 	test8container := <-test8
 	defer test8container.Container.Teardown()
+	test9container := <-tets9
+	defer test9container.Container.Teardown()
 
 	t.Run("Credits", func(t *testing.T) {
 
@@ -403,6 +406,60 @@ func TestJoiner(t *testing.T) {
 				},
 			}
 			AssertResults(t, outputJoiner, expected)
+
+			worker.Tasks.Finish()
+			joinerConnection.Close()
+
+			inputMovies.Close()
+			inputCredits.Close()
+			outputJoiner.Close()
+			middlewareConnection.Close()
+			outputConnection.Close()
+		})
+
+		t.Run("RestartProcessesEOFs", func(t *testing.T) {
+			init := test9container
+			require.NotNil(t, init)
+			require.NoError(t, init.Err)
+
+			middlewareConnection := ConnectToRabbit(t, init, "0")
+
+			inputMovies, inputCredits, worker, outputJoiner, outputConnection := configTestJoinerCredits(t, init, "output_test9", middlewareConnection)
+
+			cid := "client1"
+
+			inputMovies.SendEOF(cid)
+
+			joinerConnection := ConnectToRabbit(t, init, "0")
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				worker.Run(joinerConnection)
+				joinerConnection.Close()
+			}()
+
+			for {
+				if _, exists := worker.ClientsFinishedMovies[cid]; exists {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			worker.Tasks.Finish()
+			wg.Wait()
+
+			inputCredits.SendEOF(cid)
+
+			workerLogger := logger.NewConsoleLogger("joiner_0", logger.Info)
+
+			worker2 := joiner.NewCreditsWorker([]string{"output_test9"}, "0", workerLogger)
+			joinerConnection = ConnectToRabbit(t, init, "0")
+			go func() {
+				worker2.Run(joinerConnection)
+			}()
+
+			AsserEOFs(t, outputJoiner, []string{cid})
 
 			worker.Tasks.Finish()
 			joinerConnection.Close()

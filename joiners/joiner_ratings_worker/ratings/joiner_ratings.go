@@ -51,11 +51,11 @@ func (f *JoinerRatings) NameWithId() string {
 func (f *JoinerRatings) ProcessAndSend(env middleware.Envelope[*model.Row]) error {
 	var err error
 	row := env.Msg()
-	row.Strings["cid"] = env.Cid()
+	cid := env.Cid()
 	if title, ok := row.Strings["title"]; ok && title != "" {
-		err = f.processMovieAndSendRatings(row)
+		err = f.processMovieAndSendRatings(row, cid)
 	} else if _, ok := row.Floats["avg_rating"]; ok {
-		err = f.processRating(row, env.Id())
+		err = f.processRating(row, env.Id(), cid)
 	} else {
 		f.log.Warnf("Received row with no recognizable ID: %+v", row)
 	}
@@ -63,8 +63,7 @@ func (f *JoinerRatings) ProcessAndSend(env middleware.Envelope[*model.Row]) erro
 	return err
 }
 
-func (f *JoinerRatings) wasProcessed(row *model.Row) bool {
-	clientID := row.Strings["cid"]
+func (f *JoinerRatings) wasProcessed(row *model.Row, clientID string) bool {
 	movieID := row.Strings["movieID"]
 	if _, exists := f.processedMovies[clientID]; exists {
 		if _, wasProcessed := f.processedMovies[clientID][movieID]; wasProcessed {
@@ -74,20 +73,19 @@ func (f *JoinerRatings) wasProcessed(row *model.Row) bool {
 	return false
 }
 
-func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row) error {
+func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row, clientID string) error {
 
-	clientID := row.Strings["cid"]
 	movieID := row.Strings["movieID"]
 	isPending := false
 	_, ok := f.pendingMovies[clientID]
 	if ok {
 		_, isPending = f.pendingMovies[clientID][movieID]
 	}
-	if !isPending && f.wasProcessed(row) {
+	if !isPending && f.wasProcessed(row, clientID) {
 		return nil
 	}
 
-	output, id, err := f.processMovie(row)
+	output, id, err := f.processMovie(row, clientID)
 	if err != nil {
 		if err.Error() == "no rating found" {
 			_, hasFinished := f.finishedRatings[clientID]
@@ -117,7 +115,7 @@ func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row) error {
 	if output == nil {
 		return nil
 	}
-	err = f.sendRating(output, row.Strings["cid"], id)
+	err = f.sendRating(output, clientID, id)
 	if err != nil {
 		f.log.Errorf("Failed to send rating: %v", err)
 		return err
@@ -138,12 +136,11 @@ func (f *JoinerRatings) sendRating(output *model.Row, cid string, id uint64) err
 	return nil
 }
 
-func (f *JoinerRatings) processRating(row *model.Row, id uint64) error {
+func (f *JoinerRatings) processRating(row *model.Row, id uint64, clientId string) error {
 	movieID := row.Strings["movieID"]
 	avg_rating := row.Floats["avg_rating"]
 	f.log.Infof("Processing rating %v :", row)
 
-	clientId := row.Strings["cid"]
 	fileName, err := f.getRatingFilename(clientId, movieID)
 	if err != nil {
 		f.log.Errorf("Failed to get filename: %s", err)
@@ -186,8 +183,6 @@ func (f *JoinerRatings) processRating(row *model.Row, id uint64) error {
 		return err
 	}
 
-	// ToDo: descomentar cuando este el reducer testeado
-	clientId = row.Strings["cid"]
 	found := false
 	var movie *model.Row
 	_, ok := f.pendingMovies[clientId]
@@ -218,10 +213,9 @@ func (f *JoinerRatings) processRating(row *model.Row, id uint64) error {
 	return nil
 }
 
-func (f *JoinerRatings) processMovie(row *model.Row) (*model.Row, uint64, error) {
+func (f *JoinerRatings) processMovie(row *model.Row, clientId string) (*model.Row, uint64, error) {
 	movieID := row.Strings["movieID"]
 	title := row.Strings["title"]
-	clientId := row.Strings["cid"]
 	var id uint64
 
 	f.log.Infof("Processing movie: %s", movieID)
@@ -413,7 +407,7 @@ func (f *JoinerRatings) ProcessPendingMovies(clientID string) error {
 
 	var err error
 	for _, row := range pendings {
-		err = f.processMovieAndSendRatings(row)
+		err = f.processMovieAndSendRatings(row, clientID)
 		if err != nil {
 			return err
 		}
