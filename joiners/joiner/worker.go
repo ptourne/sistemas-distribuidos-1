@@ -38,6 +38,9 @@ const (
 )
 
 func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	log := w.Tasks.Logger()
 	log.Infof("Connected to middleware: %s", MIDDLEWARE)
 
@@ -54,55 +57,14 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 	var ok bool
 	currentTask := w.Tasks
 	id := currentTask.Id()
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	groupQueueName := currentTask.NameWithId()
 
-	var WORKER_COUNT_STR = os.Getenv("WORKER_COUNT")
-	if WORKER_COUNT_STR == "" {
-		log.Errorf("WORKER_COUNT environment variable not set. It will be set to 1")
-		WORKER_COUNT_STR = "1"
-	}
-	peers, err := strconv.Atoi(WORKER_COUNT_STR)
-	unwrap(err, "Failed to convert WORKER_COUNT to int", log)
-
-	receiverMoviesEOFs, err := middlewareConnection.ConsumeFrom("moviesEOFs", groupQueueName, "0", 1, uint(1))
-	unwrap(err, "Failed to create channel for task", log)
-	moviesEOFsChan := make(chan middleware.Envelope[*model.Row])
-
-	subscribers := make([]string, peers)
-
-	for i := range peers {
-		if strings.Contains(currentTask.Name(), "ratings") {
-			subscribers[i] = fmt.Sprintf("joiner_%d_ratings", i)
-		} else {
-			subscribers[i] = fmt.Sprintf("joiner_%d_credits", i)
-		}
-	}
-	senderMoviesEOFs, err := middlewareConnection.WriteTo("moviesEOFs", subscribers, id, uint(peers))
-	unwrap(err, "Failed to create channel for task", log)
-
+	moviesEOFsChan, receiverMoviesEOFs, senderMoviesEOFs := w.setupMoviesEOFHandling(middlewareConnection, log)
 	go receiveMoviesEOFFromPeers(receiverMoviesEOFs, moviesEOFsChan, log)
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Infof("Received termination signal, shutting down gracefully...")
-			currentTask.Finish()
-			err = receiverMoviesEOFs.Close()
-			if err != nil {
-				log.Errorf("Failed to close receiver channel: %v", err)
-			}
-			err = senderMoviesEOFs.Close()
-			if err != nil {
-				log.Errorf("Failed to close receiver channel: %v", err)
-			}
-			close(moviesEOFsChan)
-			err = middlewareConnection.Close()
-			if err != nil {
-				log.Errorf("Failed to close middleware connection: %v", err)
-			}
-			log.Infof("Graceful shutdown complete")
+			w.shutdown(middlewareConnection, receiverMoviesEOFs, senderMoviesEOFs, moviesEOFsChan, log)
 			return
 		case envelope, ok = <-inputChannels[0]:
 			if envelope != nil && envelope.Type() == middleware.EOF {
@@ -182,32 +144,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 		}
 
 		if envelope != nil && envelope.Type() == middleware.EOF {
-			eofMovies, existsMovies := w.clientsFinishedMovies[envelope.Cid()]
-			eofInput, existsInput := w.clientsFinishedInput[envelope.Cid()]
-			if existsMovies && existsInput {
-				log.Infof("Client %s finished", envelope.Cid())
-				delete(w.clientsFinishedMovies, envelope.Cid())
-				delete(w.clientsFinishedInput, envelope.Cid())
-				if id == "0" {
-					err = currentTask.FinishProcessingClient(envelope.Cid(), true)
-				} else {
-					err = currentTask.FinishProcessingClient(envelope.Cid(), false)
-				}
-				if err != nil {
-					log.Errorf("Failed to finish processing client %s: %v", envelope.Cid(), err)
-					continue
-				}
-				log.Infof("Finished processing client %s", envelope.Cid())
-				err = eofMovies.Ack(false)
-				if err != nil {
-					log.Warnf("Failed to ack EOF message for movies: %v", err)
-				}
-				err = eofInput.Ack(false)
-				if err != nil {
-					log.Warnf("Failed to ack EOF message for credits/ratings: %v", err)
-				}
-				w.clientsFinished[envelope.Cid()] = true
-			}
+			w.processEOF(envelope, id, log, currentTask)
 			continue
 
 		}
@@ -231,6 +168,97 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 		}
 	}
 	currentTask.Finish()
+}
+
+func (w *Worker) setupMoviesEOFHandling(conn middleware.Connection[*model.Row], log *logger.ConsoleLogger) (chan middleware.Envelope[*model.Row], middleware.Receiver[*model.Row], middleware.Sender[*model.Row]) {
+	groupQueueName := w.Tasks.NameWithId()
+
+	peerCount := getWorkerCount(log)
+	receiver, err := conn.ConsumeFrom("moviesEOFs", groupQueueName, "0", 1, uint(1))
+	unwrap(err, "Failed to consume moviesEOFs", log)
+
+	moviesEOFsChan := make(chan middleware.Envelope[*model.Row])
+	subscribers := generateSubscribers(w.Tasks.Name(), peerCount)
+
+	sender, err := conn.WriteTo("moviesEOFs", subscribers, w.Tasks.Id(), uint(peerCount))
+	unwrap(err, "Failed to create moviesEOFs sender", log)
+
+	return moviesEOFsChan, receiver, sender
+}
+
+func getWorkerCount(log *logger.ConsoleLogger) int {
+	countStr := os.Getenv("WORKER_COUNT")
+	if countStr == "" {
+		log.Errorf("WORKER_COUNT not set, defaulting to 1")
+		countStr = "1"
+	}
+	peers, err := strconv.Atoi(countStr)
+	unwrap(err, "Invalid WORKER_COUNT", log)
+	return peers
+}
+
+func generateSubscribers(taskName string, count int) []string {
+	prefix := "joiner"
+	joinerType := "credits"
+	if strings.Contains(taskName, "ratings") {
+		joinerType = "ratings"
+	}
+	subs := make([]string, count)
+	for i := range count {
+		subs[i] = fmt.Sprintf("%s_%d_%s", prefix, i, joinerType)
+	}
+	return subs
+}
+
+func (w *Worker) shutdown(middlewareConnection middleware.Connection[*model.Row], receiverMoviesEOFs middleware.Receiver[*model.Row], senderMoviesEOFs middleware.Sender[*model.Row], moviesEOFsChan chan middleware.Envelope[*model.Row], log *logger.ConsoleLogger) {
+	log.Infof("Received termination signal, shutting down gracefully...")
+	var err error
+	currentTask := w.Tasks
+	currentTask.Finish()
+	err = receiverMoviesEOFs.Close()
+	if err != nil {
+		log.Errorf("Failed to close receiver channel: %v", err)
+	}
+	err = senderMoviesEOFs.Close()
+	if err != nil {
+		log.Errorf("Failed to close receiver channel: %v", err)
+	}
+	close(moviesEOFsChan)
+	err = middlewareConnection.Close()
+	if err != nil {
+		log.Errorf("Failed to close middleware connection: %v", err)
+	}
+	log.Infof("Graceful shutdown complete")
+}
+
+func (w *Worker) processEOF(envelope middleware.Envelope[*model.Row], id string, log *logger.ConsoleLogger, currentTask task.JoinerTask[*model.Row, *model.Row]) {
+	var err error
+	eofMovies, existsMovies := w.clientsFinishedMovies[envelope.Cid()]
+	eofInput, existsInput := w.clientsFinishedInput[envelope.Cid()]
+	if existsMovies && existsInput {
+		log.Infof("Client %s finished", envelope.Cid())
+		delete(w.clientsFinishedMovies, envelope.Cid())
+		delete(w.clientsFinishedInput, envelope.Cid())
+		if id == "0" {
+			err = currentTask.FinishProcessingClient(envelope.Cid(), true)
+		} else {
+			err = currentTask.FinishProcessingClient(envelope.Cid(), false)
+		}
+		if err != nil {
+			log.Errorf("Failed to finish processing client %s: %v", envelope.Cid(), err)
+			return
+		}
+		log.Infof("Finished processing client %s", envelope.Cid())
+		err = eofMovies.Ack(false)
+		if err != nil {
+			log.Warnf("Failed to ack EOF message for movies: %v", err)
+		}
+		err = eofInput.Ack(false)
+		if err != nil {
+			log.Warnf("Failed to ack EOF message for credits/ratings: %v", err)
+		}
+		w.clientsFinished[envelope.Cid()] = true
+	}
 }
 
 func receiveMoviesEOFFromPeers(receiverMoviesEOFs middleware.Receiver[*model.Row], moviesEOFsChan chan middleware.Envelope[*model.Row], log *logger.ConsoleLogger) {
