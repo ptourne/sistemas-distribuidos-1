@@ -98,7 +98,7 @@ func (w *Worker) Run() {
 	cantBin := len(w.TasksBin)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
+Output:
 	for {
 		select {
 		case <-ctx.Done():
@@ -119,7 +119,7 @@ func (w *Worker) Run() {
 		default:
 			if len(cases) == 0 {
 				log.Infof("All channels closed")
-				break
+				break Output
 			}
 			i, val, ok := reflect.Select(cases)
 			if i < cantBin {
@@ -173,7 +173,7 @@ func (w *Worker) Run() {
 
 							if task.Name() == currentTask.Name() {
 								w.Tasks = slices.Delete(w.Tasks, j, j+1)
-								break
+								break Output
 							}
 						}
 
@@ -242,7 +242,7 @@ func (t *SourceTask[O]) Connect(_ middleware.Connection[*model.Row], _ middlewar
 
 func NewWorker() Worker {
 	movies_metadata := NewSourceTask[*model.Row]("movies_metadata")
-	// credits := NewSourceTask[*model.Row]("credits")
+	credits := NewSourceTask[*model.Row]("credits")
 
 	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
 	if err != nil {
@@ -251,14 +251,14 @@ func NewWorker() Worker {
 
 	movies_metadata_clean := clean.NewCleanMovies(movies_metadata, []string{"filter_release_date_ge_2000_and_include_ar", "filter_one_production_country"}, uint(n_workers), uint(n_workers)) //, "map_sentiment_rate"
 
-	// var joiner_credits_subscribers []string
-	// for i := range n_workers {
-	// 	joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
-	// }
+	var joiner_credits_subscribers []string
+	for i := range n_workers {
+		joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
+	}
 
-	// credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers, uint(n_workers), uint(n_workers))
+	credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers, uint(n_workers), uint(n_workers))
 
-	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es"}, uint(n_workers), uint(n_workers)) //, "joiner_credits", "joiner_ratings"
+	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits"}, uint(n_workers), uint(n_workers)) //, , "joiner_ratings"
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"}, 1, uint(n_workers))
 
 	n_reducers_by_country_sum_budgets, err := strconv.Atoi(os.Getenv("N_REDUCERS_BY_COUNTRY_SUM_BUDGETS"))
@@ -279,7 +279,7 @@ func NewWorker() Worker {
 	return Worker{
 		Tasks: []task.Task[*model.Row, *model.Row]{
 			movies_metadata_clean,
-			// credits_clean,
+			credits_clean,
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
 			filter_one_production_country,

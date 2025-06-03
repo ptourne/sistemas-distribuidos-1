@@ -140,9 +140,6 @@ type MapReduce[T, A, R any] interface {
 	Output(A) []R
 }
 
-const INITIAL_TIMEOUT_DURATION = 3000
-const WATING_JITTER = 100
-
 func (mr *MapReducer[I, A, R]) Run(ctx context.Context) error {
 	defer mr.Close()
 	inputChan := mr.readInput(ctx)

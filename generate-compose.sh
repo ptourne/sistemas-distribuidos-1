@@ -409,6 +409,8 @@ compose_sentiment_server() {
 
 compose_reduce_top_10_by_actor() {
     local worker_id=$1
+    local worker_count=$2
+    local worker_output_count=$3
     echo "    reduce_top_10_by_actor$worker_id:
         container_name: reduce_top_10_by_actor$worker_id
         build:
@@ -418,6 +420,7 @@ compose_reduce_top_10_by_actor() {
         environment:
             - WORKER_ID=$worker_id
             - WORKER_COUNT=$number_of_reduce_top_10_by_actor
+            - WORKER_OUTPUT_COUNT=$worker_output_count
             - NAME=reduce_top_10_by_actor$worker_id
             - MONITOR_ADDRESSES=$monitor_addresses
         networks:
@@ -508,10 +511,10 @@ done
 #     compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
 # done
 # for i in $(seq 0 $((number_of_reduce_by_actor-1))); do
-#     compose_reduce_by_actor $i $number_of_reduce_by_actor >> $file_name
+#     compose_reduce_by_actor $i $number_of_reduce_by_actor $number_of_reduce_top_10_by_actor >> $file_name
 # done
 # for i in $(seq 0 $((number_of_reduce_top_10_by_actor-1))); do
-#     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor >> $file_name
+#     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor 1 >> $file_name
 # done
 # for i in $(seq 0 $((NUMBER_OF_REDUCE_BY_MOVIEID-1))); do
 #     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
@@ -519,8 +522,8 @@ done
 for i in $(seq 0 $((number_of_clients-1))); do
     compose_client $i $number_of_clients >> $file_name
 done
-for i in $(seq 0 $((number_of_monitors-1))); do
-    compose_monitor $i $number_of_monitors $((MONITOR_PORT_BASE + i)) $monitor_peers >> $file_name
-done
+# for i in $(seq 0 $((number_of_monitors-1))); do
+#     compose_monitor $i $number_of_monitors $((MONITOR_PORT_BASE + i)) $monitor_peers >> $file_name
+# done
 compose_endpoint >> $file_name
 compose_network >> $file_name
