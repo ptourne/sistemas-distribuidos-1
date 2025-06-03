@@ -180,7 +180,7 @@ func (w *Worker) setupMoviesEOFHandling(conn middleware.Connection[*model.Row], 
 	moviesEOFsChan := make(chan middleware.Envelope[*model.Row])
 	subscribers := generateSubscribers(w.Tasks.Name(), peerCount)
 
-	sender, err := conn.WriteTo("moviesEOFs", subscribers, w.Tasks.Id(), uint(peerCount))
+	sender, err := conn.WriteTo("moviesEOFs", subscribers, w.Tasks.Id(), uint(1))
 	unwrap(err, "Failed to create moviesEOFs sender", log)
 
 	return moviesEOFsChan, receiver, sender

@@ -253,10 +253,10 @@ func NewWorker() Worker {
 
 	var joiner_credits_subscribers []string
 	for i := range n_workers {
-		joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i+1))
+		joiner_credits_subscribers = append(joiner_credits_subscribers, fmt.Sprintf("joiner_%d_credits", i))
 	}
 
-	credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers, uint(n_workers), uint(n_workers))
+	credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers, uint(1), uint(n_workers))
 
 	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits"}, uint(n_workers), uint(n_workers)) //, , "joiner_ratings"
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"}, 1, uint(n_workers))
@@ -268,13 +268,13 @@ func NewWorker() Worker {
 
 	filter_one_production_country := filter.NewFilterProductionCountriesLen1(movies_metadata_clean.Name(), []string{"reduce_by_country_sum_budget"}, uint(n_reducers_by_country_sum_budgets), uint(n_workers))
 
-	// filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"}, 1, uint(n_workers))
+	filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"}, 1, uint(n_workers))
 
 	// var joiner_ratings_subscribers []string
 	// for i := range n_workers {
-	// 	joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i+1))
+	// 	joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i))
 	// }
-	// filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers, uint(n_workers), uint(n_workers))
+	// filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers, uint(1), uint(n_workers))
 
 	return Worker{
 		Tasks: []task.Task[*model.Row, *model.Row]{
@@ -283,7 +283,7 @@ func NewWorker() Worker {
 			filter_release_date_ge_2000_and_include_ar,
 			filter_release_date_l_2010_and_include_es,
 			filter_one_production_country,
-			// filter_avg_rate,
+			filter_avg_rate,
 			// filter_avg_rating,
 		},
 	}

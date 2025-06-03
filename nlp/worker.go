@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -151,7 +152,25 @@ func NewWorker() Worker {
 		addrs = append(addrs, strings.TrimSpace(addr))
 	}
 
-	map_nlp := filter.NewFilterSentimentAndRate("clean_movies", []string{"reduce_by_sentiment"}, addrs)
+	nWorkersStr := os.Getenv("N_WORKERS")
+	if nWorkersStr == "" {
+		nWorkersStr = "1"
+	}
+	nWorkers, err := strconv.Atoi(nWorkersStr)
+	if err != nil {
+		log.Fatalf("Failed to parse N_WORKERS: %s", err)
+	}
+
+	nConsumersStr := os.Getenv("CONSUMER_COUNT")
+	if nConsumersStr == "" {
+		nConsumersStr = "1"
+	}
+	nConsumerCount, err := strconv.Atoi(nConsumersStr)
+	if err != nil {
+		log.Fatalf("Failed to parse CONSUMER_COUNT: %s", err)
+	}
+
+	map_nlp := filter.NewFilterSentimentAndRate("clean_movies", []string{"reduce_by_sentiment"}, addrs, uint(nConsumerCount), uint(nWorkers))
 
 	return Worker{
 		Tasks: []task.Task[*model.Row, *model.Row]{

@@ -208,6 +208,7 @@ generate_sentiment_dependencies() {
 
 compose_nlp_workers() {
     local worker_id=$1
+    local consumer_count=$2
     echo "    nlp_worker$worker_id:
         container_name: nlp_worker$worker_id
         build:
@@ -216,6 +217,7 @@ compose_nlp_workers() {
         entrypoint: /nlp
         environment: 
             - WORKER_ID=$worker_id
+            - CONSUMER_COUNT=$consumer_count
             - N_WORKERS=$number_of_nlp_workers
             - NLP_GRPC_ADDRS=$sentimen_server_addresses
             - SERVER_PORT=1234
@@ -234,6 +236,7 @@ compose_nlp_workers() {
 compose_joiner_rating() {
     local worker_id=$1
     local worker_count=$2
+    local consumer_count=$3
     echo "    joiner_rating$worker_id:
         container_name: joiner_rating$worker_id
         build:
@@ -244,6 +247,7 @@ compose_joiner_rating() {
             - WORKER_ID=$worker_id
             - SERVER_PORT=1234
             - WORKER_COUNT=$worker_count
+            - CONSUMER_COUNT=$consumer_count
             - PREFETCH=1
             - NAME=joiner_rating$worker_id
             - MONITOR_ADDRESSES=$monitor_addresses
@@ -260,6 +264,7 @@ compose_joiner_rating() {
 compose_joiner_credits() {
     local worker_id=$1
     local worker_count=$2
+    local consumer_count=$3
     echo "    joiner_credits$worker_id:
         container_name: joiner_credits$worker_id
         build:
@@ -270,6 +275,7 @@ compose_joiner_credits() {
             - WORKER_ID=$worker_id
             - SERVER_PORT=1234
             - WORKER_COUNT=$worker_count
+            - CONSUMER_COUNT=$consumer_count
             - PREFETCH=1
             - NAME=joiner_credits$worker_id
             - MONITOR_ADDRESSES=$monitor_addresses
@@ -489,14 +495,14 @@ compose_coordinator >> $file_name
 for i in $(seq 0 $((number_of_workers-1))); do
     compose_workers $i >> $file_name
 done
-# for i in $(seq 0 $((number_of_nlp_workers-1))); do
-#     compose_nlp_workers $i >> $file_name
-# done
-# for i in $(seq 0 $((number_of_joiners_credits-1))); do
-#     compose_joiner_credits $i $number_of_joiners_credits >> $file_name
-# done
+for i in $(seq 0 $((number_of_nlp_workers-1))); do
+    compose_nlp_workers $i $number_of_reduce_by_sentiment >> $file_name
+done
+for i in $(seq 0 $((number_of_joiners_credits-1))); do
+    compose_joiner_credits $i $number_of_joiners_credits $number_of_reduce_by_actor >> $file_name
+done
 # for i in $(seq 0 $((number_of_joiners_ratings-1))); do
-#     compose_joiner_rating $i >> $file_name
+#     compose_joiner_rating $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
 # done
 for i in $(seq 0 $((number_of_reduce_by_country_sum_budgets-1))); do
     compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets $number_of_reduce_top_5_by_budgets >> $file_name
@@ -507,23 +513,23 @@ done
 # for i in $(seq 0 $((number_of_reduce_top_bottom_avg_ratings-1))); do
 #     compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
 # done
-# for i in $(seq 0 $((number_of_reduce_by_sentiment-1))); do
-#     compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment >> $file_name
-# done
-# for i in $(seq 0 $((number_of_reduce_by_actor-1))); do
-#     compose_reduce_by_actor $i $number_of_reduce_by_actor $number_of_reduce_top_10_by_actor >> $file_name
-# done
-# for i in $(seq 0 $((number_of_reduce_top_10_by_actor-1))); do
-#     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor 1 >> $file_name
-# done
+for i in $(seq 0 $((number_of_reduce_by_sentiment-1))); do
+    compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment $number_of_workers >> $file_name
+done
+for i in $(seq 0 $((number_of_reduce_by_actor-1))); do
+    compose_reduce_by_actor $i $number_of_reduce_by_actor $number_of_reduce_top_10_by_actor >> $file_name
+done
+for i in $(seq 0 $((number_of_reduce_top_10_by_actor-1))); do
+    compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor 1 >> $file_name
+done
 # for i in $(seq 0 $((NUMBER_OF_REDUCE_BY_MOVIEID-1))); do
 #     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
 # done
 for i in $(seq 0 $((number_of_clients-1))); do
     compose_client $i $number_of_clients >> $file_name
 done
-# for i in $(seq 0 $((number_of_monitors-1))); do
-#     compose_monitor $i $number_of_monitors $((MONITOR_PORT_BASE + i)) $monitor_peers >> $file_name
-# done
+for i in $(seq 0 $((number_of_monitors-1))); do
+    compose_monitor $i $number_of_monitors $((MONITOR_PORT_BASE + i)) $monitor_peers >> $file_name
+done
 compose_endpoint >> $file_name
 compose_network >> $file_name

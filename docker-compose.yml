@@ -61,7 +61,7 @@ services:
         networks:
             - local_net
         environment:
-            - N_WORKERS=2
+            - N_WORKERS=3
             - N_RATINGS_CONSUMERS=10
             - PREFETCH=1 # Potential optimization
             - NAME=coordinator
@@ -78,7 +78,7 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=0
-            - N_WORKERS=2
+            - N_WORKERS=3
             - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=3
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
@@ -98,7 +98,7 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=1
-            - N_WORKERS=2
+            - N_WORKERS=3
             - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=3
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
@@ -109,6 +109,167 @@ services:
         depends_on:
             rabbitmq:
                 condition: service_healthy
+
+    worker2:
+        container_name: worker2
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment: 
+            - WORKER_ID=2
+            - N_WORKERS=3
+            - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=3
+            - SERVER_PORT=1234
+            - PREFETCH=1 # Potential optimization
+            - NAME=worker2
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    nlp_worker0:
+        container_name: nlp_worker0
+        build:
+            context: .
+            dockerfile: nlp/Dockerfile
+        entrypoint: /nlp
+        environment: 
+            - WORKER_ID=0
+            - CONSUMER_COUNT=2
+            - N_WORKERS=3
+            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,
+            - SERVER_PORT=1234
+            - PREFETCH=1 # Potential optimization
+            - NAME=nlp_worker0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server0:
+                condition: service_healthy
+            sentiment_server1:
+                condition: service_healthy
+
+    nlp_worker1:
+        container_name: nlp_worker1
+        build:
+            context: .
+            dockerfile: nlp/Dockerfile
+        entrypoint: /nlp
+        environment: 
+            - WORKER_ID=1
+            - CONSUMER_COUNT=2
+            - N_WORKERS=3
+            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,
+            - SERVER_PORT=1234
+            - PREFETCH=1 # Potential optimization
+            - NAME=nlp_worker1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server0:
+                condition: service_healthy
+            sentiment_server1:
+                condition: service_healthy
+
+    nlp_worker2:
+        container_name: nlp_worker2
+        build:
+            context: .
+            dockerfile: nlp/Dockerfile
+        entrypoint: /nlp
+        environment: 
+            - WORKER_ID=2
+            - CONSUMER_COUNT=2
+            - N_WORKERS=3
+            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,
+            - SERVER_PORT=1234
+            - PREFETCH=1 # Potential optimization
+            - NAME=nlp_worker2
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server0:
+                condition: service_healthy
+            sentiment_server1:
+                condition: service_healthy
+
+    joiner_credits0:
+        container_name: joiner_credits0
+        build:
+            context: .
+            dockerfile: joiners/joiner_credits_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=0
+            - SERVER_PORT=1234
+            - WORKER_COUNT=3
+            - CONSUMER_COUNT=2
+            - PREFETCH=1
+            - NAME=joiner_credits0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
+
+    joiner_credits1:
+        container_name: joiner_credits1
+        build:
+            context: .
+            dockerfile: joiners/joiner_credits_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=1
+            - SERVER_PORT=1234
+            - WORKER_COUNT=3
+            - CONSUMER_COUNT=2
+            - PREFETCH=1
+            - NAME=joiner_credits1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
+
+    joiner_credits2:
+        container_name: joiner_credits2
+        build:
+            context: .
+            dockerfile: joiners/joiner_credits_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=2
+            - SERVER_PORT=1234
+            - WORKER_COUNT=3
+            - CONSUMER_COUNT=2
+            - PREFETCH=1
+            - NAME=joiner_credits2
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
 
     reduce_by_country_sum_budget0:
         container_name: reduce_by_country_sum_budget0
@@ -200,6 +361,114 @@ services:
             rabbitmq:
                 condition: service_healthy
 
+    reduce_by_sentiment0:
+        container_name: reduce_by_sentiment0
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=0
+            - WORKER_COUNT=2
+            - WORKER_OUTPUT_COUNT=3
+            - NAME=reduce_by_sentiment0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_sentiment1:
+        container_name: reduce_by_sentiment1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=2
+            - WORKER_OUTPUT_COUNT=3
+            - NAME=reduce_by_sentiment1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_actor0:
+        container_name: reduce_by_actor0
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=0
+            - WORKER_COUNT=2
+            - WORKER_OUTPUT_COUNT=2
+            - NAME=reduce_by_actor0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_actor1:
+        container_name: reduce_by_actor1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=2
+            - WORKER_OUTPUT_COUNT=2
+            - NAME=reduce_by_actor1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_10_by_actor0:
+        container_name: reduce_top_10_by_actor0
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_10_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=0
+            - WORKER_COUNT=2
+            - WORKER_OUTPUT_COUNT=1
+            - NAME=reduce_top_10_by_actor0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_10_by_actor1:
+        container_name: reduce_top_10_by_actor1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_10_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=2
+            - WORKER_OUTPUT_COUNT=1
+            - NAME=reduce_top_10_by_actor1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
     client0:
         container_name: client0
         build:
@@ -217,6 +486,63 @@ services:
         volumes:
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
 
+    monitor0:
+        container_name: monitor0
+        build:
+            context: .
+            dockerfile: monitor/Dockerfile
+        entrypoint: /monitor
+        networks:
+            - local_net
+        environment:
+            - PORT=9000
+            - MONITOR_COUNT=3
+            - MONITOR_ID=0
+            - PEERS=0:monitor0:9000,1:monitor1:9001,2:monitor2:9002
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+    
+    monitor1:
+        container_name: monitor1
+        build:
+            context: .
+            dockerfile: monitor/Dockerfile
+        entrypoint: /monitor
+        networks:
+            - local_net
+        environment:
+            - PORT=9001
+            - MONITOR_COUNT=3
+            - MONITOR_ID=1
+            - PEERS=0:monitor0:9000,1:monitor1:9001,2:monitor2:9002
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+    
+    monitor2:
+        container_name: monitor2
+        build:
+            context: .
+            dockerfile: monitor/Dockerfile
+        entrypoint: /monitor
+        networks:
+            - local_net
+        environment:
+            - PORT=9002
+            - MONITOR_COUNT=3
+            - MONITOR_ID=2
+            - PEERS=0:monitor0:9000,1:monitor1:9001,2:monitor2:9002
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+    
     endpoint:
         container_name: endpoint
         build:
