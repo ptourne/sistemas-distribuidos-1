@@ -439,6 +439,8 @@ compose_reduce_top_10_by_actor() {
 
 compose_reduce_by_movieId() {
     local worker_id=$1
+    local worker_count=$2
+    local consumer_count=$3
     echo "    reduce_by_movieid$worker_id:
         container_name: reduce_by_movieid$worker_id
         build:
@@ -447,8 +449,8 @@ compose_reduce_by_movieId() {
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=$worker_id
-            - WORKER_CONDI=1
-            - WORKER_COUNT=$NUMBER_OF_REDUCE_BY_MOVIEID
+            - WORKER_COUNT=$worker_count
+            - WORKER_OUTPUT_COUNT=$consumer_count
             - PREFETCH=1
             - NAME=reduce_by_movieid$worker_id
             - MONITOR_ADDRESSES=$monitor_addresses
@@ -501,18 +503,18 @@ done
 for i in $(seq 0 $((number_of_joiners_credits-1))); do
     compose_joiner_credits $i $number_of_joiners_credits $number_of_reduce_by_actor >> $file_name
 done
-# for i in $(seq 0 $((number_of_joiners_ratings-1))); do
-#     compose_joiner_rating $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
-# done
+for i in $(seq 0 $((number_of_joiners_ratings-1))); do
+    compose_joiner_rating $i $number_of_joiners_ratings $number_of_reduce_top_bottom_avg_ratings >> $file_name
+done
 for i in $(seq 0 $((number_of_reduce_by_country_sum_budgets-1))); do
     compose_reduce_by_country_sum_budgets $i $number_of_reduce_by_country_sum_budgets $number_of_reduce_top_5_by_budgets >> $file_name
 done
 for i in $(seq 0 $((number_of_reduce_top_5_by_budgets-1))); do
     compose_reduce_top_5_by_budgets $i $number_of_reduce_top_5_by_budgets 1 >> $file_name
 done
-# for i in $(seq 0 $((number_of_reduce_top_bottom_avg_ratings-1))); do
-#     compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings >> $file_name
-# done
+for i in $(seq 0 $((number_of_reduce_top_bottom_avg_ratings-1))); do
+    compose_reduce_top_bottom_avg_ratings $i $number_of_reduce_top_bottom_avg_ratings 1 >> $file_name
+done
 for i in $(seq 0 $((number_of_reduce_by_sentiment-1))); do
     compose_reduce_by_sentiment $i $number_of_reduce_by_sentiment $number_of_workers >> $file_name
 done
@@ -522,9 +524,9 @@ done
 for i in $(seq 0 $((number_of_reduce_top_10_by_actor-1))); do
     compose_reduce_top_10_by_actor $i $number_of_reduce_top_10_by_actor 1 >> $file_name
 done
-# for i in $(seq 0 $((NUMBER_OF_REDUCE_BY_MOVIEID-1))); do
-#     compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID >> $file_name
-# done
+for i in $(seq 0 $((NUMBER_OF_REDUCE_BY_MOVIEID-1))); do
+    compose_reduce_by_movieId $i $NUMBER_OF_REDUCE_BY_MOVIEID $number_of_workers>> $file_name
+done
 for i in $(seq 0 $((number_of_clients-1))); do
     compose_client $i $number_of_clients >> $file_name
 done

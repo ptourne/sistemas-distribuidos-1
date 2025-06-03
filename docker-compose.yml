@@ -271,6 +271,72 @@ services:
         volumes:
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
 
+    joiner_rating0:
+        container_name: joiner_rating0
+        build:
+            context: .
+            dockerfile: joiners/joiner_ratings_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=0
+            - SERVER_PORT=1234
+            - WORKER_COUNT=3
+            - CONSUMER_COUNT=2
+            - PREFETCH=1
+            - NAME=joiner_rating0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+
+    joiner_rating1:
+        container_name: joiner_rating1
+        build:
+            context: .
+            dockerfile: joiners/joiner_ratings_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=1
+            - SERVER_PORT=1234
+            - WORKER_COUNT=3
+            - CONSUMER_COUNT=2
+            - PREFETCH=1
+            - NAME=joiner_rating1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+
+    joiner_rating2:
+        container_name: joiner_rating2
+        build:
+            context: .
+            dockerfile: joiners/joiner_ratings_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=2
+            - SERVER_PORT=1234
+            - WORKER_COUNT=3
+            - CONSUMER_COUNT=2
+            - PREFETCH=1
+            - NAME=joiner_rating2
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+
     reduce_by_country_sum_budget0:
         container_name: reduce_by_country_sum_budget0
         build:
@@ -354,6 +420,42 @@ services:
             - WORKER_COUNT=2
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_bottom_avg_rating0:
+        container_name: reduce_top_bottom_avg_rating0
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_bottom_avg_rating/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=0
+            - WORKER_COUNT=2
+            - WORKER_OUTPUT_COUNT=1
+            - NAME=reduce_top_bottom_avg_rating0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_bottom_avg_rating1:
+        container_name: reduce_top_bottom_avg_rating1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_bottom_avg_rating/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=2
+            - WORKER_OUTPUT_COUNT=1
+            - NAME=reduce_top_bottom_avg_rating1
             - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
@@ -462,6 +564,196 @@ services:
             - WORKER_COUNT=2
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid0:
+        container_name: reduce_by_movieid0
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=0
+            - WORKER_COUNT=10
+            - WORKER_OUTPUT_COUNT=3
+            - PREFETCH=1
+            - NAME=reduce_by_movieid0
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid1:
+        container_name: reduce_by_movieid1
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=1
+            - WORKER_COUNT=10
+            - WORKER_OUTPUT_COUNT=3
+            - PREFETCH=1
+            - NAME=reduce_by_movieid1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid2:
+        container_name: reduce_by_movieid2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=10
+            - WORKER_OUTPUT_COUNT=3
+            - PREFETCH=1
+            - NAME=reduce_by_movieid2
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid3:
+        container_name: reduce_by_movieid3
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=3
+            - WORKER_COUNT=10
+            - WORKER_OUTPUT_COUNT=3
+            - PREFETCH=1
+            - NAME=reduce_by_movieid3
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid4:
+        container_name: reduce_by_movieid4
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=4
+            - WORKER_COUNT=10
+            - WORKER_OUTPUT_COUNT=3
+            - PREFETCH=1
+            - NAME=reduce_by_movieid4
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid5:
+        container_name: reduce_by_movieid5
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=5
+            - WORKER_COUNT=10
+            - WORKER_OUTPUT_COUNT=3
+            - PREFETCH=1
+            - NAME=reduce_by_movieid5
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid6:
+        container_name: reduce_by_movieid6
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=6
+            - WORKER_COUNT=10
+            - WORKER_OUTPUT_COUNT=3
+            - PREFETCH=1
+            - NAME=reduce_by_movieid6
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid7:
+        container_name: reduce_by_movieid7
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=7
+            - WORKER_COUNT=10
+            - WORKER_OUTPUT_COUNT=3
+            - PREFETCH=1
+            - NAME=reduce_by_movieid7
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid8:
+        container_name: reduce_by_movieid8
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=8
+            - WORKER_COUNT=10
+            - WORKER_OUTPUT_COUNT=3
+            - PREFETCH=1
+            - NAME=reduce_by_movieid8
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_movieid9:
+        container_name: reduce_by_movieid9
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_movieId/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=9
+            - WORKER_COUNT=10
+            - WORKER_OUTPUT_COUNT=3
+            - PREFETCH=1
+            - NAME=reduce_by_movieid9
             - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net

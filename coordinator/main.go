@@ -98,10 +98,10 @@ func main() {
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, false)
 	wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, false)
-	// wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, false)
-	// wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, false)
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, false)
+	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true)
 
 	wg.Wait()
@@ -288,13 +288,9 @@ OuterLoop:
 							if fileName != c.RatingsName {
 								sender.SendEOF(cid)
 							} else {
-								for i := range 10 {
-									rk := fmt.Sprintf("%d", i)
-									err := ratingsSender.SendEOF(cid)
-									if err != nil {
-										log.Errorf("failed to send EOFRK to %s: %v", rk, err)
-									}
-									log.Infof("Sent EOF to %s with cid: %s", rk, cid)
+								err := ratingsSender.SendEOF(cid)
+								if err != nil {
+									log.Errorf("Error sending EOF for ratings: %v", err)
 								}
 							}
 							break
@@ -347,8 +343,8 @@ OuterLoop:
 
 	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
 	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
-	// verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
-	// verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
+	verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
+	verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
 	verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 
 	log.Infof("finish all querys verified")

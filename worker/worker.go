@@ -270,11 +270,11 @@ func NewWorker() Worker {
 
 	filter_avg_rate := filter.NewFilterAvgRate("reduce_by_sentiment", []string{"q5"}, 1, uint(n_workers))
 
-	// var joiner_ratings_subscribers []string
-	// for i := range n_workers {
-	// 	joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i))
-	// }
-	// filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers, uint(1), uint(n_workers))
+	var joiner_ratings_subscribers []string
+	for i := range n_workers {
+		joiner_ratings_subscribers = append(joiner_ratings_subscribers, fmt.Sprintf("joiner_%d_ratings", i))
+	}
+	filter_avg_rating := filter.NewFilterAvgRating("reduce_by_movieId", joiner_ratings_subscribers, uint(1), uint(n_workers))
 
 	return Worker{
 		Tasks: []task.Task[*model.Row, *model.Row]{
@@ -284,7 +284,7 @@ func NewWorker() Worker {
 			filter_release_date_l_2010_and_include_es,
 			filter_one_production_country,
 			filter_avg_rate,
-			// filter_avg_rating,
+			filter_avg_rating,
 		},
 	}
 }
