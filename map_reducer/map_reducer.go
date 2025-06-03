@@ -25,8 +25,8 @@ type MapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serial
 	FinalReduceReceiver map[string]middleware.Receiver[A] // It will be null for all but the leader
 	Output              middleware.Sender[R]
 	RoutingKey          string
-	PartReduceBatches   map[string]*ClientBatch[A]
-	FinalReduceBatches  map[string]*ClientBatch[A]
+	PartReduceBatches   map[string]*A
+	FinalReduceBatches  map[string]*A
 	CidPrunnedTwice     map[string]bool
 	workersCount        uint
 	pruneCounter        map[string]map[string]uint
@@ -117,8 +117,8 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		FinalReduceSender:   finalReduceOut,
 		FinalReduceReceiver: finalReduceInMap,
 		Output:              output,
-		PartReduceBatches:   make(map[string]*ClientBatch[A]),
-		FinalReduceBatches:  make(map[string]*ClientBatch[A]),
+		PartReduceBatches:   make(map[string]*A),
+		FinalReduceBatches:  make(map[string]*A),
 		CidPrunnedTwice:     make(map[string]bool),
 		workersCount:        workersCount,
 		RoutingKey:          routingKey,
@@ -215,8 +215,7 @@ func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 					mr.log.Debugf("input : %s | Received Prune", envelope.Cid())
 					clientBatch, ok := mr.PartReduceBatches[envelope.Cid()]
 					if ok {
-						reduced := mr.MapReduce.Reduce(clientBatch.flush())
-						err := mr.FinalReduceSender.Send(reduced, envelope.Cid(), 0) // TODO id!!
+						err := mr.FinalReduceSender.Send(*clientBatch, envelope.Cid(), 0) // TODO id!!
 						if err != nil {
 							err = fmt.Errorf("error sending partial result: %w", err)
 							return
@@ -242,27 +241,14 @@ func (mr *MapReducer[I, A, R]) ReduceAndSend(cid string, msg A) error {
 	clientBatch, ok := mr.PartReduceBatches[cid]
 	if ok {
 		mr.log.Infof("reduc : %s | ReduceAndSend partial", cid)
-		clientBatch.append(msg)
-		reduced := mr.MapReduce.Reduce(clientBatch.flush())
-		batch := []A{reduced}
-		clientBatch = &ClientBatch[A]{batch}
-		mr.PartReduceBatches[cid] = clientBatch
+		reduc := []A{*clientBatch, msg}
+		reduced := mr.MapReduce.Reduce(reduc)
+		mr.PartReduceBatches[cid] = &reduced
 		return nil
 	}
-	clientBatch, ok = mr.FinalReduceBatches[cid]
-	if ok {
-		mr.log.Infof("reduc : %s | ReduceAndSend final", cid)
-		clientBatch.append(msg)
-		reduced := mr.MapReduce.Reduce(clientBatch.flush())
-		batch := []A{reduced}
-		clientBatch = &ClientBatch[A]{batch}
-		mr.PartReduceBatches[cid] = clientBatch
-		return nil
-	}
+
 	mr.log.Infof("reduc : %s | ReduceAndSend | Creating new batch", cid)
-	batch := []A{msg}
-	clientBatch = &ClientBatch[A]{batch}
-	mr.PartReduceBatches[cid] = clientBatch
+	mr.PartReduceBatches[cid] = &msg
 	return nil
 }
 
@@ -346,11 +332,12 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 					mr.log.Infof("Final : %s | Saving final reduce batch", e.Cid())
 					clientBatch, ok := mr.FinalReduceBatches[e.Cid()]
 					if !ok {
-						batch := []A{e.Msg()}
-						clientBatch = &ClientBatch[A]{batch}
-						mr.FinalReduceBatches[e.Cid()] = clientBatch
+						acc := e.Msg()
+						mr.FinalReduceBatches[e.Cid()] = &acc
 					} else {
-						clientBatch.append(e.Msg())
+						reduc := []A{*clientBatch, e.Msg()}
+						reduced := mr.MapReduce.Reduce(reduc)
+						mr.FinalReduceBatches[e.Cid()] = &reduced
 					}
 					e.Ack(false)
 				case middleware.EOF:
@@ -361,14 +348,13 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 						e.Ack(false)
 						break
 					}
-					if len(clientBatch.batch) == 0 {
+					if clientBatch == nil {
 						mr.log.Infof("Final : %s | Final Reduce batch is empty on Prune", e.Cid())
 						e.Ack(false)
 						break
 					}
 					mr.log.Debugf("Final : %s | clientBatch before: %v", e.Cid(), clientBatch)
-					reduced := mr.MapReduce.Reduce(clientBatch.flush())
-					output := mr.MapReduce.Output(reduced)
+					output := mr.MapReduce.Output(*clientBatch)
 					for i, o := range output {
 						mr.log.Infof("Final : %s | Sending partial result to output: %v", e.Cid(), o)
 						err = mr.Output.Send(o, e.Cid(), uint64(i))
