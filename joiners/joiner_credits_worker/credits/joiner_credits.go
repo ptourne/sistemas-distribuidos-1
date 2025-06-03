@@ -127,7 +127,8 @@ func readCSVToMap(fileName string, movies map[string]*model.Row) error {
 			return fmt.Errorf("invalid row in file %s: %v", fileName, err)
 		}
 		movieID := data[0]
-		movies[movieID] = &model.Row{}
+		movies[movieID] = &model.Row{Strings: map[string]string{"movieID": movieID}}
+
 	}
 	return nil
 
