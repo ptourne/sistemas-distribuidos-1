@@ -248,6 +248,8 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 		return nil, err
 	}
 
+	m.Log.Infof("Creating close exchange '%s'", closeExchangeName(readExchangeName, queueName))
+
 	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "", "fanout", "", 100)
 	if err != nil {
 		return nil, err
@@ -498,8 +500,12 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 				continue
 			}
 			if shouldReturn {
+				if err != nil {
+					r.Log.Errorf("Error handling finish notification: %v", err)
+					return nil, err
+				}
 				r.Log.Debugf("return %v envelope", e.Type())
-				return e, err
+				return e, nil
 			}
 		default:
 			select {
@@ -558,7 +564,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 						if err != nil {
 							return nil, fmt.Errorf("failed to send message in close notification: %v", err)
 						}
-						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender, r.routingKey))
+						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender, r.routingKey, nil))
 
 						// err = tag.Ack(false)
 						// if err != nil {
@@ -568,7 +574,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 						continue
 					} else {
 						r.Log.Debugf("EOF received on channel YEII NOT LEADER for Cid %s in %s", cid, r.input.queueName)
-						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender, r.routingKey))
+						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender, r.routingKey, tag))
 						continue
 					}
 
@@ -599,9 +605,20 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 		return false, true, nil, fmt.Errorf("failed to process close notification: %v", err)
 	}
 	if r.routingKey != "0" {
-		defer tag.Ack(true)
+		defer tag.Ack(false)
+		return true, false, nil, nil
+
 	}
 	if t == prune {
+		r.Log.Infof("IGNORINGGG prune msg in %s", r.input.queueName)
+		if tag != nil {
+			err = tag.Ack(false)
+			if err != nil {
+				r.Log.Errorf("failed to ack prune message: %v", err)
+				return false, true, nil, fmt.Errorf("failed to ack prune message: %v", err)
+			}
+		}
+		r.Log.Infof("IGNORINGGG DONE")
 		return true, false, nil, nil
 	}
 
@@ -634,7 +651,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 				if !exists {
 					finishCid.finishDoneIds[notification.idWorker] = tag
 				} else {
-					tag.Ack(true)
+					tag.Ack(false)
 				}
 				if finishCid.finishDonePending == uint(len(finishCid.finishDoneIds)) {
 					r.Log.Infof("Finishes done received for Cid %s in %s", cid, r.input.queueName)
@@ -687,16 +704,6 @@ func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, c
 		}
 	}
 
-	// envelope := EnvelopeRabbitmq[T]{
-	// 	msg: received,
-	// 	tag: &msg,
-	// 	finishesDone: []struct {
-	// 		sender *SenderChannel[*CloseNotification]
-	// 		cid    string
-	// 	}{},
-	// 	cid: cid,
-	// 	t:   typeMessageInternal,
-	// }
 	return typeMessageInternal, cid, id, received, tag, nil
 }
 

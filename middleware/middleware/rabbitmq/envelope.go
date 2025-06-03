@@ -144,19 +144,22 @@ func newPrune2Envelope[T codec.Serializable[T]](
 	cid string,
 	closeSender SenderChannel[*CloseNotification],
 	idWorker string,
+	msgEofNotLider *amqp.Delivery,
 ) middleware.Envelope[T] {
 	log2.Infof("Creating prune2 envelope for cid: %s, idWorker: %s", cid, idWorker)
 	return &prune2EnvelopeRabbitmq[T]{
-		closeSender: closeSender,
-		cid:         cid,
-		idWorker:    idWorker,
+		closeSender:    closeSender,
+		cid:            cid,
+		idWorker:       idWorker,
+		msgEofNotLider: msgEofNotLider,
 	}
 }
 
 type prune2EnvelopeRabbitmq[T codec.Serializable[T]] struct {
-	cid         string
-	closeSender SenderChannel[*CloseNotification]
-	idWorker    string
+	cid            string
+	closeSender    SenderChannel[*CloseNotification]
+	idWorker       string
+	msgEofNotLider *amqp.Delivery
 }
 
 func (r *prune2EnvelopeRabbitmq[T]) Msg() T {
@@ -187,6 +190,11 @@ func (r *prune2EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 		err := r.closeSender.Prune(r.cid)
 		if err != nil {
 			return fmt.Errorf("failed to send message in close notification: %v", err)
+		}
+	}
+	if r.msgEofNotLider != nil {
+		if err := r.msgEofNotLider.Ack(false); err != nil {
+			return fmt.Errorf("failed to ack EOF message: %v", err)
 		}
 	}
 	return nil
