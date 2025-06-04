@@ -591,6 +591,7 @@ func (f *JoinerCredits) Finish() error {
 
 func (f *JoinerCredits) ProcessPendingMovies(clientID string) error {
 	f.log.Infof("Processing pending movies for client %s", clientID)
+	f.finishedCredits[clientID] = true
 	pendings, ok := f.pendingMovies[clientID]
 	if !ok {
 		f.log.Infof("No pending movies for client %s", clientID)
@@ -599,14 +600,16 @@ func (f *JoinerCredits) ProcessPendingMovies(clientID string) error {
 
 	var err error
 	for _, row := range pendings {
-		err = f.processMovieAndSendActors(row, clientID)
-		if err != nil {
-			return err
+		err2 := f.processMovieAndSendActors(row, clientID)
+		if err2 != nil {
+			err = err2
+		}
+		if !f.wasProcessed(row, clientID) {
+			f.SaveProcessedMovie(clientID, row.Strings["movieID"])
 		}
 	}
 	delete(f.pendingMovies, clientID)
-	f.finishedCredits[clientID] = true
-	return nil
+	return err
 }
 
 func (f *JoinerCredits) FinishProcessingClient(clientID string, sendFinish bool) error {

@@ -816,6 +816,7 @@ func AsserEOFs(t *testing.T, outputJoiner middleware.Receiver[*model.Row], clien
 		defer cancel()
 		env, err := outputJoiner.Next(ctx)
 		assert.NoError(t, err)
+		assert.NotNil(t, env, "Received nil envelope")
 		cid := env.Cid()
 		stepCid, exists := steps[cid]
 		assert.True(t, exists, "Client %s not found in expected results", cid)
