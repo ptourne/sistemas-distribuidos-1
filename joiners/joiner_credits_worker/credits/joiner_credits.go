@@ -160,18 +160,20 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row, clientID strin
 	return nil
 }
 
-func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string, id uint64) error {
+func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string, baseID uint64) error {
 	if err != nil {
 		return err
 	}
 	if len(output) == 0 {
 		return nil
 	}
-	for _, r := range output {
+	for i, r := range output {
 		if r == nil {
 			continue
 		}
-		err = f.taskSender.Send(r, cid, id)
+		msgID := baseID*10000 + uint64(i)
+
+		err = f.taskSender.Send(r, cid, msgID)
 		if err != nil {
 			f.log.Errorf("Failed to send actor data: %v", err)
 			return err

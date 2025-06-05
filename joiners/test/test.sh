@@ -1,7 +1,9 @@
 set -e
 
-for i in {1..10}; do
-  echo "🔁 Test run $i/10..."
+ITERATIONS=${1:-10}
+
+for ((i = 1; i <= ITERATIONS; i++)); do
+  echo "🔁 Test run $i/$ITERATIONS..."
   go test -v
 done
 
