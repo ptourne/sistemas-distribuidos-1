@@ -7,11 +7,11 @@ import (
 	"io"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	cj "github.com/ptourne/sistemas-distribuidos-1/joiners/commonJoiner"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
@@ -31,7 +31,8 @@ type JoinerRatings struct {
 }
 
 func NewJoinerRatings(inputToProcess task.Task[*model.Row, *model.Row], inputToSave task.Task[*model.Row, *model.Row], subscribers []string, id string, log *logger.ConsoleLogger) task.JoinerTask[*model.Row, *model.Row] {
-	pendingMovies, processedMovies := reloadPendingMoviesFromDisk(id, log)
+	pendingMovies, processedMovies := cj.ReloadStateFromDisk("ratings", id, []string{"movieID", "title"}, []string{"movieID", "rating", "id"}, log, cj.ReadRatingsCSVToMap, cj.WriteMovieRow, cj.WriteRatingRow)
+
 	joiner := JoinerRatings{inputToProcess, inputToSave, nil, nil, nil, pendingMovies, processedMovies, subscribers, make(map[string]bool), id, log}
 	return &joiner
 }
@@ -369,7 +370,7 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 					f.log.Infof("Channel for movies closed from task: %v", f.Name())
 					break
 				}
-				f.log.Errorf("Error reading from middleware: %v", err)
+				//f.log.Errorf("Error reading from middleware: %v", err)
 				continue
 			}
 			inputChannelMovies <- envelope
@@ -442,89 +443,6 @@ func (f *JoinerRatings) Id() string {
 
 func (f *JoinerRatings) Logger() *logger.ConsoleLogger {
 	return f.log
-}
-
-func reloadPendingMoviesFromDisk(id string, log *logger.ConsoleLogger) (map[string]map[string]*model.Row, map[string]map[string]*model.Row) {
-	rootDir := fmt.Sprintf("joiner_ratings/joiner%s", id)
-	log.Infof("Reloading pending movies from: %s", rootDir)
-
-	pendingMovies := make(map[string]map[string]*model.Row)
-	processedMovies := make(map[string]map[string]*model.Row)
-	clientDirs, err := os.ReadDir(rootDir)
-	if err != nil {
-		return pendingMovies, processedMovies
-	}
-
-	for _, clientDir := range clientDirs {
-		if !clientDir.IsDir() {
-			continue
-		}
-		clientId := clientDir.Name()
-		clientPath := fmt.Sprintf("%s/%s", rootDir, clientId)
-
-		files, err := os.ReadDir(clientPath)
-		if err != nil {
-			continue
-		}
-
-		movies := make(map[string]*model.Row)
-		processed := make(map[string]*model.Row)
-
-		for _, file := range files {
-			if strings.HasPrefix(file.Name(), "processed_movies_") {
-				fileName := fmt.Sprintf("%s/%s", clientPath, file.Name())
-				if err := readCSVToMap(fileName, processed); err != nil {
-					continue
-				}
-			}
-
-			if strings.HasPrefix(file.Name(), "movies_") {
-				fileName := fmt.Sprintf("%s/%s", clientPath, file.Name())
-				if err := readCSVToMap(fileName, movies); err != nil {
-					continue
-				}
-			}
-		}
-
-		processedMovies[clientId] = processed
-
-		for movieID, row := range movies {
-			if _, ok := processed[movieID]; !ok {
-				if _, exists := pendingMovies[clientId]; !exists {
-					pendingMovies[clientId] = make(map[string]*model.Row)
-				}
-				pendingMovies[clientId][movieID] = row
-			}
-		}
-	}
-	return pendingMovies, processedMovies
-}
-
-func readCSVToMap(fileName string, movies map[string]*model.Row) error {
-	file, err := os.Open(fileName)
-	if err != nil {
-		return fmt.Errorf("failed to open file %s: %w", fileName, err)
-	}
-	defer file.Close()
-	reader := csv.NewReader(file)
-	_, err = reader.Read()
-	if err != nil {
-		return fmt.Errorf("failed to read header from file %s: %w", fileName, err)
-	}
-	for {
-		data, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil || len(data) < 2 {
-			return fmt.Errorf("invalid row in file %s: %v", fileName, err)
-		}
-		movieID := data[0]
-		title := data[1]
-		movies[movieID] = &model.Row{Strings: map[string]string{"movieID": movieID, "title": title}}
-	}
-	return nil
-
 }
 
 func (f *JoinerRatings) getRatingFilename(clientId string, movieID string) (string, error) {

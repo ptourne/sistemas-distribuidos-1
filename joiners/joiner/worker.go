@@ -134,6 +134,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 					}
 				}
 				if mustACK {
+					log.Infof("MoviesEOFs: Acking message type %s for %s", envelope.Type(), envelope.Cid())
 					err = envelope.Ack(false)
 					if err != nil {
 						log.Warnf("Failed to ack EOF message for moviesEOFs: %v", err)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
+	cj "github.com/ptourne/sistemas-distribuidos-1/joiners_ratings_workers/commonJoiner"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/worker/task"
 )
@@ -32,7 +33,7 @@ type JoinerCredits struct {
 }
 
 func NewJoinerCredits(inputToProcess task.Task[*model.Row, *model.Row], inputToSave task.Task[*model.Row, *model.Row], subscribers []string, id string, log *logger.ConsoleLogger) task.JoinerTask[*model.Row, *model.Row] {
-	pendingMovies, processedMovies := reloadPendingMoviesFromDisk(id, log)
+	pendingMovies, processedMovies := cj.ReloadStateFromDisk("credits", id, []string{"movieID"}, []string{"movieID", "cast", "id"}, log, cj.ReadCreditsCSVToMap, cj.WriteMovieID, cj.WriteCreditRow)
 	joiner := JoinerCredits{inputToProcess, inputToSave, nil, nil, nil, pendingMovies, processedMovies, subscribers, make(map[string]bool), id, log}
 	return &joiner
 }
@@ -47,91 +48,6 @@ func (f *JoinerCredits) Name() string {
 
 func (f *JoinerCredits) NameWithId() string {
 	return fmt.Sprintf("joiner_%s_credits", f.id)
-}
-
-func reloadPendingMoviesFromDisk(id string, log *logger.ConsoleLogger) (map[string]map[string]*model.Row, map[string]map[string]*model.Row) {
-	rootDir := fmt.Sprintf("joiner_credits/joiner%s", id)
-	log.Infof("Reloading pending movies from: %s", rootDir)
-
-	pendingMovies := make(map[string]map[string]*model.Row)
-	processedMovies := make(map[string]map[string]*model.Row)
-	clientDirs, err := os.ReadDir(rootDir)
-	if err != nil {
-		return pendingMovies, processedMovies
-	}
-
-	for _, clientDir := range clientDirs {
-		if !clientDir.IsDir() {
-			continue
-		}
-		clientId := clientDir.Name()
-		clientPath := fmt.Sprintf("%s/%s", rootDir, clientId)
-
-		files, err := os.ReadDir(clientPath)
-		if err != nil {
-			continue
-		}
-
-		movies := make(map[string]*model.Row)
-		processed := make(map[string]*model.Row)
-
-		for _, file := range files {
-			if strings.HasPrefix(file.Name(), "processed_movies_") {
-				fileName := fmt.Sprintf("%s/%s", clientPath, file.Name())
-				if err := readCSVToMap(fileName, processed); err != nil {
-					continue
-				}
-			}
-
-			if strings.HasPrefix(file.Name(), "movies_") {
-				fileName := fmt.Sprintf("%s/%s", clientPath, file.Name())
-				if err := readCSVToMap(fileName, movies); err != nil {
-					continue
-				}
-			}
-		}
-
-		processedMovies[clientId] = processed
-
-		for movieID, row := range movies {
-			if _, ok := processed[movieID]; !ok {
-				if _, exists := pendingMovies[clientId]; !exists {
-					pendingMovies[clientId] = make(map[string]*model.Row)
-				}
-				pendingMovies[clientId][movieID] = row
-				log.Infof("Loaded pending movie %s", movieID)
-			}
-		}
-	}
-
-	return pendingMovies, processedMovies
-}
-
-func readCSVToMap(fileName string, movies map[string]*model.Row) error {
-	file, err := os.Open(fileName)
-	if err != nil {
-		return fmt.Errorf("failed to open file %s: %w", fileName, err)
-	}
-	defer file.Close()
-	reader := csv.NewReader(file)
-	_, err = reader.Read()
-	if err != nil {
-		return fmt.Errorf("failed to read header from file %s: %w", fileName, err)
-	}
-	for {
-		data, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil || len(data) < 1 {
-			return fmt.Errorf("invalid row in file %s: %v", fileName, err)
-		}
-		movieID := data[0]
-		movies[movieID] = &model.Row{Strings: map[string]string{"movieID": movieID}}
-
-	}
-	return nil
-
 }
 
 func (f *JoinerCredits) getCreditFilename(clientId string, movieID string) (string, error) {
@@ -406,7 +322,7 @@ func (f *JoinerCredits) SavePendingMovie(clientID string, movieID string) error 
 		return err
 	}
 
-	return f.SaveMovie(clientID, movieID, fileName)
+	return SaveMovie(clientID, movieID, fileName, f.log)
 }
 
 func (f *JoinerCredits) SaveProcessedMovie(clientID string, movieID string) error {
@@ -423,72 +339,12 @@ func (f *JoinerCredits) SaveProcessedMovie(clientID string, movieID string) erro
 		return err
 	}
 
-	err = f.SaveMovie(clientID, movieID, fileName)
+	err = SaveMovie(clientID, movieID, fileName, f.log)
 	if err != nil {
 		return err
 	}
 	f.processedMovies[clientID][movieID] = &model.Row{Strings: map[string]string{"movieID": movieID}}
 	return nil
-}
-
-func (f *JoinerCredits) SaveMovie(clientID string, movieID string, fileName string) error {
-
-	writeHeader := false
-	if stat, err := os.Stat(fileName); err == nil {
-		if stat.Size() == 0 {
-			writeHeader = true
-		}
-	} else if os.IsNotExist(err) {
-		writeHeader = true
-	} else {
-		f.log.Errorf("Error checking file status: %v", err)
-		return err
-	}
-
-	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		f.log.Errorf("Failed to open file: %s", fileName)
-		return err
-	}
-	defer file.Close()
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
-
-	if writeHeader {
-		if err := writer.Write([]string{"movieID"}); err != nil {
-			f.log.Errorf("Failed to write CSV header: %v", err)
-			return err
-		}
-	}
-
-	err = writer.Write([]string{movieID})
-	if err != nil {
-		f.log.Errorf("Failed to write CSV row: %v", err)
-		return err
-	}
-	writer.Flush()
-	if err := writer.Error(); err != nil {
-		f.log.Errorf("Flush error writing CSV: %v", err)
-		return err
-	}
-	return nil
-}
-
-func flattenCastList(castList []string, movieID string) []*model.Row {
-	var flattenCast []*model.Row
-
-	for _, actor := range castList {
-		actor = strings.Trim(actor, " ")
-		if actor != "" {
-			flattenCast = append(flattenCast, &model.Row{
-				Strings: map[string]string{
-					"movieID": movieID,
-					"actor":   actor,
-				},
-			})
-		}
-	}
-	return flattenCast
 }
 
 func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*model.Row], _ middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
@@ -635,4 +491,64 @@ func (f *JoinerCredits) Id() string {
 
 func (f *JoinerCredits) Logger() *logger.ConsoleLogger {
 	return f.log
+}
+
+func SaveMovie(clientID string, movieID string, fileName string, log *logger.ConsoleLogger) error {
+
+	writeHeader := false
+	if stat, err := os.Stat(fileName); err == nil {
+		if stat.Size() == 0 {
+			writeHeader = true
+		}
+	} else if os.IsNotExist(err) {
+		writeHeader = true
+	} else {
+		log.Errorf("Error checking file status: %v", err)
+		return err
+	}
+
+	file, err := os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Errorf("Failed to open file: %s", fileName)
+		return err
+	}
+	defer file.Close()
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	if writeHeader {
+		if err := writer.Write([]string{"movieID"}); err != nil {
+			log.Errorf("Failed to write CSV header: %v", err)
+			return err
+		}
+	}
+
+	err = writer.Write([]string{movieID})
+	if err != nil {
+		log.Errorf("Failed to write CSV row: %v", err)
+		return err
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		log.Errorf("Flush error writing CSV: %v", err)
+		return err
+	}
+	return nil
+}
+
+func flattenCastList(castList []string, movieID string) []*model.Row {
+	var flattenCast []*model.Row
+
+	for _, actor := range castList {
+		actor = strings.Trim(actor, " ")
+		if actor != "" {
+			flattenCast = append(flattenCast, &model.Row{
+				Strings: map[string]string{
+					"movieID": movieID,
+					"actor":   actor,
+				},
+			})
+		}
+	}
+	return flattenCast
 }

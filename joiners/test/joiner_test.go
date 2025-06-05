@@ -2,9 +2,12 @@ package test
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -36,6 +39,12 @@ func TestJoiner(t *testing.T) {
 	test7 := provider.AsyncDeployRabbit()
 	test8 := provider.AsyncDeployRabbit()
 	tets9 := provider.AsyncDeployRabbit()
+	test10 := provider.AsyncDeployRabbit()
+	test11 := provider.AsyncDeployRabbit()
+	test12 := provider.AsyncDeployRabbit()
+	test13 := provider.AsyncDeployRabbit()
+	test14 := provider.AsyncDeployRabbit()
+	test15 := provider.AsyncDeployRabbit()
 
 	test1container := <-test1
 	defer test1container.Container.Teardown()
@@ -55,6 +64,18 @@ func TestJoiner(t *testing.T) {
 	defer test8container.Container.Teardown()
 	test9container := <-tets9
 	defer test9container.Container.Teardown()
+	test10container := <-test10
+	defer test10container.Container.Teardown()
+	test11container := <-test11
+	defer test11container.Container.Teardown()
+	test12container := <-test12
+	defer test12container.Container.Teardown()
+	test13container := <-test13
+	defer test13container.Container.Teardown()
+	test14container := <-test14
+	defer test14container.Container.Teardown()
+	test15container := <-test15
+	defer test15container.Container.Teardown()
 
 	t.Run("Credits", func(t *testing.T) {
 
@@ -325,7 +346,7 @@ func TestJoiner(t *testing.T) {
 		os.Unsetenv("WORKER_COUNT")
 		os.Unsetenv("WORKER_ID")
 
-		t.Run("RestartProcessesPendingMovies", func(t *testing.T) {
+		t.Run("RestartProcessPendingMovies", func(t *testing.T) {
 			init := test7container
 			require.NotNil(t, init)
 			require.NoError(t, init.Err)
@@ -417,7 +438,7 @@ func TestJoiner(t *testing.T) {
 			outputConnection.Close()
 		})
 
-		t.Run("RestartProcessesEOFs", func(t *testing.T) {
+		t.Run("RestartProcessEOFsOneJoiner", func(t *testing.T) {
 			init := test9container
 			require.NotNil(t, init)
 			require.NoError(t, init.Err)
@@ -469,6 +490,93 @@ func TestJoiner(t *testing.T) {
 			outputJoiner.Close()
 			middlewareConnection.Close()
 			outputConnection.Close()
+		})
+
+		t.Run("ProcessCorruptCreditsFile", func(t *testing.T) {
+			init := test10container
+			require.NotNil(t, init)
+			require.NoError(t, init.Err)
+
+			cid := "client10"
+
+			joinerID := "0"
+			dir := fmt.Sprintf("joiner_credits/joiner%s/%s", joinerID, cid)
+			require.NoError(t, os.MkdirAll(dir, 0755))
+
+			filePath := fmt.Sprintf("%s/credits_0.csv", dir)
+			file, err := os.Create(filePath)
+			require.NoError(t, err)
+			writer := csv.NewWriter(file)
+			require.NoError(t, writer.Write([]string{"movieID", "credit", "id"}))
+
+			cast := `["Actor 1", "Actor 2"]`
+			require.NoError(t, writer.Write([]string{"10", cast, "1"}))
+
+			require.NoError(t, writer.Write([]string{"20"}))
+			writer.Flush()
+			require.NoError(t, file.Close())
+
+			middlewareConnection := ConnectToRabbit(t, init, "0")
+			inputMovies, inputCredits, worker, outputJoiner, outputConnection := configTestJoinerCredits(t, init, "output_test10", middlewareConnection)
+
+			joinerConnection := ConnectToRabbit(t, init, "0")
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				worker.Run(joinerConnection)
+				joinerConnection.Close()
+			}()
+
+			time.Sleep(1 * time.Second)
+
+			file, err = os.Open(filePath)
+			require.NoError(t, err)
+			reader := csv.NewReader(file)
+			_, err = reader.Read()
+			require.NoError(t, err)
+
+			data, err := reader.Read()
+
+			if err != nil || len(data) < 3 {
+				require.Fail(t, fmt.Sprintf("invalid row in file %s: %v", filePath, err))
+			}
+			movieID := data[0]
+			if movieID != "10" {
+				require.Fail(t, fmt.Sprintf("expected movieID '10', got '%s' in file %s", movieID, filePath))
+			}
+			if data[1] != `["Actor 1","Actor 2"]` {
+				t.Fatalf("Unexpected cast value: got %q, want %q", data[1], `["Actor 1","Actor 2"]`)
+			}
+			if data[2] != "1" {
+				require.Fail(t, fmt.Sprintf("expected id '1', got '%s' in file %s", data[2], filePath))
+			}
+
+			_, err = reader.Read()
+			require.Equal(t, io.EOF, err, fmt.Sprintf("expected EOF after reading movieID '10' in file %s", filePath))
+			require.NoError(t, file.Close())
+
+			inputMovies.SendEOF(cid)
+			inputCredits.SendEOF(cid)
+
+			AsserEOFs(t, outputJoiner, []string{cid})
+
+			worker.Tasks.Finish()
+			wg.Wait()
+
+			inputMovies.Close()
+			inputCredits.Close()
+			outputJoiner.Close()
+			middlewareConnection.Close()
+			outputConnection.Close()
+		})
+
+		t.Run("ProcessCorruptPendingMoviesFile", func(t *testing.T) {
+			testJoinerCreditsCorruptMoviesFile(t, "client11", "movies", test11container, "output_test11")
+		})
+
+		t.Run("ProcessCorruptProcessedMoviesFile", func(t *testing.T) {
+			testJoinerCreditsCorruptMoviesFile(t, "client12", "processed_movies", test12container, "output_test12")
 		})
 
 	})
@@ -588,7 +696,7 @@ func TestJoiner(t *testing.T) {
 			worker.Tasks.Finish()
 		})
 
-		t.Run("RestartProcessesPendingMovies", func(t *testing.T) {
+		t.Run("RestartProcessPendingMovies", func(t *testing.T) {
 			init := test8container
 			require.NotNil(t, init)
 			require.NoError(t, init.Err)
@@ -664,6 +772,93 @@ func TestJoiner(t *testing.T) {
 			outputJoiner.Close()
 			middlewareConnection.Close()
 			outputConnection.Close()
+		})
+
+		t.Run("ProcessCorruptRatingsFile", func(t *testing.T) {
+			init := test13container
+			require.NotNil(t, init)
+			require.NoError(t, init.Err)
+
+			cid := "client13"
+
+			joinerID := "0"
+			dir := fmt.Sprintf("joiner_ratings/joiner%s/%s", joinerID, cid)
+			require.NoError(t, os.MkdirAll(dir, 0755))
+
+			filePath := fmt.Sprintf("%s/ratings_0.csv", dir)
+			file, err := os.Create(filePath)
+			require.NoError(t, err)
+			writer := csv.NewWriter(file)
+			require.NoError(t, writer.Write([]string{"movieID", "rating", "id"}))
+
+			require.NoError(t, writer.Write([]string{"10", "1.5", "1"}))
+
+			require.NoError(t, writer.Write([]string{"20"}))
+			writer.Flush()
+			require.NoError(t, file.Close())
+
+			middlewareConnection := ConnectToRabbit(t, init, "0")
+			inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test13", middlewareConnection)
+
+			joinerConnection := ConnectToRabbit(t, init, "0")
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				worker.Run(joinerConnection)
+				joinerConnection.Close()
+			}()
+
+			time.Sleep(1 * time.Second)
+
+			file, err = os.Open(filePath)
+			require.NoError(t, err)
+			reader := csv.NewReader(file)
+			_, err = reader.Read()
+			require.NoError(t, err)
+
+			data, err := reader.Read()
+
+			if err != nil || len(data) < 3 {
+				require.Fail(t, fmt.Sprintf("invalid row in file %s: %v", filePath, err))
+			}
+			movieID := data[0]
+			if movieID != "10" {
+				require.Fail(t, fmt.Sprintf("expected movieID '10', got '%s' in file %s", movieID, filePath))
+			}
+			rating, err := strconv.ParseFloat(data[1], 64)
+			require.NoError(t, err)
+			require.Equal(t, 1.5, rating)
+
+			if data[2] != "1" {
+				require.Fail(t, fmt.Sprintf("expected id '1', got '%s' in file %s", data[2], filePath))
+			}
+
+			_, err = reader.Read()
+			require.Equal(t, io.EOF, err, fmt.Sprintf("expected EOF after reading movieID '10' in file %s", filePath))
+			require.NoError(t, file.Close())
+
+			inputMovies.SendEOF(cid)
+			inputRatings.SendEOF(cid)
+
+			AsserEOFs(t, outputJoiner, []string{cid})
+
+			worker.Tasks.Finish()
+			wg.Wait()
+
+			inputMovies.Close()
+			inputRatings.Close()
+			outputJoiner.Close()
+			middlewareConnection.Close()
+			outputConnection.Close()
+		})
+
+		t.Run("ProcessCorruptPendingMoviesFile", func(t *testing.T) {
+			testJoinerRatingsCorruptMoviesFile(t, "client14", "movies", test14container, "output_test14")
+		})
+
+		t.Run("ProcessCorruptProcessedMoviesFile", func(t *testing.T) {
+			testJoinerRatingsCorruptMoviesFile(t, "client15", "processed_movies", test15container, "output_test15")
 		})
 	})
 }
@@ -760,6 +955,7 @@ func AssertResults(t *testing.T, outputJoiner middleware.Receiver[*model.Row], e
 		defer cancel()
 		env, err := outputJoiner.Next(ctx)
 		assert.NoError(t, err)
+		require.NotNil(t, env, "Received nil envelope.")
 		cid := env.Cid()
 		env.Ack(false)
 
@@ -768,6 +964,7 @@ func AssertResults(t *testing.T, outputJoiner middleware.Receiver[*model.Row], e
 		switch stepCid {
 		case 0:
 			row := env.Msg()
+			require.NotNil(t, row, "Received nil row for client %s", cid)
 			t.Logf("Received msg %+v for client %s", row, cid)
 			expectedValues := expected[cid][0]
 			for key, value := range expectedValues {
@@ -813,17 +1010,17 @@ func AsserEOFs(t *testing.T, outputJoiner middleware.Receiver[*model.Row], clien
 	t.Logf("Expecting %d messages", countExpected)
 	for range countExpected {
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-		defer cancel()
 		env, err := outputJoiner.Next(ctx)
+		cancel()
 		assert.NoError(t, err)
-		assert.NotNil(t, env, "Received nil envelope")
+		assert.NotNil(t, env, "Received nil envelope.")
 		cid := env.Cid()
 		stepCid, exists := steps[cid]
 		assert.True(t, exists, "Client %s not found in expected results", cid)
 		env.Ack(false)
 		switch stepCid {
 		case 1:
-			assert.Equal(t, middleware.Prune, env.Type())
+			assert.Equal(t, middleware.Prune, env.Type(), "Expected prune message for client %s, got %+v", cid, env.Msg())
 			t.Logf("Received prune for client %s", cid)
 		case 2:
 			assert.Equal(t, middleware.EOF, env.Type())
@@ -867,4 +1064,145 @@ func waitForFile(t *testing.T, path string, timeout time.Duration) {
 
 		time.Sleep(100 * time.Millisecond)
 	}
+}
+
+func testJoinerCreditsCorruptMoviesFile(t *testing.T, cid string, fileName string, init rabbitmq.AsyncDeployRabbitRes, output string) {
+	require.NotNil(t, init)
+	require.NoError(t, init.Err)
+
+	joinerID := "0"
+	dir := fmt.Sprintf("joiner_credits/joiner%s/%s", joinerID, cid)
+	require.NoError(t, os.MkdirAll(dir, 0755))
+
+	filePath := fmt.Sprintf("%s/%s_0.csv", dir, fileName)
+	file, err := os.Create(filePath)
+	require.NoError(t, err)
+	writer := csv.NewWriter(file)
+	require.NoError(t, writer.Write([]string{"movieID"}))
+
+	require.NoError(t, writer.Write([]string{"10"}))
+
+	require.NoError(t, writer.Write([]string{""}))
+	writer.Flush()
+	require.NoError(t, file.Close())
+
+	middlewareConnection := ConnectToRabbit(t, init, "0")
+	inputMovies, inputCredits, worker, outputJoiner, outputConnection := configTestJoinerCredits(t, init, output, middlewareConnection)
+
+	joinerConnection := ConnectToRabbit(t, init, "0")
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		worker.Run(joinerConnection)
+		joinerConnection.Close()
+	}()
+
+	time.Sleep(1 * time.Second)
+
+	file, err = os.Open(filePath)
+	require.NoError(t, err)
+	reader := csv.NewReader(file)
+	_, err = reader.Read()
+	require.NoError(t, err)
+
+	data, err := reader.Read()
+
+	if err != nil || len(data) < 1 {
+		require.Fail(t, fmt.Sprintf("invalid row in file %s: %v", filePath, err))
+	}
+	movieID := data[0]
+	if movieID != "10" {
+		require.Fail(t, fmt.Sprintf("expected movieID '10', got '%s' in file %s", movieID, filePath))
+	}
+	_, err = reader.Read()
+	require.Equal(t, io.EOF, err, fmt.Sprintf("expected EOF after reading movieID '10' in file %s", filePath))
+	require.NoError(t, file.Close())
+
+	inputMovies.SendEOF(cid)
+	inputCredits.SendEOF(cid)
+
+	AsserEOFs(t, outputJoiner, []string{cid})
+
+	worker.Tasks.Finish()
+	wg.Wait()
+
+	inputMovies.Close()
+	inputCredits.Close()
+	outputJoiner.Close()
+	middlewareConnection.Close()
+	outputConnection.Close()
+
+}
+
+func testJoinerRatingsCorruptMoviesFile(t *testing.T, cid string, fileName string, init rabbitmq.AsyncDeployRabbitRes, output string) {
+	require.NotNil(t, init)
+	require.NoError(t, init.Err)
+
+	joinerID := "0"
+	dir := fmt.Sprintf("joiner_ratings/joiner%s/%s", joinerID, cid)
+	require.NoError(t, os.MkdirAll(dir, 0755))
+
+	filePath := fmt.Sprintf("%s/%s_0.csv", dir, fileName)
+	file, err := os.Create(filePath)
+	require.NoError(t, err)
+	writer := csv.NewWriter(file)
+	require.NoError(t, writer.Write([]string{"movieID", "title"}))
+
+	require.NoError(t, writer.Write([]string{"10", "title A"}))
+
+	require.NoError(t, writer.Write([]string{"20"}))
+	writer.Flush()
+	require.NoError(t, file.Close())
+
+	middlewareConnection := ConnectToRabbit(t, init, "0")
+	inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, output, middlewareConnection)
+
+	joinerConnection := ConnectToRabbit(t, init, "0")
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		worker.Run(joinerConnection)
+		joinerConnection.Close()
+	}()
+
+	time.Sleep(1 * time.Second)
+
+	file, err = os.Open(filePath)
+	require.NoError(t, err)
+	reader := csv.NewReader(file)
+	_, err = reader.Read()
+	require.NoError(t, err)
+
+	data, err := reader.Read()
+
+	if err != nil || len(data) < 2 {
+		require.Fail(t, fmt.Sprintf("invalid row in file %s: %v", filePath, err))
+	}
+	movieID := data[0]
+	if movieID != "10" {
+		require.Fail(t, fmt.Sprintf("expected movieID '10', got '%s' in file %s", movieID, filePath))
+	}
+	if data[1] != "title A" {
+		t.Fatalf("Unexpected title value: got %q, want 'title A'", data[1])
+	}
+	_, err = reader.Read()
+	require.Equal(t, io.EOF, err, fmt.Sprintf("expected EOF after reading movieID '10' in file %s", filePath))
+	require.NoError(t, file.Close())
+
+	inputMovies.SendEOF(cid)
+	inputRatings.SendEOF(cid)
+
+	AsserEOFs(t, outputJoiner, []string{cid})
+
+	worker.Tasks.Finish()
+	wg.Wait()
+
+	inputMovies.Close()
+	inputRatings.Close()
+	outputJoiner.Close()
+	middlewareConnection.Close()
+	outputConnection.Close()
+
 }
