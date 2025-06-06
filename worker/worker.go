@@ -258,7 +258,7 @@ func NewWorker() Worker {
 
 	credits_clean := clean.NewCleanCredits(credits, joiner_credits_subscribers, uint(1), uint(n_workers))
 
-	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits"}, uint(n_workers), uint(n_workers)) //, , "joiner_ratings"
+	filter_release_date_ge_2000_and_include_ar := filter.NewFilterReleaseDateGe2000AndIncludeAR(movies_metadata_clean.Name(), []string{"filter_release_date_l_2010_and_include_es", "joiner_credits", "joiner_ratings"}, uint(n_workers), uint(n_workers))
 	filter_release_date_l_2010_and_include_es := filter.NewFilterReleaseDateL2010AndIncludeES(filter_release_date_ge_2000_and_include_ar.Name(), []string{"q1"}, 1, uint(n_workers))
 
 	n_reducers_by_country_sum_budgets, err := strconv.Atoi(os.Getenv("N_REDUCERS_BY_COUNTRY_SUM_BUDGETS"))
