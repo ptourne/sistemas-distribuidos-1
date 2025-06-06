@@ -304,14 +304,16 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 		return nil, fmt.Errorf("failed to parse WORKER_COUNT: %w", err)
 	}
 
-	var prefetchStr = os.Getenv("PREFETCH")
-	if prefetchStr == "" {
-		prefetchStr = "1"
-	}
-	prefetch, err := strconv.Atoi(prefetchStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
-	}
+	// var prefetchStr = os.Getenv("PREFETCH")
+	// if prefetchStr == "" {
+	// 	prefetchStr = "1"
+	// }
+	// prefetch, err := strconv.Atoi(prefetchStr)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
+	// }
+
+	prefetch := 500
 
 	groupQueueName := f.NameWithId()
 	consumerCountStr := os.Getenv("CONSUMER_COUNT")
