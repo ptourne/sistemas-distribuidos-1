@@ -13,19 +13,21 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 )
 
-func ReloadStateFromDisk(joinerType string, joinerID string, moviesHeader []string, dataHeader []string, log *logger.ConsoleLogger, readDataFunc func(string, map[string]*model.Row) error, writeMovieFunc func(*csv.Writer, string, *model.Row) error, writeDataFunc func(*csv.Writer, string, *model.Row) error) (map[string]map[string]*model.Row, map[string]map[string]*model.Row) {
+func ReloadStateFromDisk(joinerType string, joinerID string, moviesHeader []string, dataHeader []string, log *logger.ConsoleLogger, readDataFunc func(string, map[string]*model.Row) error, writeMovieFunc func(*csv.Writer, string, *model.Row) error, writeDataFunc func(*csv.Writer, string, *model.Row) error) (map[string]map[string]*model.Row, map[string]map[string]*model.Row, map[string]uint64) {
 	rootDir := fmt.Sprintf("joiner_%s/joiner%s", joinerType, joinerID)
 	log.Infof("Reloading pending movies from: %s", rootDir)
 
 	pendingMovies := make(map[string]map[string]*model.Row)
 	processedMovies := make(map[string]map[string]*model.Row)
+	msgIDs := make(map[string]uint64)
 	includeTitle := joinerType == "ratings"
 	clientDirs, err := os.ReadDir(rootDir)
 	if err != nil {
-		return pendingMovies, processedMovies
+		return pendingMovies, processedMovies, msgIDs
 	}
 
 	for _, clientDir := range clientDirs {
+
 		if !clientDir.IsDir() {
 			continue
 		}
@@ -48,6 +50,23 @@ func ReloadStateFromDisk(joinerType string, joinerID string, moviesHeader []stri
 				err := os.Remove(fileName)
 				if err != nil {
 					log.Errorf("Failed to remove temporary file %s: %v", fileName, err)
+				}
+				continue
+			}
+
+			if strings.HasSuffix(file.Name(), ".old") {
+				idFileName := fmt.Sprintf("%s/id.txt", clientPath)
+				if _, err := os.Stat(idFileName); os.IsNotExist(err) {
+					err := os.Rename(fileName, idFileName)
+					if err != nil {
+						log.Errorf("Failed to rename old file %s to id file %s: %v", fileName, idFileName, err)
+					}
+				} else {
+					log.Infof("Removing old id file: %s", fileName)
+					err := os.Remove(fileName)
+					if err != nil {
+						log.Errorf("Failed to remove old id file %s: %v", fileName, err)
+					}
 				}
 				continue
 			}
@@ -78,6 +97,9 @@ func ReloadStateFromDisk(joinerType string, joinerID string, moviesHeader []stri
 
 		}
 
+		idFileName := fmt.Sprintf("%s/id.txt", clientPath)
+		getMsgId(idFileName, clientId, msgIDs)
+
 		processedMovies[clientId] = processed
 
 		for movieID, row := range movies {
@@ -91,7 +113,58 @@ func ReloadStateFromDisk(joinerType string, joinerID string, moviesHeader []stri
 		}
 	}
 
-	return pendingMovies, processedMovies
+	return pendingMovies, processedMovies, msgIDs
+}
+
+func getMsgId(filePath string, clientId string, msgIDs map[string]uint64) {
+	file, err := os.Open(filePath)
+	if err != nil { // If the file doesn't exist, we assume msgID is 0
+		msgIDs[clientId] = 0
+		return
+	}
+	defer file.Close()
+
+	var msgID uint64
+	_, err = fmt.Fscanf(file, "%d", &msgID)
+	if err != nil && err != io.EOF { // If there's an error reading the file, we assume msgID is 0. Should not happen.
+		msgIDs[clientId] = 0
+		return
+	}
+
+	msgIDs[clientId] = msgID
+}
+
+func SaveMsgId(filePath string, msgID uint64) error {
+	tempFile := filePath + ".temp"
+	file, err := os.OpenFile(tempFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %w", tempFile, err)
+	}
+	defer file.Close()
+
+	_, err = fmt.Fprintf(file, "%d", msgID)
+	if err != nil {
+		return fmt.Errorf("failed to write msgID to file %s: %w", tempFile, err)
+	}
+
+	file.Close()
+
+	if _, err := os.Stat(filePath); err == nil {
+		if err := os.Rename(filePath, filePath+".old"); err != nil {
+			return fmt.Errorf("failed to rename old file %s: %w", filePath, err)
+		}
+	}
+
+	if err := os.Rename(tempFile, filePath); err != nil {
+		return fmt.Errorf("failed to rename temp file %s to %s: %w", tempFile, filePath, err)
+	}
+	if _, err := os.Stat(filePath + ".old"); err == nil {
+		if err := os.Remove(filePath + ".old"); err != nil {
+			return fmt.Errorf("failed to remove old file %s: %w", filePath+".old", err)
+		}
+	}
+
+	return nil
 }
 
 func LoadWithRecovery(fileName string, loader func(string, map[string]*model.Row) error, saver func(string, map[string]*model.Row) error, data map[string]*model.Row, log *logger.ConsoleLogger) {
@@ -185,7 +258,7 @@ func ReadCreditsCSVToMap(fileName string, credits map[string]*model.Row) error {
 			break
 		}
 
-		if err != nil || len(data) < 3 {
+		if err != nil || len(data) < 2 {
 			return fmt.Errorf("invalid row in file %s: %v", fileName, err)
 		}
 
@@ -198,11 +271,7 @@ func ReadCreditsCSVToMap(fileName string, credits map[string]*model.Row) error {
 		if err := json.Unmarshal([]byte(cast), &castList); err != nil {
 			return fmt.Errorf("failed to unmarshal cast from file %s: %v", fileName, err)
 		}
-		idString := data[2]
-		if _, err := strconv.ParseUint(idString, 10, 64); err != nil {
-			return fmt.Errorf("failed to parse ID from file %s: %v", fileName, err)
-		}
-		credits[idString] = &model.Row{
+		credits[movieID] = &model.Row{
 			Strings: map[string]string{"ID": movieID},
 			Arrays:  map[string][]string{"cast": castList},
 		}
@@ -228,7 +297,7 @@ func ReadRatingsCSVToMap(fileName string, ratings map[string]*model.Row) error {
 			break
 		}
 
-		if err != nil || len(data) < 3 {
+		if err != nil || len(data) < 2 {
 			return fmt.Errorf("invalid row in file %s: %v", fileName, err)
 		}
 
@@ -243,11 +312,7 @@ func ReadRatingsCSVToMap(fileName string, ratings map[string]*model.Row) error {
 
 		}
 
-		idString := data[2]
-		if _, err := strconv.ParseUint(idString, 10, 64); err != nil {
-			return fmt.Errorf("failed to parse ID from file %s: %v", fileName, err)
-		}
-		ratings[idString] = &model.Row{
+		ratings[movieID] = &model.Row{
 			Strings: map[string]string{"movieID": movieID},
 			Floats:  map[string]float64{"avg_rating": rating},
 		}
@@ -308,12 +373,12 @@ func WriteCreditRow(writer *csv.Writer, id string, credit *model.Row) error {
 		return err
 	}
 
-	return writer.Write([]string{credit.Strings["ID"], string(castString), id})
+	return writer.Write([]string{credit.Strings["ID"], string(castString)})
 }
 
 func WriteRatingRow(writer *csv.Writer, id string, rating *model.Row) error {
 	ratingString := fmt.Sprintf("%f", rating.Floats["avg_rating"])
-	return writer.Write([]string{rating.Strings["movieID"], ratingString, id})
+	return writer.Write([]string{rating.Strings["movieID"], ratingString})
 }
 
 func WriteMovieID(writer *csv.Writer, id string, _ *model.Row) error {

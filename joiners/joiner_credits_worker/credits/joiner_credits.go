@@ -28,13 +28,14 @@ type JoinerCredits struct {
 	processedMovies     map[string]map[string]*model.Row
 	subscribers         []string
 	finishedCredits     map[string]bool
+	msgIDs              map[string]uint64
 	id                  string
 	log                 *logger.ConsoleLogger
 }
 
 func NewJoinerCredits(inputToProcess task.Task[*model.Row, *model.Row], inputToSave task.Task[*model.Row, *model.Row], subscribers []string, id string, log *logger.ConsoleLogger) task.JoinerTask[*model.Row, *model.Row] {
-	pendingMovies, processedMovies := cj.ReloadStateFromDisk("credits", id, []string{"movieID"}, []string{"movieID", "cast", "id"}, log, cj.ReadCreditsCSVToMap, cj.WriteMovieID, cj.WriteCreditRow)
-	joiner := JoinerCredits{inputToProcess, inputToSave, nil, nil, nil, pendingMovies, processedMovies, subscribers, make(map[string]bool), id, log}
+	pendingMovies, processedMovies, msgIDs := cj.ReloadStateFromDisk("credits", id, []string{"movieID"}, []string{"movieID", "cast"}, log, cj.ReadCreditsCSVToMap, cj.WriteMovieID, cj.WriteCreditRow)
+	joiner := JoinerCredits{inputToProcess, inputToSave, nil, nil, nil, pendingMovies, processedMovies, subscribers, make(map[string]bool), msgIDs, id, log}
 	return &joiner
 }
 
@@ -54,8 +55,7 @@ func (f *JoinerCredits) getCreditFilename(clientId string, movieID string) (stri
 	return f.getFileName(clientId, movieID, "credits")
 }
 
-func (f *JoinerCredits) getFileName(clientId string, movieID string, fileType string) (string, error) {
-	lastDigit := string(movieID[len(movieID)-1])
+func (f *JoinerCredits) getFileName(clientId string, dataID string, fileType string) (string, error) {
 	dirPath := "joiner_credits"
 
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
@@ -74,12 +74,21 @@ func (f *JoinerCredits) getFileName(clientId string, movieID string, fileType st
 		f.log.Errorf("Failed to create directory: %s", dirPath)
 		return "", err
 	}
+	if fileType != "id" {
+		lastDigit := string(dataID[len(dataID)-1])
 
-	return fmt.Sprintf("%s/%s_%s.csv", dirPath, fileType, lastDigit), nil
+		return fmt.Sprintf("%s/%s_%s.csv", dirPath, fileType, lastDigit), nil
+	} else {
+		return fmt.Sprintf("%s/id.txt", dirPath), nil
+	}
 }
 
 func (f *JoinerCredits) getMoviesFilename(clientId string, movieID string) (string, error) {
 	return f.getFileName(clientId, movieID, "movies")
+}
+
+func (f *JoinerCredits) getMsgIDFilename(clientId string) (string, error) {
+	return f.getFileName(clientId, "", "id")
 }
 
 func (f *JoinerCredits) getProcessedMoviesFilename(clientId string, movieID string) (string, error) {
@@ -93,7 +102,7 @@ func (f *JoinerCredits) ProcessAndSend(env middleware.Envelope[*model.Row]) erro
 	if movieID, ok := row.Strings["movieID"]; ok && movieID != "" {
 		err = f.processMovieAndSendActors(row, cid)
 	} else if _, ok := row.Strings["ID"]; ok {
-		err = f.processCredit(row, env.Id(), cid)
+		err = f.processCredit(row, cid)
 	} else {
 		f.log.Warnf("Received row with no recognizable ID: %+v", row)
 	}
@@ -124,14 +133,13 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row, clientID strin
 		return nil
 	}
 
-	output, id, err := f.processMovie(row, clientID)
+	output, err := f.processMovie(row, clientID)
 	if err != nil {
 		if err.Error() == "no cast found" {
 			_, hasFinished := f.finishedCredits[clientID]
 			if hasFinished {
 				f.log.Debugf("cid: %s | No cast found for movie %s", clientID, movieID)
 				delete(f.pendingMovies[clientID], movieID)
-				//f.SaveProcessedMovie(clientID, movieID)
 				return nil
 			}
 			if !ok {
@@ -151,7 +159,7 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row, clientID strin
 		}
 		return err
 	}
-	err = f.sendActors(output, err, clientID, id)
+	err = f.sendActors(output, err, clientID)
 	if err != nil {
 		return err
 	}
@@ -159,29 +167,46 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row, clientID strin
 	return nil
 }
 
-func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string, baseID uint64) error {
+func (f *JoinerCredits) sendActors(output []*model.Row, err error, cid string) error {
 	if err != nil {
 		return err
 	}
 	if len(output) == 0 {
 		return nil
 	}
-	for i, r := range output {
+	msgID, ok := f.msgIDs[cid]
+	if !ok {
+		msgID = 0
+	}
+	newMsgID := msgID + uint64(len(output))
+	fileName, err := f.getMsgIDFilename(cid)
+	if err != nil {
+		return err
+	}
+
+	err = cj.SaveMsgId(fileName, newMsgID)
+	if err != nil {
+		f.log.Errorf("Failed to save message ID: %s", err)
+		return err
+	}
+
+	for _, r := range output {
 		if r == nil {
 			continue
 		}
-		msgID := baseID*10000 + uint64(i)
 
 		err = f.taskSender.Send(r, cid, msgID)
 		if err != nil {
 			f.log.Errorf("Failed to send actor data: %v", err)
 			return err
 		}
+		msgID++
 	}
+	f.msgIDs[cid] = newMsgID
 	return nil
 }
 
-func (f *JoinerCredits) processCredit(row *model.Row, id uint64, clientId string) error {
+func (f *JoinerCredits) processCredit(row *model.Row, clientId string) error {
 	movieID := row.Strings["ID"]
 	cast := row.Arrays["cast"]
 	if len(cast) == 0 {
@@ -216,7 +241,7 @@ func (f *JoinerCredits) processCredit(row *model.Row, id uint64, clientId string
 	defer writer.Flush()
 
 	if writeHeader {
-		if err := writer.Write([]string{"movieID", "cast", "id"}); err != nil {
+		if err := writer.Write([]string{"movieID", "cast"}); err != nil {
 			f.log.Errorf("Failed to write CSV header: %v", err)
 			return err
 		}
@@ -229,7 +254,7 @@ func (f *JoinerCredits) processCredit(row *model.Row, id uint64, clientId string
 		return err
 	}
 
-	err = writer.Write([]string{movieID, string(castString), strconv.FormatUint(id, 10)})
+	err = writer.Write([]string{movieID, string(castString)})
 	if err != nil {
 		f.log.Errorf("Failed to write CSV row: %v", err)
 		return err
@@ -242,7 +267,7 @@ func (f *JoinerCredits) processCredit(row *model.Row, id uint64, clientId string
 		if found {
 			f.log.Debugf("Processing pending movie: %s", movieID)
 			flattenCast := flattenCastList(cast, movieID)
-			err = f.sendActors(flattenCast, nil, clientId, id)
+			err = f.sendActors(flattenCast, nil, clientId)
 			if err != nil {
 				f.log.Errorf("Failed to process pending movie: %v", err)
 			} else {
@@ -254,11 +279,10 @@ func (f *JoinerCredits) processCredit(row *model.Row, id uint64, clientId string
 	return nil
 }
 
-func (f *JoinerCredits) processMovie(row *model.Row, clientId string) ([]*model.Row, uint64, error) {
+func (f *JoinerCredits) processMovie(row *model.Row, clientId string) ([]*model.Row, error) {
 	var flattenCast []*model.Row
 	movieID := row.Strings["movieID"]
 	lastDigit := string(movieID[len(movieID)-1])
-	var id uint64
 
 	f.log.Debugf("Processing movie: %s for client %s", movieID, clientId)
 	dirPath := fmt.Sprintf("joiner_credits/joiner%s/%s", f.id, clientId)
@@ -266,7 +290,7 @@ func (f *JoinerCredits) processMovie(row *model.Row, clientId string) ([]*model.
 	fileName := fmt.Sprintf("%s/credits_%s.csv", dirPath, lastDigit)
 	file, err := os.Open(fileName)
 	if err != nil {
-		return nil, id, fmt.Errorf("no cast found") //err
+		return nil, fmt.Errorf("no cast found") //err
 
 	}
 	defer file.Close()
@@ -275,7 +299,7 @@ func (f *JoinerCredits) processMovie(row *model.Row, clientId string) ([]*model.
 	_, err = reader.Read()
 	if err != nil {
 		f.log.Errorf("Failed to read header: %s", err)
-		return nil, id, err
+		return nil, err
 	}
 
 	var cast string
@@ -285,35 +309,29 @@ func (f *JoinerCredits) processMovie(row *model.Row, clientId string) ([]*model.
 		if err == io.EOF {
 			break
 		}
-		if err != nil || len(data) < 3 {
+		if err != nil || len(data) < 2 {
 			f.log.Errorf("Invalid credits row: %v", err)
 			continue
 		}
 
 		if data[0] == movieID {
 			cast = data[1]
-			idString := data[2]
-			id, err = strconv.ParseUint(idString, 10, 64)
-			if err != nil {
-				f.log.Errorf("Failed to parse ID from credits row: %v", err)
-				return nil, id, fmt.Errorf("failed to parse ID from credits row: %v", err)
-			}
 			break
 		}
 	}
 
 	if cast == "" || cast == "null" {
-		return nil, id, fmt.Errorf("no cast found")
+		return nil, fmt.Errorf("no cast found")
 	}
 
 	var castList []string
 	if err := json.Unmarshal([]byte(cast), &castList); err != nil {
 		f.log.Errorf("Failed to unmarshal cast: %v; cast = %v", err, cast)
-		return nil, id, err
+		return nil, err
 	}
 
 	flattenCast = flattenCastList(castList, movieID)
-	return flattenCast, id, nil
+	return flattenCast, nil
 }
 
 func (f *JoinerCredits) SavePendingMovie(clientID string, movieID string) error {

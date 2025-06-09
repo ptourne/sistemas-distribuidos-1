@@ -122,22 +122,24 @@ func TestJoiner(t *testing.T) {
 					{
 						"movieID": "A",
 						"actor":   "Actor 1",
+						"msgID":   uint64(0),
 					},
 					{
 						"movieID": "A",
 						"actor":   "Actor 2",
+						"msgID":   uint64(1),
 					},
 				},
 			}
 			AssertResults(t, outputJoiner, expected)
 
-			worker.Tasks.Finish()
 			inputMovies.Close()
 			inputCredits.Close()
 			outputJoiner.Close()
 			middlewareConnection.Close()
 			outputConnection.Close()
 
+			worker.Tasks.Finish()
 		})
 
 		t.Run("OneJoinerMultipleClients", func(t *testing.T) {
@@ -186,6 +188,7 @@ func TestJoiner(t *testing.T) {
 				"client2a": {{
 					"movieID": "X",
 					"actor":   "Actor X",
+					"msgID":   uint64(0),
 				}},
 				"client2b": {},
 			}
@@ -386,13 +389,6 @@ func TestJoiner(t *testing.T) {
 				joinerConnection.Close()
 			}()
 
-			expected := map[string][]map[string]any{
-				cid: {
-					{"movieID": "A", "actor": "Actor 1"},
-					{"movieID": "A", "actor": "Actor 2"},
-				},
-			}
-
 			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 			defer cancel()
 			env, err := outputJoiner.Next(ctx)
@@ -401,6 +397,7 @@ func TestJoiner(t *testing.T) {
 			assert.Equal(t, env.Type(), middleware.Normal)
 			assert.Equal(t, env.Msg().Strings["movieID"], "A")
 			assert.Equal(t, env.Msg().Strings["actor"], "Actor 1")
+			assert.Equal(t, env.Id(), uint64(0))
 
 			env, err = outputJoiner.Next(ctx)
 			assert.NoError(t, err)
@@ -408,6 +405,7 @@ func TestJoiner(t *testing.T) {
 			assert.Equal(t, env.Type(), middleware.Normal)
 			assert.Equal(t, env.Msg().Strings["movieID"], "A")
 			assert.Equal(t, env.Msg().Strings["actor"], "Actor 2")
+			assert.Equal(t, env.Id(), uint64(1))
 
 			waitForFile(t, "joiner_credits/joiner0/client7/movies_B.csv", 5*time.Second)
 
@@ -430,9 +428,9 @@ func TestJoiner(t *testing.T) {
 				worker2.Run(joinerConnection)
 			}()
 
-			expected = map[string][]map[string]any{
+			expected := map[string][]map[string]any{
 				cid: {
-					{"movieID": "B", "actor": "Actor 3"},
+					{"movieID": "B", "actor": "Actor 3", "msgID": uint64(2)},
 				},
 			}
 			AssertResults(t, outputJoiner, expected)
@@ -684,10 +682,10 @@ func TestJoiner(t *testing.T) {
 			file, err := os.Create(filePath)
 			require.NoError(t, err)
 			writer := csv.NewWriter(file)
-			require.NoError(t, writer.Write([]string{"movieID", "credit", "id"}))
+			require.NoError(t, writer.Write([]string{"movieID", "credit"}))
 
 			cast := `["Actor 1", "Actor 2"]`
-			require.NoError(t, writer.Write([]string{"10", cast, "1"}))
+			require.NoError(t, writer.Write([]string{"10", cast}))
 
 			require.NoError(t, writer.Write([]string{"20"}))
 			writer.Flush()
@@ -715,7 +713,7 @@ func TestJoiner(t *testing.T) {
 
 			data, err := reader.Read()
 
-			if err != nil || len(data) < 3 {
+			if err != nil || len(data) < 2 {
 				require.Fail(t, fmt.Sprintf("invalid row in file %s: %v", filePath, err))
 			}
 			movieID := data[0]
@@ -724,9 +722,6 @@ func TestJoiner(t *testing.T) {
 			}
 			if data[1] != `["Actor 1","Actor 2"]` {
 				t.Fatalf("Unexpected cast value: got %q, want %q", data[1], `["Actor 1","Actor 2"]`)
-			}
-			if data[2] != "1" {
-				require.Fail(t, fmt.Sprintf("expected id '1', got '%s' in file %s", data[2], filePath))
 			}
 
 			_, err = reader.Read()
@@ -794,6 +789,7 @@ func TestJoiner(t *testing.T) {
 					"movieID":    "A",
 					"title":      "Movie A",
 					"avg_rating": 3.5,
+					"msgID":      uint64(0),
 				}},
 			}
 			AssertResults(t, outputJoiner, expected)
@@ -855,11 +851,13 @@ func TestJoiner(t *testing.T) {
 					"movieID":    "A",
 					"title":      "Movie A",
 					"avg_rating": 3.5,
+					"msgID":      uint64(0),
 				}},
 				"client6_b": {{
 					"movieID":    "D",
 					"title":      "Movie D",
 					"avg_rating": 1.0,
+					"msgID":      uint64(0),
 				}},
 			}
 			AssertResults(t, outputJoiner, expected)
@@ -909,6 +907,7 @@ func TestJoiner(t *testing.T) {
 			assert.Equal(t, env.Type(), middleware.Normal)
 			assert.Equal(t, env.Msg().Strings["movieID"], "A")
 			assert.Equal(t, env.Msg().Floats["avg_rating"], 3.5)
+			assert.Equal(t, env.Id(), uint64(0))
 
 			waitForFile(t, "joiner_ratings/joiner0/client8/movies_B.csv", 5*time.Second)
 
@@ -936,7 +935,7 @@ func TestJoiner(t *testing.T) {
 
 			expected := map[string][]map[string]any{
 				cid: {
-					{"movieID": "B", "avg_rating": 1.0, "title": "Movie B"},
+					{"movieID": "B", "avg_rating": 1.0, "title": "Movie B", "msgID": uint64(1)},
 				},
 			}
 			AssertResults(t, outputJoiner, expected)
@@ -965,9 +964,9 @@ func TestJoiner(t *testing.T) {
 			file, err := os.Create(filePath)
 			require.NoError(t, err)
 			writer := csv.NewWriter(file)
-			require.NoError(t, writer.Write([]string{"movieID", "rating", "id"}))
+			require.NoError(t, writer.Write([]string{"movieID", "rating"}))
 
-			require.NoError(t, writer.Write([]string{"10", "1.5", "1"}))
+			require.NoError(t, writer.Write([]string{"10", "1.5"}))
 
 			require.NoError(t, writer.Write([]string{"20"}))
 			writer.Flush()
@@ -995,7 +994,7 @@ func TestJoiner(t *testing.T) {
 
 			data, err := reader.Read()
 
-			if err != nil || len(data) < 3 {
+			if err != nil || len(data) < 2 {
 				require.Fail(t, fmt.Sprintf("invalid row in file %s: %v", filePath, err))
 			}
 			movieID := data[0]
@@ -1005,10 +1004,6 @@ func TestJoiner(t *testing.T) {
 			rating, err := strconv.ParseFloat(data[1], 64)
 			require.NoError(t, err)
 			require.Equal(t, 1.5, rating)
-
-			if data[2] != "1" {
-				require.Fail(t, fmt.Sprintf("expected id '1', got '%s' in file %s", data[2], filePath))
-			}
 
 			_, err = reader.Read()
 			require.Equal(t, io.EOF, err, fmt.Sprintf("expected EOF after reading movieID '10' in file %s", filePath))
@@ -1243,7 +1238,10 @@ func AssertResults(t *testing.T, outputJoiner middleware.Receiver[*model.Row], e
 					assert.Equal(t, row.Floats["avg_rating"], value)
 				case "actor":
 					assert.Equal(t, row.Strings["actor"], value)
+				case "msgID":
+					assert.Equal(t, env.Id(), value, "Message ID mismatch for client %s", cid)
 				}
+
 			}
 			if len(expected[cid]) > 1 {
 				expected[cid] = expected[cid][1:]
