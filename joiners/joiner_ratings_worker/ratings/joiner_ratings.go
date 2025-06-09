@@ -91,7 +91,7 @@ func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row, clientID stri
 		if err.Error() == "no rating found" {
 			_, hasFinished := f.finishedRatings[clientID]
 			if hasFinished {
-				f.log.Infof("No rating found for movie %s", movieID)
+				f.log.Debugf("cid: %s | No rating found for movie %s", clientID, movieID)
 				delete(f.pendingMovies[clientID], movieID)
 				return nil
 			}
@@ -101,7 +101,7 @@ func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row, clientID stri
 			if !isPending {
 				f.pendingMovies[clientID][movieID] = row
 				f.SavePendingMovie(clientID, movieID, row.Strings["title"])
-				f.log.Infof("Adding movie %s to pending movies", movieID)
+				f.log.Debugf("cid: %s | Adding movie %s to pending movies", clientID, movieID)
 			}
 			// else {
 			// 	delete(f.pendingMovies[clientID], movieID)
@@ -127,7 +127,7 @@ func (f *JoinerRatings) processMovieAndSendRatings(row *model.Row, clientID stri
 
 func (f *JoinerRatings) sendRating(output *model.Row, cid string, id uint64) error {
 
-	f.log.Infof("Sending rating data: %v", output)
+	f.log.Debugf("Sending rating data: %v", output)
 	err := f.taskSender.Send(output, cid, id)
 	if err != nil {
 		f.log.Errorf("Failed to send rating data: %v", err)
@@ -140,7 +140,7 @@ func (f *JoinerRatings) sendRating(output *model.Row, cid string, id uint64) err
 func (f *JoinerRatings) processRating(row *model.Row, id uint64, clientId string) error {
 	movieID := row.Strings["movieID"]
 	avg_rating := row.Floats["avg_rating"]
-	f.log.Infof("Processing rating %v :", row)
+	f.log.Debugf("Processing rating %v :", row)
 
 	fileName, err := f.getRatingFilename(clientId, movieID)
 	if err != nil {
@@ -190,7 +190,7 @@ func (f *JoinerRatings) processRating(row *model.Row, id uint64, clientId string
 	if ok {
 		movie, found = f.pendingMovies[clientId][movieID]
 		if found {
-			f.log.Infof("Processing pending movie: %s", movieID)
+			f.log.Debugf("Processing pending movie: %s", movieID)
 			rowRes := &model.Row{
 				Strings: map[string]string{
 					"movieID": movieID,
@@ -219,7 +219,7 @@ func (f *JoinerRatings) processMovie(row *model.Row, clientId string) (*model.Ro
 	title := row.Strings["title"]
 	var id uint64
 
-	f.log.Infof("Processing movie: %s", movieID)
+	f.log.Debugf("Processing movie: %s", movieID)
 	lastDigit := string(movieID[len(movieID)-1])
 
 	dirPath := fmt.Sprintf("joiner_ratings/joiner%s/%s", f.id, clientId)
@@ -329,7 +329,6 @@ func (f *JoinerRatings) Connect(middlewareConnection middleware.Connection[*mode
 	if err != nil {
 		return nil, fmt.Errorf("failed to create read queue clean_ratings for task %s", f.Name())
 	}
-	f.log.Infof("Created read queue exchange %s with groupName %s", f.Name(), groupQueueName)
 
 	f.taskReceiverMovies, err = middlewareConnection.ConsumeFrom(f.Input(), f.Name(), f.id, prefetch, uint(peers))
 	if err != nil {
@@ -420,6 +419,7 @@ func (f *JoinerRatings) ProcessPendingMovies(clientID string) error {
 		}
 	}
 	delete(f.pendingMovies, clientID)
+	f.log.Infof("Finished processing pending movies for client %s", clientID)
 	return err
 }
 

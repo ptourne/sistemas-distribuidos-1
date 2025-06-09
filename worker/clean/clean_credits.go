@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
@@ -110,10 +109,11 @@ func (f CleanCredits) process(row *model.Row) *model.Row {
 
 func (f *CleanCredits) Connect(inputMiddleware middleware.Connection[*model.Row], outputMiddleware middleware.Connection[*model.Row]) ([]chan middleware.Envelope[*model.Row], error) {
 	var err error
-	prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
-	}
+	// prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to parse PREFETCH: %w", err)
+	// }
+	prefetch := 1000
 	idWorker := os.Getenv("WORKER_ID")
 	if idWorker == "" {
 		return nil, fmt.Errorf("WORKER_ID environment variable is not set")

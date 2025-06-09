@@ -121,7 +121,6 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row, clientID strin
 	}
 
 	if !isPending && f.wasProcessed(row, clientID) {
-		f.log.Infof("Movie %s already processed for client %s", movieID, clientID)
 		return nil
 	}
 
@@ -130,7 +129,7 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row, clientID strin
 		if err.Error() == "no cast found" {
 			_, hasFinished := f.finishedCredits[clientID]
 			if hasFinished {
-				f.log.Debugf("No cast found for movie %s", movieID)
+				f.log.Debugf("cid: %s | No cast found for movie %s", clientID, movieID)
 				delete(f.pendingMovies[clientID], movieID)
 				//f.SaveProcessedMovie(clientID, movieID)
 				return nil
@@ -141,7 +140,7 @@ func (f *JoinerCredits) processMovieAndSendActors(row *model.Row, clientID strin
 			if !isPending {
 				f.pendingMovies[clientID][movieID] = row
 				f.SavePendingMovie(clientID, movieID)
-				f.log.Infof("Adding movie %s to pending movies", movieID)
+				f.log.Debugf("cid: %s | Adding movie %s to pending movies", clientID, movieID)
 			}
 			// else {
 			// 	delete(f.pendingMovies[clientID], movieID)

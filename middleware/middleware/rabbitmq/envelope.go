@@ -146,7 +146,7 @@ func newPrune2Envelope[T codec.Serializable[T]](
 	idWorker string,
 	msgEofNotLider *amqp.Delivery,
 ) middleware.Envelope[T] {
-	log2.Infof("Creating prune2 envelope for cid: %s, idWorker: %s", cid, idWorker)
+	log2.Debugf("Creating prune2 envelope for cid: %s, idWorker: %s", cid, idWorker)
 	return &prune2EnvelopeRabbitmq[T]{
 		closeSender:    closeSender,
 		cid:            cid,
