@@ -24,6 +24,7 @@ const MIDDLEWARE = "rabbitmq"
 type Worker struct {
 	Tasks                 task.JoinerTask[*model.Row, *model.Row]
 	ClientsFinishedMovies map[string]middleware.Envelope[*model.Row]
+	ClientsMoviesEOFs     map[string]middleware.Envelope[*model.Row]
 	ClientsFinishedInput  map[string]middleware.Envelope[*model.Row]
 	ClientsFinished       map[string]bool
 }
@@ -125,11 +126,11 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 			if ok && envelope != nil {
 				mustACK := true
 				if envelope.Type() == middleware.EOF {
-					_, exists := w.ClientsFinishedMovies[envelope.Cid()]
+					_, exists := w.ClientsMoviesEOFs[envelope.Cid()]
 					_, finished := w.ClientsFinished[envelope.Cid()]
 					if !exists && !finished {
 						log.Infof("MoviesEOFs: EOF message received for %s", envelope.Cid())
-						w.ClientsFinishedMovies[envelope.Cid()] = envelope
+						w.ClientsMoviesEOFs[envelope.Cid()] = envelope
 						mustACK = false
 					}
 				}
@@ -182,8 +183,10 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 func (w *Worker) setupMoviesEOFHandling(conn middleware.Connection[*model.Row], log *logger.ConsoleLogger) (chan middleware.Envelope[*model.Row], middleware.Receiver[*model.Row], middleware.Sender[*model.Row]) {
 	groupQueueName := w.Tasks.NameWithId()
 
+	prefetch := 100
+
 	peerCount := getWorkerCount(log)
-	receiver, err := conn.ConsumeFrom("moviesEOFs", groupQueueName, "0", 1, uint(1))
+	receiver, err := conn.ConsumeFrom("moviesEOFs", groupQueueName, "0", prefetch, uint(1))
 	unwrap(err, "Failed to consume moviesEOFs", log)
 
 	moviesEOFsChan := make(chan middleware.Envelope[*model.Row])
@@ -243,8 +246,9 @@ func (w *Worker) shutdown(middlewareConnection middleware.Connection[*model.Row]
 func (w *Worker) processEOF(envelope middleware.Envelope[*model.Row], id string, log *logger.ConsoleLogger, currentTask task.JoinerTask[*model.Row, *model.Row]) {
 	var err error
 	eofMovies, existsMovies := w.ClientsFinishedMovies[envelope.Cid()]
+	eofMovies2, existsMovies2 := w.ClientsMoviesEOFs[envelope.Cid()]
 	eofInput, existsInput := w.ClientsFinishedInput[envelope.Cid()]
-	if existsMovies && existsInput {
+	if (existsMovies || existsMovies2) && existsInput {
 		log.Infof("Client %s finished", envelope.Cid())
 		delete(w.ClientsFinishedMovies, envelope.Cid())
 		delete(w.ClientsFinishedInput, envelope.Cid())
@@ -254,9 +258,17 @@ func (w *Worker) processEOF(envelope middleware.Envelope[*model.Row], id string,
 			currentTask.FinishProcessingClient(envelope.Cid(), false)
 		}
 		log.Infof("Finished processing client %s", envelope.Cid())
-		err = eofMovies.Ack(false)
-		if err != nil {
-			log.Warnf("Failed to ack EOF message for movies: %v", err)
+		if existsMovies {
+			err = eofMovies.Ack(false)
+			if err != nil {
+				log.Warnf("Failed to ack EOF message for movies: %v", err)
+			}
+		}
+		if existsMovies2 {
+			err = eofMovies2.Ack(false)
+			if err != nil {
+				log.Warnf("Failed to ack EOF message for moviesEOFs: %v", err)
+			}
 		}
 		err = eofInput.Ack(false)
 		if err != nil {
@@ -331,6 +343,7 @@ func NewCreditsWorker(subscribers []string, id string, workerLogger *logger.Cons
 	return Worker{
 		Tasks:                 joiner_credits,
 		ClientsFinishedMovies: make(map[string]middleware.Envelope[*model.Row]),
+		ClientsMoviesEOFs:     make(map[string]middleware.Envelope[*model.Row]),
 		ClientsFinishedInput:  make(map[string]middleware.Envelope[*model.Row]),
 		ClientsFinished:       make(map[string]bool),
 	}
@@ -345,6 +358,7 @@ func NewRatingsWorker(subscribers []string, id string, workerLogger *logger.Cons
 	return Worker{
 		Tasks:                 joiner_ratings,
 		ClientsFinishedMovies: make(map[string]middleware.Envelope[*model.Row]),
+		ClientsMoviesEOFs:     make(map[string]middleware.Envelope[*model.Row]),
 		ClientsFinishedInput:  make(map[string]middleware.Envelope[*model.Row]),
 		ClientsFinished:       make(map[string]bool),
 	}

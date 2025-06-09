@@ -45,6 +45,9 @@ func TestJoiner(t *testing.T) {
 	test13 := provider.AsyncDeployRabbit()
 	test14 := provider.AsyncDeployRabbit()
 	test15 := provider.AsyncDeployRabbit()
+	test16 := provider.AsyncDeployRabbit()
+	test17 := provider.AsyncDeployRabbit()
+	test18 := provider.AsyncDeployRabbit()
 
 	test1container := <-test1
 	defer test1container.Container.Teardown()
@@ -76,6 +79,12 @@ func TestJoiner(t *testing.T) {
 	defer test14container.Container.Teardown()
 	test15container := <-test15
 	defer test15container.Container.Teardown()
+	test16container := <-test16
+	defer test16container.Container.Teardown()
+	test17container := <-test17
+	defer test17container.Container.Teardown()
+	test18container := <-test18
+	defer test18container.Container.Teardown()
 
 	t.Run("Credits", func(t *testing.T) {
 
@@ -141,7 +150,7 @@ func TestJoiner(t *testing.T) {
 			inputMovies, inputCredits, worker, outputJoiner, outputConnection := configTestJoinerCredits(t, init, "output_test2_credits", middlewareConnection)
 
 			// Cliente 1
-			cid := "client1"
+			cid := "client2a"
 			SendRows(t, inputMovies, cid,
 				uint64(0),
 				&model.Row{Strings: map[string]string{"movieID": "X"}},
@@ -154,7 +163,7 @@ func TestJoiner(t *testing.T) {
 				})
 
 			// Cliente 2: película sin créditos
-			cid = "client2"
+			cid = "client2b"
 			SendRows(t, inputMovies, cid,
 				uint64(0),
 				&model.Row{Strings: map[string]string{"movieID": "Y"}},
@@ -174,11 +183,11 @@ func TestJoiner(t *testing.T) {
 			}()
 
 			expected := map[string][]map[string]any{
-				"client1": {{
+				"client2a": {{
 					"movieID": "X",
 					"actor":   "Actor X",
 				}},
-				"client2": {},
+				"client2b": {},
 			}
 			AssertResults(t, outputJoiner, expected)
 
@@ -228,8 +237,8 @@ func TestJoiner(t *testing.T) {
 				joinerConnection.Close()
 			}()
 
-			inputMovies.SendEOF("client1")
-			inputCredits.SendEOF("client1")
+			inputMovies.SendEOF("client3")
+			inputCredits.SendEOF("client3")
 
 			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 			defer cancel()
@@ -324,7 +333,7 @@ func TestJoiner(t *testing.T) {
 
 			clients := make([]string, cantClients)
 			for i := range cantClients {
-				cid := fmt.Sprintf("client%d", i+1)
+				cid := fmt.Sprintf("client4_%d", i+1)
 				clients[i] = cid
 				inputMovies.SendEOF(cid)
 				inputCredits.SendEOF(cid)
@@ -355,7 +364,7 @@ func TestJoiner(t *testing.T) {
 
 			inputMovies, inputCredits, worker, outputJoiner, outputConnection := configTestJoinerCredits(t, init, "output_test7", middlewareConnection)
 
-			cid := "client1"
+			cid := "client7"
 
 			SendRows(t, inputMovies, cid,
 				uint64(0),
@@ -378,7 +387,7 @@ func TestJoiner(t *testing.T) {
 			}()
 
 			expected := map[string][]map[string]any{
-				"client1": {
+				cid: {
 					{"movieID": "A", "actor": "Actor 1"},
 					{"movieID": "A", "actor": "Actor 2"},
 				},
@@ -400,7 +409,7 @@ func TestJoiner(t *testing.T) {
 			assert.Equal(t, env.Msg().Strings["movieID"], "A")
 			assert.Equal(t, env.Msg().Strings["actor"], "Actor 2")
 
-			waitForFile(t, "joiner_credits/joiner0/client1/movies_B.csv", 5*time.Second)
+			waitForFile(t, "joiner_credits/joiner0/client7/movies_B.csv", 5*time.Second)
 
 			worker.Tasks.Finish()
 			wg.Wait()
@@ -422,7 +431,7 @@ func TestJoiner(t *testing.T) {
 			}()
 
 			expected = map[string][]map[string]any{
-				"client1": {
+				cid: {
 					{"movieID": "B", "actor": "Actor 3"},
 				},
 			}
@@ -447,7 +456,7 @@ func TestJoiner(t *testing.T) {
 
 			inputMovies, inputCredits, worker, outputJoiner, outputConnection := configTestJoinerCredits(t, init, "output_test9", middlewareConnection)
 
-			cid := "client1"
+			cid := "client9"
 
 			inputMovies.SendEOF(cid)
 
@@ -490,6 +499,174 @@ func TestJoiner(t *testing.T) {
 			outputJoiner.Close()
 			middlewareConnection.Close()
 			outputConnection.Close()
+		})
+
+		t.Run("RestartLeaderProcessEOFs", func(t *testing.T) {
+			init := test16container
+			require.NotNil(t, init)
+			require.NoError(t, init.Err)
+
+			middlewareSenderConnection := ConnectToRabbit(t, init, "sender")
+
+			inputMovies, err := middlewareSenderConnection.WriteTo("filter_release_date_ge_2000_and_include_ar", []string{"joiner_credits"}, "0", uint(2))
+			assert.NoError(t, err)
+			inputCredits, err := middlewareSenderConnection.WriteTo("clean_credits", []string{"joiner_0_credits", "joiner_1_credits"}, "0", uint(2))
+			assert.NoError(t, err)
+			os.Setenv("WORKER_COUNT", "2")
+			os.Setenv("WORKER_ID", "0")
+			workerLogger := logger.NewConsoleLogger("joiner_0", logger.Info)
+			worker1 := joiner.NewCreditsWorker([]string{"test16"}, "0", workerLogger)
+			os.Setenv("WORKER_ID", "1")
+			workerLogger = logger.NewConsoleLogger("joiner_1", logger.Info)
+			worker2 := joiner.NewCreditsWorker([]string{"test16"}, "1", workerLogger)
+			outputConnection := ConnectToRabbit(t, init, "output")
+			outputJoiner, err := outputConnection.ConsumeFrom(worker1.Tasks.Name(), "test16", "0", 1, uint(1))
+			assert.NoError(t, err)
+
+			cid := "client16"
+
+			inputMovies.SendEOF(cid)
+
+			joinerConnection1 := ConnectToRabbit(t, init, "0")
+			wg := sync.WaitGroup{}
+			wg2 := sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				worker1.Run(joinerConnection1)
+				joinerConnection1.Close()
+			}()
+
+			joinerConnection2 := ConnectToRabbit(t, init, "1")
+			wg2.Add(1)
+			go func() {
+				defer wg2.Done()
+				worker2.Run(joinerConnection2)
+				joinerConnection2.Close()
+			}()
+
+			for {
+				if _, exists := worker1.ClientsFinishedMovies[cid]; exists {
+					if _, exists := worker2.ClientsMoviesEOFs[cid]; exists {
+						break
+					}
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			worker1.Tasks.Finish()
+			inputCredits.SendEOF(cid)
+			wg.Wait()
+
+			workerLogger = logger.NewConsoleLogger("joiner_0", logger.Info)
+
+			worker1 = joiner.NewCreditsWorker([]string{"output_test16"}, "0", workerLogger)
+			joinerConnection1 = ConnectToRabbit(t, init, "0")
+			wg2.Add(1)
+			go func() {
+				defer wg2.Done()
+				worker1.Run(joinerConnection1)
+				joinerConnection1.Close()
+			}()
+
+			AsserEOFs(t, outputJoiner, []string{cid})
+
+			worker2.Tasks.Finish()
+			worker1.Tasks.Finish()
+
+			wg2.Wait()
+
+			inputMovies.Close()
+			inputCredits.Close()
+			outputJoiner.Close()
+			middlewareSenderConnection.Close()
+			outputConnection.Close()
+			os.Unsetenv("WORKER_COUNT")
+			os.Unsetenv("WORKER_ID")
+		})
+
+		t.Run("RestartNonLeaderProcessEOFs", func(t *testing.T) {
+			init := test17container
+			require.NotNil(t, init)
+			require.NoError(t, init.Err)
+
+			middlewareSenderConnection := ConnectToRabbit(t, init, "sender")
+
+			inputMovies, err := middlewareSenderConnection.WriteTo("filter_release_date_ge_2000_and_include_ar", []string{"joiner_credits"}, "0", uint(2))
+			assert.NoError(t, err)
+			inputCredits, err := middlewareSenderConnection.WriteTo("clean_credits", []string{"joiner_0_credits", "joiner_1_credits"}, "0", uint(2))
+			assert.NoError(t, err)
+			os.Setenv("WORKER_COUNT", "2")
+			os.Setenv("WORKER_ID", "0")
+			workerLogger := logger.NewConsoleLogger("joiner_0", logger.Info)
+			worker1 := joiner.NewCreditsWorker([]string{"test17"}, "0", workerLogger)
+			os.Setenv("WORKER_ID", "1")
+			workerLogger = logger.NewConsoleLogger("joiner_1", logger.Info)
+			worker2 := joiner.NewCreditsWorker([]string{"test17"}, "1", workerLogger)
+			outputConnection := ConnectToRabbit(t, init, "output")
+			outputJoiner, err := outputConnection.ConsumeFrom(worker1.Tasks.Name(), "test17", "0", 1, uint(1))
+			assert.NoError(t, err)
+
+			cid := "client17"
+
+			inputMovies.SendEOF(cid)
+
+			joinerConnection1 := ConnectToRabbit(t, init, "0")
+			wg := sync.WaitGroup{}
+			wg2 := sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				worker2.Run(joinerConnection1)
+				joinerConnection1.Close()
+			}()
+
+			joinerConnection2 := ConnectToRabbit(t, init, "1")
+			wg2.Add(1)
+			go func() {
+				defer wg2.Done()
+				worker1.Run(joinerConnection2)
+				joinerConnection2.Close()
+			}()
+
+			for {
+				if _, exists := worker1.ClientsFinishedMovies[cid]; exists {
+					if _, exists := worker2.ClientsMoviesEOFs[cid]; exists {
+						break
+					}
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			worker2.Tasks.Finish()
+			inputCredits.SendEOF(cid)
+			wg.Wait()
+
+			workerLogger = logger.NewConsoleLogger("joiner_1", logger.Info)
+
+			worker2 = joiner.NewCreditsWorker([]string{"test17"}, "1", workerLogger)
+			joinerConnection1 = ConnectToRabbit(t, init, "1")
+			wg2.Add(1)
+			go func() {
+				defer wg2.Done()
+				worker2.Run(joinerConnection1)
+				joinerConnection1.Close()
+			}()
+
+			AsserEOFs(t, outputJoiner, []string{cid})
+
+			worker1.Tasks.Finish()
+			worker2.Tasks.Finish()
+
+			wg2.Wait()
+
+			inputMovies.Close()
+			inputCredits.Close()
+			outputJoiner.Close()
+			middlewareSenderConnection.Close()
+			outputConnection.Close()
+			os.Unsetenv("WORKER_COUNT")
+			os.Unsetenv("WORKER_ID")
 		})
 
 		t.Run("ProcessCorruptCreditsFile", func(t *testing.T) {
@@ -591,7 +768,7 @@ func TestJoiner(t *testing.T) {
 
 			inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test1_ratings", middlewareConnection)
 
-			cid := "client1"
+			cid := "client5"
 			SendRows(t, inputMovies, cid,
 				uint64(0),
 				&model.Row{Strings: map[string]string{"movieID": "A", "title": "Movie A"}},
@@ -613,7 +790,7 @@ func TestJoiner(t *testing.T) {
 
 			// Verificar salida
 			expected := map[string][]map[string]any{
-				"client1": {{
+				cid: {{
 					"movieID":    "A",
 					"title":      "Movie A",
 					"avg_rating": 3.5,
@@ -638,7 +815,7 @@ func TestJoiner(t *testing.T) {
 
 			inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test2_ratings", middlewareConnection)
 
-			cid := "client1"
+			cid := "client6_a"
 			SendRows(t, inputMovies, cid,
 				uint64(0),
 				&model.Row{Strings: map[string]string{"movieID": "A", "title": "Movie A"}},
@@ -652,7 +829,7 @@ func TestJoiner(t *testing.T) {
 					Floats:  map[string]float64{"avg_rating": 3.5},
 				})
 
-			cid = "client2"
+			cid = "client6_b"
 			SendRows(t, inputMovies, cid,
 				uint64(4),
 				&model.Row{Strings: map[string]string{"movieID": "C", "title": "Movie C"}},
@@ -674,12 +851,12 @@ func TestJoiner(t *testing.T) {
 
 			// Verificar salida
 			expected := map[string][]map[string]any{
-				"client1": {{
+				"client6_a": {{
 					"movieID":    "A",
 					"title":      "Movie A",
 					"avg_rating": 3.5,
 				}},
-				"client2": {{
+				"client6_b": {{
 					"movieID":    "D",
 					"title":      "Movie D",
 					"avg_rating": 1.0,
@@ -693,7 +870,6 @@ func TestJoiner(t *testing.T) {
 			outputJoiner.Close()
 			middlewareConnection.Close()
 			outputConnection.Close()
-			worker.Tasks.Finish()
 		})
 
 		t.Run("RestartProcessPendingMovies", func(t *testing.T) {
@@ -705,7 +881,7 @@ func TestJoiner(t *testing.T) {
 
 			inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test8", middlewareConnection)
 
-			cid := "client1"
+			cid := "client8"
 			SendRows(t, inputMovies, cid,
 				uint64(0),
 				&model.Row{Strings: map[string]string{"movieID": "A", "title": "Movie A"}},
@@ -734,7 +910,7 @@ func TestJoiner(t *testing.T) {
 			assert.Equal(t, env.Msg().Strings["movieID"], "A")
 			assert.Equal(t, env.Msg().Floats["avg_rating"], 3.5)
 
-			waitForFile(t, "joiner_ratings/joiner0/client1/movies_B.csv", 5*time.Second)
+			waitForFile(t, "joiner_ratings/joiner0/client8/movies_B.csv", 5*time.Second)
 
 			worker.Tasks.Finish()
 			wg.Wait()
@@ -759,7 +935,7 @@ func TestJoiner(t *testing.T) {
 			}()
 
 			expected := map[string][]map[string]any{
-				"client1": {
+				cid: {
 					{"movieID": "B", "avg_rating": 1.0, "title": "Movie B"},
 				},
 			}
@@ -859,6 +1035,96 @@ func TestJoiner(t *testing.T) {
 
 		t.Run("ProcessCorruptProcessedMoviesFile", func(t *testing.T) {
 			testJoinerRatingsCorruptMoviesFile(t, "client15", "processed_movies", test15container, "output_test15")
+		})
+
+		t.Run("MultipleJoinersMultipleClients", func(t *testing.T) {
+
+			init := test18container
+			require.NotNil(t, init)
+			require.NoError(t, init.Err)
+
+			cantWorkers := 5
+			cantClients := 5
+			middlewareSenderConnection := ConnectToRabbit(t, init, "sender")
+			inputMovies, err := middlewareSenderConnection.WriteTo("filter_release_date_ge_2000_and_include_ar", []string{"joiner_ratings"}, "0", uint(cantWorkers))
+			assert.NoError(t, err)
+			susbscribers := make([]string, cantWorkers)
+			for i := range cantWorkers {
+				susbscribers[i] = fmt.Sprintf("joiner_%d_ratings", i)
+			}
+			inputRatings, err := middlewareSenderConnection.WriteTo("filter_avg_rating", susbscribers, "0", uint(cantWorkers))
+			assert.NoError(t, err)
+
+			clients := make([]string, cantClients)
+			for i := range cantClients {
+				cid := fmt.Sprintf("client18_%d", i)
+				clients[i] = cid
+				inputMovies.SendEOF(cid)
+				inputRatings.SendEOF(cid)
+			}
+
+			os.Setenv("WORKER_COUNT", "5")
+			workers := make([]joiner.Worker, cantWorkers)
+			for i := range cantWorkers {
+				ID := fmt.Sprintf("%d", i)
+				workerLogger := logger.NewConsoleLogger(fmt.Sprintf("joiner_%s", ID), logger.Info)
+				worker := joiner.NewRatingsWorker([]string{"test18"}, ID, workerLogger)
+				workers[i] = worker
+			}
+			outputConnection := ConnectToRabbit(t, init, "output")
+			outputJoiner, err := outputConnection.ConsumeFrom(workers[0].Tasks.Name(), "test18", "0", 1, uint(1))
+			assert.NoError(t, err)
+
+			var wg sync.WaitGroup
+			wg.Add(5)
+
+			go func() {
+				defer wg.Done()
+				joinerConnection := ConnectToRabbit(t, init, "4")
+				workers[4].Run(joinerConnection)
+				joinerConnection.Close()
+			}()
+			go func() {
+				defer wg.Done()
+				joinerConnection := ConnectToRabbit(t, init, "1")
+				workers[1].Run(joinerConnection)
+				joinerConnection.Close()
+			}()
+
+			go func() {
+				defer wg.Done()
+				joinerConnection := ConnectToRabbit(t, init, "2")
+				workers[2].Run(joinerConnection)
+				joinerConnection.Close()
+			}()
+
+			go func() {
+				defer wg.Done()
+				joinerConnection := ConnectToRabbit(t, init, "3")
+				workers[3].Run(joinerConnection)
+				joinerConnection.Close()
+			}()
+
+			go func() {
+				defer wg.Done()
+				joinerConnection := ConnectToRabbit(t, init, "0")
+				workers[0].Run(joinerConnection)
+				joinerConnection.Close()
+			}()
+
+			AsserEOFs(t, outputJoiner, clients)
+
+			os.Unsetenv("WORKER_COUNT")
+
+			inputMovies.Close()
+			inputRatings.Close()
+			outputJoiner.Close()
+			middlewareSenderConnection.Close()
+			outputConnection.Close()
+			for i := range cantWorkers {
+				workers[i].Tasks.Finish()
+			}
+
 		})
 	})
 }
