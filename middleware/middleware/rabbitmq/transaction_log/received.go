@@ -11,7 +11,6 @@ import (
 type received struct {
 	cid  uint64
 	id   uint64
-	t    ReceivedType
 	data []byte
 }
 
@@ -23,32 +22,18 @@ func (r received) Encode() []byte {
 	var headerSize = 1 + // log type
 		8 + // cid
 		8 + // id
-		1 // received type
-	if r.t == ReceivedType_Normal {
-		headerSize += 4 // data length
-	}
-	bufLen := headerSize
-	if r.t == ReceivedType_Normal {
-		bufLen += dataLen
-	}
+		4 // data length
+
+	bufLen := headerSize + dataLen
 	buf := make([]byte, bufLen)
 	buf[0] = byte(LogType_Received)
 	binary.BigEndian.PutUint64(buf[1:], r.cid)
 	binary.BigEndian.PutUint64(buf[1+8:], r.id)
-	buf[1+8+8] = byte(r.t)
-	if r.t == ReceivedType_Normal {
-		binary.BigEndian.PutUint32(buf[1+8+8+1:], uint32(dataLen))
-		copy(buf[headerSize:], r.data)
-	}
+	binary.BigEndian.PutUint32(buf[1+8+8:], uint32(dataLen))
+	copy(buf[headerSize:], r.data)
+
 	return buf
 }
-
-type ReceivedType rune
-
-const (
-	ReceivedType_Normal ReceivedType = 'N'
-	ReceivedType_EOF    ReceivedType = 'E'
-)
 
 func (r *received) Decode(reader io.Reader) error {
 	var err error
@@ -60,28 +45,14 @@ func (r *received) Decode(reader io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("failed to read msg id: %w", err)
 	}
-	typeR, err := codec.DoRead(1, reader)
+	dataLen, err := codec.DoRead(4, reader)
 	if err != nil {
-		return fmt.Errorf("failed to read log type: %w", err)
+		return fmt.Errorf("failed to read data length: %w", err)
 	}
-	switch ReceivedType(typeR[0]) {
-	case ReceivedType_Normal:
-		r.t = ReceivedType_Normal
-		dataLen, err := codec.DoRead(4, reader)
-		if err != nil {
-			return fmt.Errorf("failed to read data length: %w", err)
-		}
-		dataLenInt := binary.BigEndian.Uint32(dataLen)
-		r.data, err = codec.DoRead(uint64(dataLenInt), reader)
-		if err != nil {
-			return fmt.Errorf("failed to read data: %w", err)
-		}
-		return nil
-	case ReceivedType_EOF:
-		r.data = nil
-		r.t = ReceivedType_EOF
-		return nil
-	default:
-		return fmt.Errorf("unknown received type: %v", typeR[0])
+	dataLenInt := binary.BigEndian.Uint32(dataLen)
+	r.data, err = codec.DoRead(uint64(dataLenInt), reader)
+	if err != nil {
+		return fmt.Errorf("failed to read data: %w", err)
 	}
+	return nil
 }

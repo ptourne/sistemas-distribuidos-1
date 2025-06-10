@@ -10,25 +10,34 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 )
 
+type ReceivedType rune
+
+const (
+	ReceivedType_Normal ReceivedType = 'N'
+	ReceivedType_EOF    ReceivedType = 'E'
+)
+
 type Transaction struct {
 	Cid  uint64
 	Id   uint64
+	T    ReceivedType
 	Data []byte
 }
 
 type TransactionLog interface {
 	Received(cid, id uint64, data []byte) error
-	ReceivedEOF(cid, id uint64) error
-	Acknowledged(cid, id uint64) error
+	ReceivedEOF(cid uint64) error
+	Acknowledged() error
 	OpenedTransaction() *Transaction
 	IsDuplicate(cid, id uint64) bool
+	HasTransactions(cid uint64) bool
 	Close() error
 }
 
 type A interface {
 	Received(cid, id uint64, data []byte) error
-	ReceivedEOF(cid, id uint64) error
-	Acknowledged(cid, id uint64) error
+	ReceivedEOF(cid uint64) error
+	Acknowledged() error
 	FromCheckpoint(data []byte) error
 	Dump() []byte
 }
@@ -210,20 +219,19 @@ func (l transactionLog) CatchUpWithLog(reader io.Reader, parent A) error {
 				break
 			}
 			l.received(log)
-			switch log.t {
-			case ReceivedType_Normal:
-				parent.Received(log.cid, log.id, log.data)
-			case ReceivedType_EOF:
-				parent.ReceivedEOF(log.cid, log.id)
-			}
-		case LogType_Acknowledged:
-			var log acknowledged
+			parent.Received(log.cid, log.id, log.data)
+
+		case LogType_ReceivedEOF:
+			var log receivedEof
 			err := log.Decode(reader)
 			if err != nil {
 				break
 			}
-			l.closeTransaction(log.cid, log.id)
-			parent.Acknowledged(log.cid, log.id)
+			l.receivedEOF(log)
+			parent.ReceivedEOF(log.cid)
+		case LogType_Acknowledged:
+			l.acknowledged()
+			parent.Acknowledged()
 		default:
 			return nil
 		}
@@ -345,7 +353,7 @@ func newTransactionLog(dirPath string, idx uint64) (*transactionLog, error) {
 }
 
 func (t *transactionLog) Received(cid, id uint64, data []byte) error {
-	received := received{cid, id, ReceivedType_Normal, data}
+	received := received{cid, id, data}
 	t.received(received)
 	buf := received.Encode()
 	if err := codec.DoWrite(buf, t.logWriter); err != nil {
@@ -357,9 +365,19 @@ func (t *transactionLog) Received(cid, id uint64, data []byte) error {
 	return nil
 }
 
-func (t *transactionLog) ReceivedEOF(cid, id uint64) error {
-	received := received{cid, id, ReceivedType_EOF, nil}
-	t.received(received)
+func (t *transactionLog) received(log received) {
+	t.acknowledged()
+	t.openedTransaction = &Transaction{
+		Cid:  log.cid,
+		Id:   log.id,
+		T:    ReceivedType_Normal,
+		Data: log.data,
+	}
+}
+
+func (t *transactionLog) ReceivedEOF(cid uint64) error {
+	received := receivedEof{cid}
+	t.receivedEOF(received)
 	buf := received.Encode()
 	if err := codec.DoWrite(buf, t.logWriter); err != nil {
 		return fmt.Errorf("failed to write received log: %w", err)
@@ -370,9 +388,18 @@ func (t *transactionLog) ReceivedEOF(cid, id uint64) error {
 	return nil
 }
 
-func (t *transactionLog) Acknowledged(cid, id uint64) error {
-	t.closeTransaction(cid, id)
-	buf := acknowledged{cid, id}.Encode()
+func (t *transactionLog) receivedEOF(log receivedEof) {
+	t.acknowledged()
+	t.openedTransaction = &Transaction{
+		Cid: log.cid,
+		T:   ReceivedType_EOF,
+	}
+	delete(t.lastClosedTransactions, log.cid)
+}
+
+func (t *transactionLog) Acknowledged() error {
+	t.acknowledged()
+	buf := acknowledged{}.Encode()
 	if err := codec.DoWrite(buf, t.logWriter); err != nil {
 		return fmt.Errorf("failed to write acknowledged log: %w", err)
 	}
@@ -382,6 +409,13 @@ func (t *transactionLog) Acknowledged(cid, id uint64) error {
 	return nil
 }
 
+func (t *transactionLog) acknowledged() {
+	if t.openedTransaction != nil && t.openedTransaction.T != ReceivedType_EOF {
+		t.lastClosedTransactions[t.openedTransaction.Cid] = t.openedTransaction.Id
+		t.openedTransaction = nil
+	}
+}
+
 func (t *transactionLog) OpenedTransaction() *Transaction {
 	return t.openedTransaction
 }
@@ -389,6 +423,11 @@ func (t *transactionLog) OpenedTransaction() *Transaction {
 func (t *transactionLog) IsDuplicate(cid, id uint64) bool {
 	lastTransaction, ok := t.lastClosedTransactions[cid]
 	return ok && lastTransaction >= id
+}
+
+func (t *transactionLog) HasTransactions(cid uint64) bool {
+	_, ok := t.lastClosedTransactions[cid]
+	return ok
 }
 
 func (t *transactionLog) Close() error {
@@ -402,23 +441,4 @@ func (t *transactionLog) Close() error {
 		t.logWriter = nil
 	}
 	return nil
-}
-
-func (t *transactionLog) received(log received) {
-	t.openedTransaction = &Transaction{
-		Cid:  log.cid,
-		Id:   log.id,
-		Data: log.data,
-	}
-}
-
-func (t *transactionLog) closeTransaction(cid uint64, id uint64) {
-	if t.openedTransaction != nil &&
-		t.openedTransaction.Cid == cid &&
-		t.openedTransaction.Id == id {
-		t.lastClosedTransactions[cid] = id
-		t.openedTransaction = nil
-	} else {
-		panic(fmt.Sprintf("transaction %d not found", id))
-	}
 }

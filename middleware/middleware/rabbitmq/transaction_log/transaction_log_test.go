@@ -9,14 +9,15 @@ import (
 
 type Op struct {
 	*received
+	*receivedEof
 	*acknowledged
 }
 
 func TestTransactionLog(t *testing.T) {
 	t.Run("Test Closed Transaction", func(t *testing.T) {
 		testWithOps(t, []Op{
-			{received: &received{1, 1, ReceivedType_Normal, []byte("data")}},
-			{acknowledged: &acknowledged{1, 1}},
+			{received: &received{1, 1, []byte("data")}},
+			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			assert.True(t, tl.IsDuplicate(1, 1))
 			assert.False(t, tl.IsDuplicate(2, 1))
@@ -26,10 +27,10 @@ func TestTransactionLog(t *testing.T) {
 
 	t.Run("Test Non-Contiguous Transactions", func(t *testing.T) {
 		testWithOps(t, []Op{
-			{received: &received{1, 1, ReceivedType_Normal, []byte("data")}},
-			{acknowledged: &acknowledged{1, 1}},
-			{received: &received{1, 3, ReceivedType_Normal, []byte("data")}},
-			{acknowledged: &acknowledged{1, 3}},
+			{received: &received{1, 1, []byte("data")}},
+			{acknowledged: &acknowledged{}},
+			{received: &received{1, 3, []byte("data")}},
+			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			assert.True(t, tl.IsDuplicate(1, 1))
 			assert.True(t, tl.IsDuplicate(1, 3))
@@ -39,20 +40,20 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Multiple Clients Isolation", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Client 1 transactions
-			{received: &received{1, 1, ReceivedType_Normal, []byte("client1_data1")}},
-			{acknowledged: &acknowledged{1, 1}},
-			{received: &received{1, 2, ReceivedType_Normal, []byte("client1_data2")}},
-			{acknowledged: &acknowledged{1, 2}},
+			{received: &received{1, 1, []byte("client1_data1")}},
+			{acknowledged: &acknowledged{}},
+			{received: &received{1, 2, []byte("client1_data2")}},
+			{acknowledged: &acknowledged{}},
 
 			// Client 2 transactions
-			{received: &received{2, 1, ReceivedType_Normal, []byte("client2_data1")}},
-			{acknowledged: &acknowledged{2, 1}},
-			{received: &received{2, 3, ReceivedType_Normal, []byte("client2_data3")}},
-			{acknowledged: &acknowledged{2, 3}},
+			{received: &received{2, 1, []byte("client2_data1")}},
+			{acknowledged: &acknowledged{}},
+			{received: &received{2, 3, []byte("client2_data3")}},
+			{acknowledged: &acknowledged{}},
 
 			// Client 3 transactions
-			{received: &received{3, 5, ReceivedType_Normal, []byte("client3_data5")}},
-			{acknowledged: &acknowledged{3, 5}},
+			{received: &received{3, 5, []byte("client3_data5")}},
+			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Verify each client's transactions are tracked correctly
 			assert.True(t, tl.IsDuplicate(1, 1), "Client 1 transaction 1 should be duplicate")
@@ -73,22 +74,21 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test EOF Messages Don't Mix Between Clients", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Normal and EOF messages for different clients
-			{received: &received{1, 1, ReceivedType_Normal, []byte("client1_normal")}},
-			{acknowledged: &acknowledged{1, 1}},
-			{received: &received{2, 1, ReceivedType_EOF, nil}},
-			{acknowledged: &acknowledged{2, 1}},
-			{received: &received{1, 2, ReceivedType_EOF, nil}},
-			{acknowledged: &acknowledged{1, 2}},
-			{received: &received{3, 10, ReceivedType_Normal, []byte("client3_normal")}},
-			{acknowledged: &acknowledged{3, 10}},
+			{received: &received{1, 1, []byte("client1_normal")}},
+			{acknowledged: &acknowledged{}},
+			{receivedEof: &receivedEof{2}},
+			{acknowledged: &acknowledged{}},
+			{receivedEof: &receivedEof{1}},
+			{acknowledged: &acknowledged{}},
+			{received: &received{3, 10, []byte("client3_normal")}},
+			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Verify each client's transactions are properly isolated
-			assert.True(t, tl.IsDuplicate(1, 1), "Client 1 normal message should be duplicate")
-			assert.True(t, tl.IsDuplicate(1, 2), "Client 1 EOF message should be duplicate")
-			assert.True(t, tl.IsDuplicate(2, 1), "Client 2 EOF message should be duplicate")
 			assert.True(t, tl.IsDuplicate(3, 10), "Client 3 normal message should be duplicate")
 
 			// Verify cross-client isolation
+			assert.False(t, tl.HasTransactions(1), "Client 1 EOF message should not be duplicate")
+			assert.False(t, tl.HasTransactions(2), "Client 2 EOF message should not be duplicate")
 			assert.False(t, tl.IsDuplicate(1, 10), "Client 1 should not have transaction 10")
 			assert.False(t, tl.IsDuplicate(2, 2), "Client 2 should not have transaction 2")
 		})
@@ -103,8 +103,8 @@ func TestTransactionLog(t *testing.T) {
 		for cid := uint64(1); cid <= uint64(numClients); cid++ {
 			for id := uint64(1); id <= uint64(transactionsPerClient); id++ {
 				data := []byte(fmt.Sprintf("client%d_msg%d", cid, id))
-				ops = append(ops, Op{received: &received{cid, id, ReceivedType_Normal, data}})
-				ops = append(ops, Op{acknowledged: &acknowledged{cid, id}})
+				ops = append(ops, Op{received: &received{cid, id, data}})
+				ops = append(ops, Op{acknowledged: &acknowledged{}})
 			}
 		}
 
@@ -129,16 +129,16 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Client ID Edge Cases", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Test with client ID 0
-			{received: &received{0, 1, ReceivedType_Normal, []byte("client0_data")}},
-			{acknowledged: &acknowledged{0, 1}},
+			{received: &received{0, 1, []byte("client0_data")}},
+			{acknowledged: &acknowledged{}},
 
 			// Test with very large client ID
-			{received: &received{^uint64(0), 1, ReceivedType_Normal, []byte("max_client_data")}},
-			{acknowledged: &acknowledged{^uint64(0), 1}},
+			{received: &received{^uint64(0), 1, []byte("max_client_data")}},
+			{acknowledged: &acknowledged{}},
 
 			// Test with regular client ID
-			{received: &received{42, 1, ReceivedType_Normal, []byte("client42_data")}},
-			{acknowledged: &acknowledged{42, 1}},
+			{received: &received{42, 1, []byte("client42_data")}},
+			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Verify each client ID is handled correctly
 			assert.True(t, tl.IsDuplicate(0, 1), "Client 0 transaction should be duplicate")
@@ -161,14 +161,14 @@ func TestTransactionLog(t *testing.T) {
 		// This test specifically verifies that after recovery from disk,
 		// client isolation is maintained
 		testWithOps(t, []Op{
-			{received: &received{100, 5, ReceivedType_Normal, []byte("client100_before_recovery")}},
-			{acknowledged: &acknowledged{100, 5}},
-			{received: &received{200, 3, ReceivedType_Normal, []byte("client200_before_recovery")}},
-			{acknowledged: &acknowledged{200, 3}},
-			{received: &received{100, 10, ReceivedType_Normal, []byte("client100_after_recovery")}},
-			{acknowledged: &acknowledged{100, 10}},
-			{received: &received{300, 1, ReceivedType_Normal, []byte("client300_new")}},
-			{acknowledged: &acknowledged{300, 1}},
+			{received: &received{100, 5, []byte("client100_before_recovery")}},
+			{acknowledged: &acknowledged{}},
+			{received: &received{200, 3, []byte("client200_before_recovery")}},
+			{acknowledged: &acknowledged{}},
+			{received: &received{100, 10, []byte("client100_after_recovery")}},
+			{acknowledged: &acknowledged{}},
+			{received: &received{300, 1, []byte("client300_new")}},
+			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Verify all client transactions are preserved after recovery
 			assert.True(t, tl.IsDuplicate(100, 5), "Client 100 transaction 5 should be duplicate after recovery")
@@ -186,21 +186,15 @@ func TestTransactionLog(t *testing.T) {
 type mockParent struct {
 }
 
-// Received(cid, id uint64, data []byte) error
-// ReceivedEOF(cid, id uint64) error
-// Acknowledged(cid, id uint64) error
-// FromCheckpoint(data []byte) error
-// Dump() []byte
-
 func (p *mockParent) Received(cid, id uint64, data []byte) error {
 	return nil
 }
 
-func (p *mockParent) ReceivedEOF(cid, id uint64) error {
+func (p *mockParent) ReceivedEOF(cid uint64) error {
 	return nil
 }
 
-func (p *mockParent) Acknowledged(cid, id uint64) error {
+func (p *mockParent) Acknowledged() error {
 	return nil
 }
 
@@ -224,14 +218,11 @@ func testWithOps(t *testing.T, ops []Op, tests func(tl TransactionLog)) {
 	for _, op := range ops {
 		var err error
 		if op.received != nil {
-			switch op.received.t {
-			case ReceivedType_Normal:
-				err = tl.Received(op.received.cid, op.received.id, op.received.data)
-			case ReceivedType_EOF:
-				err = tl.ReceivedEOF(op.received.cid, op.received.id)
-			}
+			err = tl.Received(op.received.cid, op.received.id, op.received.data)
+		} else if op.receivedEof != nil {
+			err = tl.ReceivedEOF(op.receivedEof.cid)
 		} else if op.acknowledged != nil {
-			err = tl.Acknowledged(op.acknowledged.cid, op.acknowledged.id)
+			err = tl.Acknowledged()
 		}
 		assert.NoError(t, err)
 	}
