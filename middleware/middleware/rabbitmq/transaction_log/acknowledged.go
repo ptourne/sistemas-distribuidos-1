@@ -28,11 +28,11 @@ func (r *acknowledged) Decode(reader io.Reader) error {
 	var err error
 	r.cid, err = codec.Uint64Decode(reader)
 	if err != nil {
-		fmt.Errorf("failed to read log type: %w", err)
+		return fmt.Errorf("failed to read cid: %w", err)
 	}
 	r.id, err = codec.Uint64Decode(reader)
 	if err != nil {
-		fmt.Errorf("failed to read log type: %w", err)
+		return fmt.Errorf("failed to read id: %w", err)
 	}
 	return nil
 }

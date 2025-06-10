@@ -54,11 +54,11 @@ func (r *received) Decode(reader io.Reader) error {
 	var err error
 	r.cid, err = codec.Uint64Decode(reader)
 	if err != nil {
-		fmt.Errorf("failed to read msg cid: %w", err)
+		return fmt.Errorf("failed to read msg cid: %w", err)
 	}
 	r.id, err = codec.Uint64Decode(reader)
 	if err != nil {
-		fmt.Errorf("failed to read msg id: %w", err)
+		return fmt.Errorf("failed to read msg id: %w", err)
 	}
 	typeR, err := codec.DoRead(1, reader)
 	if err != nil {
@@ -69,12 +69,12 @@ func (r *received) Decode(reader io.Reader) error {
 		r.t = ReceivedType_Normal
 		dataLen, err := codec.DoRead(4, reader)
 		if err != nil {
-			return fmt.Errorf("failed to read log type: %w", err)
+			return fmt.Errorf("failed to read data length: %w", err)
 		}
 		dataLenInt := binary.BigEndian.Uint32(dataLen)
 		r.data, err = codec.DoRead(uint64(dataLenInt), reader)
 		if err != nil {
-			return fmt.Errorf("failed to read log type: %w", err)
+			return fmt.Errorf("failed to read data: %w", err)
 		}
 		return nil
 	case ReceivedType_EOF:

@@ -22,6 +22,7 @@ type TransactionLog interface {
 	Acknowledged(cid, id uint64) error
 	OpenedTransaction() *Transaction
 	IsDuplicate(cid, id uint64) bool
+	Close() error
 }
 
 type A interface {
@@ -95,7 +96,10 @@ func newTransactionLogFromFirstLog(dirPath string, parent A) (TransactionLog, er
 		return nil, fmt.Errorf("failed to catch up with transaction log 0: %v", err)
 	}
 	data := parent.Dump()
-	tlog.Dump(data)
+	err = tlog.Dump(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dump checkpoint: %w", err)
+	}
 
 	return tlog, nil
 }
@@ -103,9 +107,9 @@ func newTransactionLogFromFirstLog(dirPath string, parent A) (TransactionLog, er
 func newTransactionLogFromLastLogAndCheckpoint(dirPath string, lastLogFileN int, parent A) (TransactionLog, error) {
 	tlog, err := newTransactionLogFromCheckpoint(dirPath, lastLogFileN, parent)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create transaction log from first log: %v", err)
+		return nil, fmt.Errorf("failed to create transaction log from checkpoint: %v", err)
 	}
-	reader, err := os.Open(path.Join(logDirectory(dirPath), "0"))
+	reader, err := os.Open(path.Join(logDirectory(dirPath), fmt.Sprintf("%d", lastLogFileN)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open transaction log file: %v", err)
 	}
@@ -115,11 +119,14 @@ func newTransactionLogFromLastLogAndCheckpoint(dirPath string, lastLogFileN int,
 		return nil, fmt.Errorf("failed to close previous log file: %w", errc)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to catch up with transaction log 0: %v", err)
+		return nil, fmt.Errorf("failed to catch up with transaction log %d: %v", lastLogFileN, err)
 	}
 
 	data := parent.Dump()
-	tlog.Dump(data)
+	err = tlog.Dump(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dump checkpoint: %w", err)
+	}
 
 	return tlog, nil
 }
@@ -299,8 +306,10 @@ func (l *transactionLog) Dump(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to create new log file: %w", err)
 	}
-	if err := l.logWriter.Close(); err != nil {
-		return fmt.Errorf("failed to close previous log file: %w", err)
+	if l.logWriter != nil {
+		if err := l.logWriter.Close(); err != nil {
+			return fmt.Errorf("failed to close previous log file: %w", err)
+		}
 	}
 	l.logWriter = newLogFile
 
@@ -380,6 +389,19 @@ func (t *transactionLog) OpenedTransaction() *Transaction {
 func (t *transactionLog) IsDuplicate(cid, id uint64) bool {
 	lastTransaction, ok := t.lastClosedTransactions[cid]
 	return ok && lastTransaction >= id
+}
+
+func (t *transactionLog) Close() error {
+	if t.logWriter != nil {
+		if err := t.logWriter.Sync(); err != nil {
+			return fmt.Errorf("failed to sync log file before closing: %w", err)
+		}
+		if err := t.logWriter.Close(); err != nil {
+			return fmt.Errorf("failed to close log file: %w", err)
+		}
+		t.logWriter = nil
+	}
+	return nil
 }
 
 func (t *transactionLog) received(log received) {
