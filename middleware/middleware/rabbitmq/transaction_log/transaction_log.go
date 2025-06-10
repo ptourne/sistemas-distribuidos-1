@@ -205,7 +205,7 @@ func newTransactionLogFromCheckpoint(dirPath string, lastLogFileN int, parent A)
 	}, nil
 }
 
-func (l transactionLog) CatchUpWithLog(reader io.Reader, parent A) error {
+func (l *transactionLog) CatchUpWithLog(reader io.Reader, parent A) error {
 	for {
 		logType, err := codec.DoRead(1, reader)
 		if err != nil {
