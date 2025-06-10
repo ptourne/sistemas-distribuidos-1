@@ -378,7 +378,7 @@ func (f *JoinerCredits) Connect(middlewareConnection middleware.Connection[*mode
 		return nil, fmt.Errorf("failed to parse WORKER_COUNT: %w", err)
 	}
 
-	prefetch := 500
+	prefetch := 2000
 	groupQueueName := f.NameWithId()
 	consumerCountStr := os.Getenv("CONSUMER_COUNT")
 	if consumerCountStr == "" {
