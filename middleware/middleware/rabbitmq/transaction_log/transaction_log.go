@@ -63,7 +63,18 @@ func NewTransactionLogFromDir(dirPath string, parent A) (TransactionLog, error) 
 }
 
 func newTransactionLogFromScratch(dirPath string) (TransactionLog, error) {
-	return newTransactionLog(dirPath, 0)
+	tl, err := newTransactionLog(dirPath, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transaction log from scratch: %v", err)
+	}
+
+	logFilePath := path.Join(tl.logDirectory, fmt.Sprintf("%d", tl.idx))
+	writer, err := os.Create(logFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transaction log file: %v", err)
+	}
+	tl.logWriter = writer
+	return tl, nil
 }
 
 func newTransactionLogFromFirstLog(dirPath string, parent A) (TransactionLog, error) {
@@ -77,6 +88,9 @@ func newTransactionLogFromFirstLog(dirPath string, parent A) (TransactionLog, er
 	}
 
 	err = tlog.CatchUpWithLog(reader, parent)
+	if errc := reader.Close(); errc != nil {
+		return nil, fmt.Errorf("failed to close previous log file: %w", errc)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to catch up with transaction log 0: %v", err)
 	}
@@ -97,12 +111,16 @@ func newTransactionLogFromLastLogAndCheckpoint(dirPath string, lastLogFileN int,
 	}
 
 	err = tlog.CatchUpWithLog(reader, parent)
+	if errc := reader.Close(); errc != nil {
+		return nil, fmt.Errorf("failed to close previous log file: %w", errc)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to catch up with transaction log 0: %v", err)
 	}
 
 	data := parent.Dump()
 	tlog.Dump(data)
+
 	return tlog, nil
 }
 
@@ -113,18 +131,28 @@ func newTransactionLogFromCheckpoint(dirPath string, lastLogFileN int, parent A)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open checkpoint file: %v", err)
 	}
+
 	lastClosedTransactionsLen, err := codec.Uint64Decode(file)
 	if err != nil {
+		if err := file.Close(); err != nil {
+			return nil, fmt.Errorf("failed to close previous checkpoint file: %w", err)
+		}
 		return nil, fmt.Errorf("failed to read last closed transaction from checkpoint file: %v", err)
 	}
 	lastClosedTransactions := make(map[uint64]uint64, lastClosedTransactionsLen)
-	for _ = range lastClosedTransactionsLen {
+	for range lastClosedTransactionsLen {
 		cid, err := codec.Uint64Decode(file)
 		if err != nil {
+			if err := file.Close(); err != nil {
+				return nil, fmt.Errorf("failed to close previous checkpoint file: %w", err)
+			}
 			return nil, fmt.Errorf("failed to read cid last closed transaction from checkpoint file: %v", err)
 		}
 		lastTransaction, err := codec.Uint64Decode(file)
 		if err != nil {
+			if err := file.Close(); err != nil {
+				return nil, fmt.Errorf("failed to close previous checkpoint file: %w", err)
+			}
 			return nil, fmt.Errorf("failed to read last closed transaction from checkpoint file: %v and cid: %v", err, cid)
 		}
 		lastClosedTransactions[cid] = lastTransaction
@@ -132,8 +160,15 @@ func newTransactionLogFromCheckpoint(dirPath string, lastLogFileN int, parent A)
 
 	data, err := io.ReadAll(file)
 	if err != nil {
+		if err := file.Close(); err != nil {
+			return nil, fmt.Errorf("failed to close previous checkpoint file: %w", err)
+		}
 		return nil, fmt.Errorf("failed to read data from checkpoint file: %v", err)
 	}
+	if err := file.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close previous checkpoint file: %w", err)
+	}
+
 	err = parent.FromCheckpoint(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load checkpoint data into parent: %v", err)
@@ -205,7 +240,7 @@ type transactionLog struct {
 	checkpointDirectory    string
 	logDirectory           string
 	idx                    uint64
-	logWriter              io.Writer
+	logWriter              *os.File
 	openedTransaction      *Transaction
 	lastClosedTransactions map[uint64]uint64
 }
@@ -216,7 +251,7 @@ func (l *transactionLog) Dump(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to create log file: %w", err)
 	}
-	defer file.Close() // TODO close en todo
+	defer file.Close()
 
 	lastClosedTransactionLen := len(l.lastClosedTransactions)
 	buf, err := codec.Uint64Encode(uint64(lastClosedTransactionLen))
@@ -254,7 +289,7 @@ func (l *transactionLog) Dump(data []byte) error {
 		}
 	}
 
-	if err := file.Sync(); err != nil { // TODO flush en todo
+	if err = file.Sync(); err != nil {
 		return fmt.Errorf("failed to sync checkpoint file: %w", err)
 	}
 
@@ -263,6 +298,9 @@ func (l *transactionLog) Dump(data []byte) error {
 	newLogFile, err := os.Create(newLogFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to create new log file: %w", err)
+	}
+	if err := l.logWriter.Close(); err != nil {
+		return fmt.Errorf("failed to close previous log file: %w", err)
 	}
 	l.logWriter = newLogFile
 
@@ -287,17 +325,11 @@ func newTransactionLog(dirPath string, idx uint64) (*transactionLog, error) {
 		panic(fmt.Errorf("failed to create transaction log directory: %v", err))
 	}
 
-	logFilePath := path.Join(logDirectory, fmt.Sprintf("%d", idx))
-	writer, err := os.Create(logFilePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create transaction log file: %v", err)
-	}
-
 	return &transactionLog{
 		checkpointDirectory:    checkpointDirectory,
 		logDirectory:           logDirectory,
 		idx:                    idx,
-		logWriter:              writer,
+		logWriter:              nil,
 		openedTransaction:      nil,
 		lastClosedTransactions: make(map[uint64]uint64),
 	}, nil
@@ -310,6 +342,9 @@ func (t *transactionLog) Received(cid, id uint64, data []byte) error {
 	if err := codec.DoWrite(buf, t.logWriter); err != nil {
 		return fmt.Errorf("failed to write received log: %w", err)
 	}
+	if err := t.logWriter.Sync(); err != nil {
+		return fmt.Errorf("failed to sync log file: %w", err)
+	}
 	return nil
 }
 
@@ -320,6 +355,9 @@ func (t *transactionLog) ReceivedEOF(cid, id uint64) error {
 	if err := codec.DoWrite(buf, t.logWriter); err != nil {
 		return fmt.Errorf("failed to write received log: %w", err)
 	}
+	if err := t.logWriter.Sync(); err != nil {
+		return fmt.Errorf("failed to sync log file: %w", err)
+	}
 	return nil
 }
 
@@ -328,6 +366,9 @@ func (t *transactionLog) Acknowledged(cid, id uint64) error {
 	buf := acknowledged{cid, id}.Encode()
 	if err := codec.DoWrite(buf, t.logWriter); err != nil {
 		return fmt.Errorf("failed to write acknowledged log: %w", err)
+	}
+	if err := t.logWriter.Sync(); err != nil {
+		return fmt.Errorf("failed to sync log file: %w", err)
 	}
 	return nil
 }
