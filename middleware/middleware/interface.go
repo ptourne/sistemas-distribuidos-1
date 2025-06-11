@@ -30,7 +30,7 @@ type Envelope[T codec.Serializable[T]] interface {
 	Msg() T
 	Ack(multiple bool) error
 	Nack(multiple bool) error
-	Cid() string
+	Cid() uint64
 	Type() TypeMsg
 	Id() uint64
 }
@@ -75,10 +75,10 @@ func FromStringTypeMsg(s string) (TypeMsg, error) {
 }
 
 type Sender[T codec.Serializable[T]] interface {
-	Send(row T, cid string, id uint64) error                      //usa el rk del sender id
-	SendRK(row T, cid string, id uint64, routingKey string) error // manda el row a ese rk
-	Prune(cid string) error
-	SendEOF(cid string) error               // manda el EOF a todos los shards
-	SendEOFONE(cid string, rk string) error //manda el EOF a ese rk NO USAR ES SOLO TESTING
+	Send(row T, cid uint64, id uint64) error                      //usa el rk del sender id
+	SendRK(row T, cid uint64, id uint64, routingKey string) error // manda el row a ese rk
+	Prune(cid uint64) error
+	SendEOF(cid uint64) error               // manda el EOF a todos los shards
+	SendEOFONE(cid uint64, rk string) error //manda el EOF a ese rk NO USAR ES SOLO TESTING
 	Close() error
 }

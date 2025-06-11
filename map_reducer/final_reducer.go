@@ -12,13 +12,13 @@ import (
 )
 
 type FinalReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]] struct {
-	log                 *logger.ConsoleLogger
-	MapReduce           MapReduce[I, A, R]
-	FinalReduceBatches  map[string]*A
-	connOut             middleware.Connection[R]
-	FinalReduceReceiver map[string]middleware.Receiver[A] // It will be null for all but the leader
-	Output              middleware.Sender[R]
-	transactionLog      transaction_log.TransactionLog
+	log            *logger.ConsoleLogger
+	MapReduce      MapReduce[I, A, R]
+	ReduceBatches  map[string]*A
+	connOut        middleware.Connection[R]
+	Receiver       map[string]middleware.Receiver[A] // It will be null for all but the leader
+	Sender         middleware.Sender[R]
+	transactionLog transaction_log.TransactionLog
 }
 
 type NextAsyncRes[T codec.Serializable[T]] struct {
@@ -28,9 +28,9 @@ type NextAsyncRes[T codec.Serializable[T]] struct {
 
 func (fr *FinalReducer[I, A, R]) NewIterator(ctx context.Context) *Iterator[A] {
 	readCtx, cancelNexts := context.WithCancel(ctx)
-	cases := make([]reflect.SelectCase, len(fr.FinalReduceReceiver))
+	cases := make([]reflect.SelectCase, len(fr.Receiver))
 	j := 0
-	for _, receiver := range fr.FinalReduceReceiver {
+	for _, receiver := range fr.Receiver {
 		handle := make(chan NextAsyncRes[A], 0)
 		cases[j] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
@@ -72,7 +72,7 @@ func (fr *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 			res <- err
 			close(res)
 		}()
-		if len(fr.FinalReduceReceiver) == 0 {
+		if len(fr.Receiver) == 0 {
 			fr.log.Debugf("Final : Worker is not the master, skipping final reduce")
 			return
 		}
@@ -99,19 +99,19 @@ func (fr *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 				switch e.Type() {
 				case middleware.Normal:
 					fr.log.Infof("Final : %s | Saving final reduce batch", e.Cid())
-					clientBatch, ok := fr.FinalReduceBatches[e.Cid()]
+					clientBatch, ok := fr.ReduceBatches[e.Cid()]
 					if !ok {
 						acc := e.Msg()
-						fr.FinalReduceBatches[e.Cid()] = &acc
+						fr.ReduceBatches[e.Cid()] = &acc
 					} else {
 						reduc := []A{*clientBatch, e.Msg()}
 						reduced := fr.MapReduce.Reduce(reduc)
-						fr.FinalReduceBatches[e.Cid()] = &reduced
+						fr.ReduceBatches[e.Cid()] = &reduced
 					}
 					e.Ack(false)
 				case middleware.EOF:
 					fr.log.Infof("Final EOF: %s | Pruning final reduce batch", e.Cid())
-					clientBatch, ok := fr.FinalReduceBatches[e.Cid()]
+					clientBatch, ok := fr.ReduceBatches[e.Cid()]
 					if !ok {
 						fr.log.Infof("Final : %s | Final Reduce batch not found on Prune", e.Cid())
 						e.Ack(false)
@@ -126,7 +126,7 @@ func (fr *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 					output := fr.MapReduce.Output(*clientBatch)
 					for i, o := range output {
 						fr.log.Infof("Final : %s | Sending partial result to output: %v", e.Cid(), o)
-						err = fr.Output.Send(o, e.Cid(), uint64(i))
+						err = fr.Sender.Send(o, e.Cid(), uint64(i))
 					}
 					if err != nil {
 						e.Nack(false)
@@ -134,16 +134,16 @@ func (fr *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 						_ = err
 						return
 					}
-					err := fr.Output.Prune(e.Cid())
+					err := fr.Sender.Prune(e.Cid())
 					if err != nil {
 						fr.log.Errorf("input : %s | Prune failed: %s", e.Cid(), err)
 						e.Nack(false)
 					}
 
-					delete(fr.FinalReduceBatches, e.Cid())
+					delete(fr.ReduceBatches, e.Cid())
 
 					fr.log.Infof("Final : %s | Sending EOF after sending partial result", e.Cid())
-					err = fr.Output.SendEOF(e.Cid())
+					err = fr.Sender.SendEOF(e.Cid())
 					if err != nil {
 						fr.log.Errorf("Final : %s | SendEOF failed: %s", e.Cid(), err)
 						e.Nack(false)

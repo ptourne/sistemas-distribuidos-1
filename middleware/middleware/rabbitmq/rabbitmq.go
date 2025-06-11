@@ -40,7 +40,7 @@ type receiverRabbitmq[T codec.Serializable[T]] struct {
 	input         ReceiverChannel[T]
 	closeReceiver ReceiverChannel[*CloseNotification]
 	closeSender   SenderChannel[*CloseNotification]
-	finishCids    map[string]struct {
+	finishCids    map[uint64]struct {
 		finishDoneIds     map[string]*amqp.Delivery
 		finishDonePending uint
 		msgEOF            *amqp.Delivery // this is the envelope that will be returned when all finishDoneIds have been received. It contains the original msg with the eof tag.
@@ -260,14 +260,14 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 		return nil, err
 	}
 
-	var finishcCids map[string]struct {
+	var finishcCids map[uint64]struct {
 		finishDoneIds     map[string]*amqp.Delivery
 		finishDonePending uint
 		msgEOF            *amqp.Delivery
 	}
 
 	if routingKey == "0" {
-		finishcCids = make(map[string]struct {
+		finishcCids = make(map[uint64]struct {
 			finishDoneIds     map[string]*amqp.Delivery
 			finishDonePending uint
 			msgEOF            *amqp.Delivery
@@ -384,12 +384,12 @@ func (m *middlewareRabbitmq[T]) writeToRK(outputName string, subscribers map[str
 	return sender, nil
 }
 
-func (s *SenderChannel[T]) Publish(ctx context.Context, msg T, cid string, id uint64) error {
+func (s *SenderChannel[T]) Publish(ctx context.Context, msg T, cid uint64, id uint64) error {
 	// s.Log.Debugf("Publish msg %+v in %s", msg, s.exchangeName)
 	return s.PublishRK(ctx, msg, "", cid, id)
 }
 
-func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey string, cid string, id uint64) error {
+func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey string, cid uint64, id uint64) error {
 	buf, err := msg.Encode()
 	s.Log.Debugf("Publish msg %+v as %x and rk %s", msg, buf, routingKey)
 	if err != nil {
@@ -397,6 +397,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	}
 	bufId := make([]byte, 8)
 	binary.BigEndian.PutUint64(bufId, id)
+	cidC := int64(cid)
 	err = s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
 		routingKey,     // routing key
@@ -406,7 +407,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 			ContentType: "application/message",
 			Body:        buf,
 			Headers: amqp.Table{
-				"cid":  cid,
+				"cid":  cidC,
 				"type": normal.String(),
 				"id":   bufId,
 			},
@@ -418,7 +419,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	return nil
 }
 
-func (s *SenderRabbitmq[T]) SendEOFONE(cid string, rk string) error { //NO USAR SOLO TESTING
+func (s *SenderRabbitmq[T]) SendEOFONE(cid uint64, rk string) error { //NO USAR SOLO TESTING
 	err := s.SendEOFRK(rk, cid)
 	if err != nil {
 		return fmt.Errorf("failed to publish a message: %v in chan %s", err, s.exchangeName)
@@ -427,7 +428,7 @@ func (s *SenderRabbitmq[T]) SendEOFONE(cid string, rk string) error { //NO USAR 
 	return nil
 }
 
-func (s *SenderRabbitmq[T]) SendEOF(cid string) error {
+func (s *SenderRabbitmq[T]) SendEOF(cid uint64) error {
 	for i := 0; i < int(s.consumerCount); i++ {
 		rk := fmt.Sprintf("%d", i)
 		err := s.SendEOFRK(rk, cid)
@@ -438,15 +439,15 @@ func (s *SenderRabbitmq[T]) SendEOF(cid string) error {
 	return nil
 }
 
-func (s *SenderRabbitmq[T]) SendEOFRK(routingKey string, cid string) error {
+func (s *SenderRabbitmq[T]) SendEOFRK(routingKey string, cid uint64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	err := s.output.SendEOFRK(ctx, routingKey, cid)
 	cancel()
 	return err
 }
 
-func (s *SenderChannel[T]) SendEOFRK(ctx context.Context, routingKey string, cid string) error {
-	s.Log.Debugf("SendEOFRK in chan %s with routingKey %s and cid %s", s.exchangeName, routingKey, cid)
+func (s *SenderChannel[T]) SendEOFRK(ctx context.Context, routingKey string, cid uint64) error {
+	s.Log.Debugf("SendEOFRK in chan %s with routingKey %s and cid %d", s.exchangeName, routingKey, cid)
 	bufId := make([]byte, 8)
 	binary.BigEndian.PutUint64(bufId, uint64(0))
 	err := s.ch.PublishWithContext(ctx,
@@ -539,10 +540,10 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					// We set de listener for finishDones send on ack of prune msgs
 					//r.Log.Infof("Consumer count: %d for channel %s", r.consumerCount, r.input.exchangeName)
 					if r.routingKey == "0" {
-						r.Log.Debugf("EOF received on channel for Cid %s in %s", cid, r.input.queueName)
+						r.Log.Debugf("EOF received on channel for Cid %d in %s", cid, r.input.queueName)
 						finishCid, exists := r.finishCids[cid]
 						if !exists {
-							r.Log.Infof("EOF received for non-existent Cid %s in %s", cid, r.input.queueName)
+							r.Log.Infof("EOF received for non-existent Cid %d in %s", cid, r.input.queueName)
 							r.finishCids[cid] = struct {
 								finishDoneIds     map[string]*amqp.Delivery
 								finishDonePending uint
@@ -555,10 +556,10 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 						} else {
 							finishCid.msgEOF = tag
 							r.finishCids[cid] = finishCid
-							r.Log.Debugf("VAMOSS EOF received for Cid %s in %s", cid, r.input.queueName)
+							r.Log.Debugf("VAMOSS EOF received for Cid %d in %s", cid, r.input.queueName)
 						}
-						r.Log.Infof("LIDER eof received on channel for Cid %s in %s", cid, r.input.queueName)
-						r.Log.Debugf("%s added finishCid[%s] = %+v", r.input.exchangeName, cid, r.finishCids[cid])
+						r.Log.Infof("LIDER eof received on channel for Cid %d in %s", cid, r.input.queueName)
+						r.Log.Debugf("%s added finishCid[%d] = %+v", r.input.exchangeName, cid, r.finishCids[cid])
 
 						err = r.closeSender.Prune(cid) //ES NECESARIO?? sino borrar tmb en handleFinishNotification
 						if err != nil {
@@ -573,7 +574,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 						r.Log.Debugf("return prune callback envelope")
 						continue
 					} else {
-						r.Log.Debugf("EOF received on channel YEII NOT LEADER for Cid %s in %s", cid, r.input.queueName)
+						r.Log.Debugf("EOF received on channel YEII NOT LEADER for Cid %d in %s", cid, r.input.queueName)
 						r.pendingPrune = append(r.pendingPrune, newPrune2Envelope[T](cid, r.closeSender, r.routingKey, tag))
 						continue
 					}
@@ -627,7 +628,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	switch notification.notificationType {
 	case closeNotificationFinishCidDone:
 		if r.routingKey == "0" {
-			r.Log.Debugf("%s, Finish done received for Cid %s", r.input.exchangeName, cid)
+			r.Log.Debugf("%s, Finish done received for Cid %d", r.input.exchangeName, cid)
 			finishCid, exists := r.finishCids[cid]
 			if !exists {
 				finishCidNew := struct {
@@ -640,13 +641,13 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 				}
 				finishCidNew.finishDoneIds[notification.idWorker] = tag
 				r.finishCids[cid] = finishCidNew
-				r.Log.Debugf("Finish done received for non-existent Cid VAMOSS %s count: %d", cid, r.finishCids[cid].finishDonePending)
+				r.Log.Debugf("Finish done received for non-existent Cid VAMOSS %d count: %d", cid, r.finishCids[cid].finishDonePending)
 				return true, false, nil, nil
 			} else {
-				r.Log.Debugf("Finish done pending for Cid before %s: %d | Receiver okk %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)
+				r.Log.Debugf("Finish done pending for Cid before %d: %d | Receiver okk %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)
 				// finishCid.finishDonePending--
 				// r.finishCids[cid] = finishCid
-				// r.Log.Debugf("Finish done pending for Cid %s: %d in %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)
+				// r.Log.Debugf("Finish done pending for Cid %d: %d in %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)
 				_, exists := finishCid.finishDoneIds[notification.idWorker]
 				if !exists {
 					finishCid.finishDoneIds[notification.idWorker] = tag
@@ -654,7 +655,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 					tag.Ack(false)
 				}
 				if finishCid.finishDonePending == uint(len(finishCid.finishDoneIds)) {
-					r.Log.Infof("Finishes done received for Cid %s in %s", cid, r.input.queueName)
+					r.Log.Infof("Finishes done received for Cid %d in %s", cid, r.input.queueName)
 					delete(r.finishCids, cid)
 					return false, true, newEOFEnvelope[T](cid, finishCid.msgEOF, finishCid.finishDoneIds), nil
 				}
@@ -667,17 +668,18 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	return false, false, nil, nil
 }
 
-func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, cid string, id uint64, received T, tag *amqp.Delivery, err error) {
+func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, cid uint64, id uint64, received T, tag *amqp.Delivery, err error) {
 	tag = &msg
 	cidRaw, ok := msg.Headers["cid"]
 	if !ok {
 		return t, cid, id, received, tag, fmt.Errorf("cid missing from header")
 	}
 
-	cid, ok = cidRaw.(string)
+	cidC, ok := cidRaw.(int64)
 	if !ok {
-		return t, cid, id, received, tag, fmt.Errorf("cd is not a string: %T", cidRaw)
+		return t, cid, id, received, tag, fmt.Errorf("cid is not a int64: %T", cidRaw)
 	}
+	cid = uint64(cidC)
 
 	idBuf, ok := msg.Headers["id"]
 	if !ok {
@@ -707,21 +709,21 @@ func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, c
 	return typeMessageInternal, cid, id, received, tag, nil
 }
 
-func (s *SenderRabbitmq[T]) Send(row T, cid string, id uint64) error {
+func (s *SenderRabbitmq[T]) Send(row T, cid uint64, id uint64) error {
 	lastRk := id % uint64(s.consumerCount)
 	// s.Log.Infof("lastRk: %d", lastRk)
 	rk := fmt.Sprintf("%d", lastRk)
 	return s.sendRK(row, rk, cid, id)
 }
 
-func (s *SenderRabbitmq[T]) SendRK(row T, cid string, id uint64, routingKey string) error {
+func (s *SenderRabbitmq[T]) SendRK(row T, cid uint64, id uint64, routingKey string) error {
 	if routingKey == "" {
 		return fmt.Errorf("routing key cannot be empty")
 	}
 	return s.sendRK(row, routingKey, cid, id)
 }
 
-func (s *SenderRabbitmq[T]) sendRK(row T, routingKey string, cid string, id uint64) error {
+func (s *SenderRabbitmq[T]) sendRK(row T, routingKey string, cid uint64, id uint64) error {
 	if s.exchangeName == "" {
 		return fmt.Errorf("write exchange is not initialized")
 	}
@@ -735,7 +737,7 @@ func (s *SenderRabbitmq[T]) sendRK(row T, routingKey string, cid string, id uint
 	return nil
 }
 
-func (s *SenderRabbitmq[T]) Prune(cid string) error {
+func (s *SenderRabbitmq[T]) Prune(cid uint64) error {
 	if s.exchangeName == "" {
 		return fmt.Errorf("write exchange is not initialized")
 	}
@@ -746,7 +748,7 @@ func (s *SenderRabbitmq[T]) Prune(cid string) error {
 	return nil
 }
 
-func (s SenderChannel[T]) Prune(cid string) error {
+func (s SenderChannel[T]) Prune(cid uint64) error {
 	bufId := make([]byte, 8)
 	binary.BigEndian.PutUint64(bufId, uint64(0))
 	c, err := s.ch.PublishWithDeferredConfirm(s.exchangeName, "", false, false,

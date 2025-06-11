@@ -8,6 +8,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq/transaction_log"
 )
 
 // MapReducer is a struct that represents a map-reduce operation.
@@ -35,7 +36,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	id string,
 	workersCount uint,
 	shardCountOutput uint,
-	// dirPath string,
+	dirPath string,
 ) (*MapReducer[I, A, R], error) {
 	log := logger.NewConsoleLogger(fmt.Sprintf("worker_mp_%s", id), logger.Debug)
 
@@ -87,27 +88,27 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		RoutingKey:      routingKey,
 		connFinalReduce: connFinalReduce,
 		partialReducer: &PartialReducer[I, A, R]{
-			log:               log,
-			MapReduce:         mapReducer,
-			connIn:            connIn,
-			PartReduceBatches: make(map[string]*A),
-			Input:             inputCh,
-			FinalReduceSender: finalReduceOut,
-			transactionLog:    nil,
+			log:            log,
+			MapReduce:      mapReducer,
+			connIn:         connIn,
+			ReduceBatches:  make(map[string]*A),
+			Receiver:       inputCh,
+			Sender:         finalReduceOut,
+			transactionLog: nil,
 		},
 		finalReducer: &FinalReducer[I, A, R]{
-			log:                 log,
-			MapReduce:           mapReducer,
-			FinalReduceBatches:  make(map[string]*A),
-			connOut:             connOut,
-			Output:              output,
-			FinalReduceReceiver: finalReduceInMap,
-			transactionLog:      nil,
+			log:            log,
+			MapReduce:      mapReducer,
+			ReduceBatches:  make(map[string]*A),
+			connOut:        connOut,
+			Sender:         output,
+			Receiver:       finalReduceInMap,
+			transactionLog: nil,
 		},
 	}
 
-	// mr.partialReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.partialReducer)
-	// mr.finalReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.finalReducer)
+	mr.partialReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.partialReducer)
+	mr.finalReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.finalReducer)
 
 	return mr, nil
 }
@@ -155,21 +156,21 @@ func (mr *MapReducer[I, A, R]) Run(ctx context.Context) error {
 }
 
 func (mr *MapReducer[I, A, R]) Close() {
-	if err := mr.partialReducer.Input.Close(); err != nil {
+	if err := mr.partialReducer.Receiver.Close(); err != nil {
 		mr.log.Errorf("Error closing input channel: %s", err)
 	}
 
-	for _, receiver := range mr.finalReducer.FinalReduceReceiver {
+	for _, receiver := range mr.finalReducer.Receiver {
 		if err := receiver.Close(); err != nil {
 			mr.log.Errorf("Error closing final reduce receiver: %s", err)
 		}
 	}
 
-	if err := mr.partialReducer.FinalReduceSender.Close(); err != nil {
+	if err := mr.partialReducer.Sender.Close(); err != nil {
 		mr.log.Errorf("Error closing final reduce channel (sender): %s", err)
 	}
 
-	if err := mr.finalReducer.Output.Close(); err != nil {
+	if err := mr.finalReducer.Sender.Close(); err != nil {
 		mr.log.Errorf("Error closing output channel: %s", err)
 	}
 

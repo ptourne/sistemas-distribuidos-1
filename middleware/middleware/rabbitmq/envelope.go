@@ -12,7 +12,7 @@ import (
 
 var log2 = logger.NewConsoleLogger("envelope", logger.Info)
 
-func newNormalEnvelope[T codec.Serializable[T]](cid string, msgbody T, tag *amqp.Delivery, id uint64) middleware.Envelope[T] {
+func newNormalEnvelope[T codec.Serializable[T]](cid uint64, msgbody T, tag *amqp.Delivery, id uint64) middleware.Envelope[T] {
 	return &EnvelopeRabbitmq[T]{
 		msg: msgbody,
 		tag: tag,
@@ -24,7 +24,7 @@ func newNormalEnvelope[T codec.Serializable[T]](cid string, msgbody T, tag *amqp
 type EnvelopeRabbitmq[T codec.Serializable[T]] struct {
 	msg T
 	tag *amqp.Delivery
-	cid string
+	cid uint64
 	id  uint64
 }
 
@@ -32,7 +32,7 @@ func (r *EnvelopeRabbitmq[T]) Msg() T {
 	return r.msg
 }
 
-func (r *EnvelopeRabbitmq[T]) Cid() string {
+func (r *EnvelopeRabbitmq[T]) Cid() uint64 {
 	return r.cid
 }
 
@@ -69,13 +69,13 @@ func (r *EnvelopeRabbitmq[T]) Nack(multiple bool) error {
 }
 
 type eofEnvelopeRabbitmq[T codec.Serializable[T]] struct {
-	cid           string
+	cid           uint64
 	finishDoneIds map[string]*amqp.Delivery
 	msgEOF        *amqp.Delivery
 }
 
 func newEOFEnvelope[T codec.Serializable[T]](
-	cid string,
+	cid uint64,
 	msgEof *amqp.Delivery,
 	finishDoneIds map[string]*amqp.Delivery,
 ) middleware.Envelope[T] {
@@ -87,7 +87,7 @@ func newEOFEnvelope[T codec.Serializable[T]](
 }
 
 func NewEOFEnvelope[T codec.Serializable[T]](
-	cid string,
+	cid uint64,
 	msgEof *amqp.Delivery,
 	finishDoneIds map[string]*amqp.Delivery,
 ) middleware.Envelope[T] {
@@ -99,7 +99,7 @@ func (r *eofEnvelopeRabbitmq[T]) Msg() T {
 	return nul
 }
 
-func (r *eofEnvelopeRabbitmq[T]) Cid() string {
+func (r *eofEnvelopeRabbitmq[T]) Cid() uint64 {
 	return r.cid
 }
 
@@ -112,7 +112,7 @@ func (r *eofEnvelopeRabbitmq[T]) Id() uint64 {
 }
 
 func (r *eofEnvelopeRabbitmq[T]) Ack(multiple bool) error {
-	log2.Infof("Acking EOF envelope for cid: %s", r.cid)
+	log2.Infof("Acking EOF envelope for cid: %d", r.cid)
 	if r.msgEOF == nil {
 		return fmt.Errorf("msgEOF is not initialized or already acked")
 	}
@@ -124,9 +124,9 @@ func (r *eofEnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	// Acknowledge all finish done IDs
 	for id, tag := range r.finishDoneIds {
 		if id == "" {
-			return fmt.Errorf("finish done ID is empty for cid: %s", r.cid)
+			return fmt.Errorf("finish done ID is empty for cid: %d", r.cid)
 		}
-		log2.Infof("Acking finish done ID: %v for cid: %s", id, r.cid)
+		log2.Infof("Acking finish done ID: %v for cid: %d", id, r.cid)
 		if err := tag.Ack(false); err != nil {
 			return fmt.Errorf("failed to ack finish done ID %s: %v", id, err)
 		}
@@ -141,12 +141,12 @@ func (r *eofEnvelopeRabbitmq[T]) Nack(multiple bool) error {
 }
 
 func newPrune2Envelope[T codec.Serializable[T]](
-	cid string,
+	cid uint64,
 	closeSender SenderChannel[*CloseNotification],
 	idWorker string,
 	msgEofNotLider *amqp.Delivery,
 ) middleware.Envelope[T] {
-	log2.Debugf("Creating prune2 envelope for cid: %s, idWorker: %s", cid, idWorker)
+	log2.Debugf("Creating prune2 envelope for cid: %d, idWorker: %s", cid, idWorker)
 	return &prune2EnvelopeRabbitmq[T]{
 		closeSender:    closeSender,
 		cid:            cid,
@@ -156,7 +156,7 @@ func newPrune2Envelope[T codec.Serializable[T]](
 }
 
 type prune2EnvelopeRabbitmq[T codec.Serializable[T]] struct {
-	cid            string
+	cid            uint64
 	closeSender    SenderChannel[*CloseNotification]
 	idWorker       string
 	msgEofNotLider *amqp.Delivery
@@ -167,7 +167,7 @@ func (r *prune2EnvelopeRabbitmq[T]) Msg() T {
 	return nul
 }
 
-func (r *prune2EnvelopeRabbitmq[T]) Cid() string {
+func (r *prune2EnvelopeRabbitmq[T]) Cid() uint64 {
 	return r.cid
 }
 
@@ -180,7 +180,7 @@ func (r *prune2EnvelopeRabbitmq[T]) Id() uint64 {
 }
 
 func (r *prune2EnvelopeRabbitmq[T]) Ack(multiple bool) error {
-	log2.Infof("Acking prune2 envelope for cid: %s, sending finishdone with idW: %s", r.cid, r.idWorker)
+	log2.Infof("Acking prune2 envelope for cid: %d, sending finishdone with idW: %s", r.cid, r.idWorker)
 	if r.closeSender.ch == nil {
 		return fmt.Errorf("cannot Ack: closeSender channel is nil")
 	}
