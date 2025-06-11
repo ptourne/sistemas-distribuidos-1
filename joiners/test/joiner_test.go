@@ -86,6 +86,9 @@ func TestJoiner(t *testing.T) {
 	test18container := <-test18
 	defer test18container.Container.Teardown()
 
+	os.RemoveAll("joiner_credits")
+	os.RemoveAll("joiner_ratings")
+
 	t.Run("Credits", func(t *testing.T) {
 
 		t.Run("OneJoinerOneClient", func(t *testing.T) {
@@ -97,7 +100,7 @@ func TestJoiner(t *testing.T) {
 
 			inputMovies, inputCredits, worker, outputJoiner, outputConnection := configTestJoinerCredits(t, init, "output_test1_credits", middlewareConnection)
 
-			cid := uint64(1)
+			cid := uint64(10)
 			SendRows(t, inputMovies, cid,
 				uint64(0),
 				&model.Row{Strings: map[string]string{"movieID": "A"}},
@@ -152,7 +155,7 @@ func TestJoiner(t *testing.T) {
 			inputMovies, inputCredits, worker, outputJoiner, outputConnection := configTestJoinerCredits(t, init, "output_test2_credits", middlewareConnection)
 
 			// Cliente 1
-			cid1 := uint64(1)
+			cid1 := uint64(20)
 			SendRows(t, inputMovies, cid1,
 				uint64(0),
 				&model.Row{Strings: map[string]string{"movieID": "X"}},
@@ -165,7 +168,7 @@ func TestJoiner(t *testing.T) {
 				})
 
 			// Cliente 2: película sin créditos
-			cid2 := uint64(2)
+			cid2 := uint64(21)
 			SendRows(t, inputMovies, cid2,
 				uint64(0),
 				&model.Row{Strings: map[string]string{"movieID": "Y"}},
@@ -240,8 +243,10 @@ func TestJoiner(t *testing.T) {
 				joinerConnection.Close()
 			}()
 
-			inputMovies.SendEOF(3)
-			inputCredits.SendEOF(3)
+			cid := uint64(30)
+
+			inputMovies.SendEOF(cid)
+			inputCredits.SendEOF(cid)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 			defer cancel()
@@ -335,9 +340,10 @@ func TestJoiner(t *testing.T) {
 			}()
 
 			clients := make([]uint64, cantClients)
+			baseCid := uint64(40)
 			for i := range cantClients {
 				// cid := fmt.Sprintf("client4_%d", i+1)
-				cid := uint64(i + 1)
+				cid := baseCid + uint64(i)
 				clients[i] = cid
 				inputMovies.SendEOF(cid)
 				inputCredits.SendEOF(cid)
@@ -368,7 +374,7 @@ func TestJoiner(t *testing.T) {
 
 			inputMovies, inputCredits, worker, outputJoiner, outputConnection := configTestJoinerCredits(t, init, "output_test7", middlewareConnection)
 
-			cid := uint64(7)
+			cid := uint64(70)
 
 			SendRows(t, inputMovies, cid,
 				uint64(0),
@@ -408,7 +414,9 @@ func TestJoiner(t *testing.T) {
 			assert.Equal(t, env.Msg().Strings["actor"], "Actor 2")
 			assert.Equal(t, env.Id(), uint64(1))
 
-			waitForFile(t, "joiner_credits/joiner0/7/movies_B.csv", 5*time.Second)
+			filepath := fmt.Sprintf("joiner_credits/joiner0/%d/movies_B.csv", cid)
+
+			waitForFile(t, filepath, 5*time.Second)
 
 			worker.Tasks.Finish()
 			wg.Wait()
@@ -455,7 +463,7 @@ func TestJoiner(t *testing.T) {
 
 			inputMovies, inputCredits, worker, outputJoiner, outputConnection := configTestJoinerCredits(t, init, "output_test9", middlewareConnection)
 
-			cid := uint64(9)
+			cid := uint64(90)
 
 			inputMovies.SendEOF(cid)
 
@@ -522,7 +530,7 @@ func TestJoiner(t *testing.T) {
 			outputJoiner, err := outputConnection.ConsumeFrom(worker1.Tasks.Name(), "test16", "0", 1, uint(1))
 			assert.NoError(t, err)
 
-			cid := uint64(16)
+			cid := uint64(160)
 
 			inputMovies.SendEOF(cid)
 
@@ -606,7 +614,7 @@ func TestJoiner(t *testing.T) {
 			outputJoiner, err := outputConnection.ConsumeFrom(worker1.Tasks.Name(), "test17", "0", 1, uint(1))
 			assert.NoError(t, err)
 
-			cid := uint64(17)
+			cid := uint64(170)
 
 			inputMovies.SendEOF(cid)
 
@@ -673,7 +681,7 @@ func TestJoiner(t *testing.T) {
 			require.NotNil(t, init)
 			require.NoError(t, init.Err)
 
-			cid := uint64(10)
+			cid := uint64(100)
 
 			joinerID := "0"
 			dir := fmt.Sprintf("joiner_credits/joiner%s/%d", joinerID, cid)
@@ -745,11 +753,11 @@ func TestJoiner(t *testing.T) {
 		})
 
 		t.Run("ProcessCorruptPendingMoviesFile", func(t *testing.T) {
-			testJoinerCreditsCorruptMoviesFile(t, uint64(11), "movies", test11container, "output_test11")
+			testJoinerCreditsCorruptMoviesFile(t, uint64(110), "movies", test11container, "output_test11")
 		})
 
 		t.Run("ProcessCorruptProcessedMoviesFile", func(t *testing.T) {
-			testJoinerCreditsCorruptMoviesFile(t, uint64(12), "processed_movies", test12container, "output_test12")
+			testJoinerCreditsCorruptMoviesFile(t, uint64(120), "processed_movies", test12container, "output_test12")
 		})
 
 	})
@@ -764,7 +772,7 @@ func TestJoiner(t *testing.T) {
 
 			inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test1_ratings", middlewareConnection)
 
-			cid := uint64(5)
+			cid := uint64(50)
 			SendRows(t, inputMovies, cid,
 				uint64(0),
 				&model.Row{Strings: map[string]string{"movieID": "A", "title": "Movie A"}},
@@ -812,7 +820,7 @@ func TestJoiner(t *testing.T) {
 
 			inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test2_ratings", middlewareConnection)
 
-			cid1 := uint64(1)
+			cid1 := uint64(60)
 			SendRows(t, inputMovies, cid1,
 				uint64(0),
 				&model.Row{Strings: map[string]string{"movieID": "A", "title": "Movie A"}},
@@ -880,7 +888,7 @@ func TestJoiner(t *testing.T) {
 
 			inputMovies, inputRatings, worker, outputJoiner, outputConnection := configTestJoinerRatings(t, init, "output_test8", middlewareConnection)
 
-			cid := uint64(8)
+			cid := uint64(80)
 			SendRows(t, inputMovies, cid,
 				uint64(0),
 				&model.Row{Strings: map[string]string{"movieID": "A", "title": "Movie A"}},
@@ -910,7 +918,9 @@ func TestJoiner(t *testing.T) {
 			assert.Equal(t, env.Msg().Floats["avg_rating"], 3.5)
 			assert.Equal(t, env.Id(), uint64(0))
 
-			waitForFile(t, "joiner_ratings/joiner0/8/movies_B.csv", 5*time.Second)
+			filePath := fmt.Sprintf("joiner_ratings/joiner0/%d/movies_B.csv", cid)
+
+			waitForFile(t, filePath, 5*time.Second)
 
 			worker.Tasks.Finish()
 			wg.Wait()
@@ -955,7 +965,7 @@ func TestJoiner(t *testing.T) {
 			require.NotNil(t, init)
 			require.NoError(t, init.Err)
 
-			cid := uint64(13)
+			cid := uint64(130)
 
 			joinerID := "0"
 			dir := fmt.Sprintf("joiner_ratings/joiner%s/%d", joinerID, cid)
@@ -1026,11 +1036,11 @@ func TestJoiner(t *testing.T) {
 		})
 
 		t.Run("ProcessCorruptPendingMoviesFile", func(t *testing.T) {
-			testJoinerRatingsCorruptMoviesFile(t, uint64(14), "movies", test14container, "output_test14")
+			testJoinerRatingsCorruptMoviesFile(t, uint64(140), "movies", test14container, "output_test14")
 		})
 
 		t.Run("ProcessCorruptProcessedMoviesFile", func(t *testing.T) {
-			testJoinerRatingsCorruptMoviesFile(t, uint64(15), "processed_movies", test15container, "output_test15")
+			testJoinerRatingsCorruptMoviesFile(t, uint64(150), "processed_movies", test15container, "output_test15")
 		})
 
 		t.Run("MultipleJoinersMultipleClients", func(t *testing.T) {
@@ -1051,10 +1061,10 @@ func TestJoiner(t *testing.T) {
 			inputRatings, err := middlewareSenderConnection.WriteTo("filter_avg_rating", susbscribers, "0", uint(cantWorkers))
 			assert.NoError(t, err)
 
+			baseCid := uint64(180)
 			clients := make([]uint64, cantClients)
 			for i := range cantClients {
-				// cid := fmt.Sprintf("client18_%d", i)
-				cid := uint64(i + 1)
+				cid := baseCid + uint64(i)
 				clients[i] = cid
 				inputMovies.SendEOF(cid)
 				inputRatings.SendEOF(cid)
