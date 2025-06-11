@@ -9,6 +9,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq/transaction_log"
 )
 
 // MapReducer is a struct that represents a map-reduce operation.
@@ -17,41 +18,21 @@ import (
 // A is the type of the accumulator.
 // R is the type of the final result.
 type MapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]] struct {
-	log                 *logger.ConsoleLogger
-	MapReduce           MapReduce[I, A, R]
-	BatchSize           uint
-	Input               middleware.Receiver[I]
-	FinalReduceSender   middleware.Sender[A]
+	log             *logger.ConsoleLogger
+	MapReduce       MapReduce[I, A, R]
+	BatchSize       uint
+	RoutingKey      string
+	connFinalReduce middleware.Connection[A]
+	partialReducer  *PartialReducer[I, A, R]
+	finalReducer    *FinalReducer[I, A, R]
+}
+
+type FinalReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]] struct {
+	FinalReduceBatches  map[string]*A
+	connOut             middleware.Connection[R]
 	FinalReduceReceiver map[string]middleware.Receiver[A] // It will be null for all but the leader
 	Output              middleware.Sender[R]
-	RoutingKey          string
-	PartReduceBatches   map[string]*A
-	FinalReduceBatches  map[string]*A
-	CidPrunnedTwice     map[string]bool
-	workersCount        uint
-	pruneCounter        map[string]map[string]uint
-	eofCounter          map[string]uint
-	connIn              middleware.Connection[I]
-	connOut             middleware.Connection[R]
-	connFinalReduce     middleware.Connection[A]
-}
-
-type ClientBatch[A codec.Serializable[A]] struct {
-	batch []A
-}
-
-func (c *ClientBatch[A]) flush() []A {
-	copy := c.batch
-	c.batch = make([]A, 0)
-	return copy
-}
-
-func (c ClientBatch[A]) len() uint {
-	return uint(len(c.batch))
-}
-
-func (c *ClientBatch[A]) append(msg A) {
-	c.batch = append(c.batch, msg)
+	transactionLog      transaction_log.TransactionLog
 }
 
 // batchSize is the number of top groups you reduce at once
@@ -65,8 +46,10 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	id string,
 	workersCount uint,
 	shardCountOutput uint,
+	// dirPath string,
 ) (*MapReducer[I, A, R], error) {
 	log := logger.NewConsoleLogger(fmt.Sprintf("worker_mp_%s", id), logger.Debug)
+
 	prefetch := 500
 	prefetchIn := 1000
 
@@ -109,25 +92,32 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		return nil, fmt.Errorf("failed to create accumulator output channel: %w", err)
 	}
 
-	return &MapReducer[I, A, R]{
-		log:                 log,
-		MapReduce:           mapReducer,
-		BatchSize:           batchSize,
-		Input:               inputCh,
-		FinalReduceSender:   finalReduceOut,
-		FinalReduceReceiver: finalReduceInMap,
-		Output:              output,
-		PartReduceBatches:   make(map[string]*A),
-		FinalReduceBatches:  make(map[string]*A),
-		CidPrunnedTwice:     make(map[string]bool),
-		workersCount:        workersCount,
-		RoutingKey:          routingKey,
-		pruneCounter:        make(map[string]map[string]uint),
-		eofCounter:          make(map[string]uint),
-		connIn:              connIn,
-		connOut:             connOut,
-		connFinalReduce:     connFinalReduce,
-	}, nil
+	mr := &MapReducer[I, A, R]{
+		log:             log,
+		MapReduce:       mapReducer,
+		BatchSize:       batchSize,
+		RoutingKey:      routingKey,
+		connFinalReduce: connFinalReduce,
+		partialReducer: &PartialReducer[I, A, R]{
+			connIn:            connIn,
+			PartReduceBatches: make(map[string]*A),
+			Input:             inputCh,
+			FinalReduceSender: finalReduceOut,
+			transactionLog:    nil,
+		},
+		finalReducer: &FinalReducer[I, A, R]{
+			FinalReduceBatches:  make(map[string]*A),
+			connOut:             connOut,
+			Output:              output,
+			FinalReduceReceiver: finalReduceInMap,
+			transactionLog:      nil,
+		},
+	}
+
+	// mr.partialReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.partialReducer)
+	// mr.finalReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.finalReducer)
+
+	return mr, nil
 }
 
 func finalReduceName(input string, name string) string {
@@ -189,7 +179,7 @@ func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 				return
 			default:
 				var envelope middleware.Envelope[I]
-				envelope, err = mr.Input.Next(ctx)
+				envelope, err = mr.partialReducer.Input.Next(ctx)
 				if err != nil {
 					if (err.Error() == middleware.TimeoutErr{}.Error()) {
 						err = nil
@@ -209,19 +199,19 @@ func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 					envelope.Ack(false)
 				case middleware.EOF:
 					mr.log.Debugf("input : %s | Received EOF", envelope.Cid())
-					err = mr.FinalReduceSender.SendEOF(envelope.Cid())
+					err = mr.partialReducer.FinalReduceSender.SendEOF(envelope.Cid())
 					envelope.Ack(false)
 				case middleware.Prune:
 					mr.log.Debugf("input : %s | Received Prune", envelope.Cid())
-					clientBatch, ok := mr.PartReduceBatches[envelope.Cid()]
+					clientBatch, ok := mr.partialReducer.PartReduceBatches[envelope.Cid()]
 					if ok {
-						err := mr.FinalReduceSender.Send(*clientBatch, envelope.Cid(), 0) // TODO id!!
+						err := mr.partialReducer.FinalReduceSender.Send(*clientBatch, envelope.Cid(), 0) // TODO id!!
 						if err != nil {
 							err = fmt.Errorf("error sending partial result: %w", err)
 							return
 						}
 					}
-					err = mr.FinalReduceSender.Prune(envelope.Cid())
+					err = mr.partialReducer.FinalReduceSender.Prune(envelope.Cid())
 					if err != nil {
 						err = fmt.Errorf("input : %s | Prune failed: %s", envelope.Cid(), err)
 						envelope.Nack(false)
@@ -238,17 +228,17 @@ func (mr *MapReducer[I, A, R]) readInput(ctx context.Context) <-chan error {
 
 func (mr *MapReducer[I, A, R]) ReduceAndSend(cid string, msg A) error {
 	mr.log.Infof("reduc : %s | ReduceAndSend ", cid)
-	clientBatch, ok := mr.PartReduceBatches[cid]
+	clientBatch, ok := mr.partialReducer.PartReduceBatches[cid]
 	if ok {
 		mr.log.Infof("reduc : %s | ReduceAndSend partial", cid)
 		reduc := []A{*clientBatch, msg}
 		reduced := mr.MapReduce.Reduce(reduc)
-		mr.PartReduceBatches[cid] = &reduced
+		mr.partialReducer.PartReduceBatches[cid] = &reduced
 		return nil
 	}
 
 	mr.log.Infof("reduc : %s | ReduceAndSend | Creating new batch", cid)
-	mr.PartReduceBatches[cid] = &msg
+	mr.partialReducer.PartReduceBatches[cid] = &msg
 	return nil
 }
 
@@ -259,9 +249,9 @@ type NextAsyncRes[T codec.Serializable[T]] struct {
 
 func (mr *MapReducer[I, A, R]) NewIterator(ctx context.Context) *Iterator[A] {
 	readCtx, cancelNexts := context.WithCancel(ctx)
-	cases := make([]reflect.SelectCase, len(mr.FinalReduceReceiver))
+	cases := make([]reflect.SelectCase, len(mr.finalReducer.FinalReduceReceiver))
 	j := 0
-	for _, receiver := range mr.FinalReduceReceiver {
+	for _, receiver := range mr.finalReducer.FinalReduceReceiver {
 		handle := make(chan NextAsyncRes[A], 0)
 		cases[j] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,
@@ -303,7 +293,7 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 			res <- err
 			close(res)
 		}()
-		if len(mr.FinalReduceReceiver) == 0 {
+		if len(mr.finalReducer.FinalReduceReceiver) == 0 {
 			mr.log.Debugf("Final : Worker is not the master, skipping final reduce")
 			return
 		}
@@ -330,19 +320,19 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 				switch e.Type() {
 				case middleware.Normal:
 					mr.log.Infof("Final : %s | Saving final reduce batch", e.Cid())
-					clientBatch, ok := mr.FinalReduceBatches[e.Cid()]
+					clientBatch, ok := mr.finalReducer.FinalReduceBatches[e.Cid()]
 					if !ok {
 						acc := e.Msg()
-						mr.FinalReduceBatches[e.Cid()] = &acc
+						mr.finalReducer.FinalReduceBatches[e.Cid()] = &acc
 					} else {
 						reduc := []A{*clientBatch, e.Msg()}
 						reduced := mr.MapReduce.Reduce(reduc)
-						mr.FinalReduceBatches[e.Cid()] = &reduced
+						mr.finalReducer.FinalReduceBatches[e.Cid()] = &reduced
 					}
 					e.Ack(false)
 				case middleware.EOF:
 					mr.log.Infof("Final EOF: %s | Pruning final reduce batch", e.Cid())
-					clientBatch, ok := mr.FinalReduceBatches[e.Cid()]
+					clientBatch, ok := mr.finalReducer.FinalReduceBatches[e.Cid()]
 					if !ok {
 						mr.log.Infof("Final : %s | Final Reduce batch not found on Prune", e.Cid())
 						e.Ack(false)
@@ -357,7 +347,7 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 					output := mr.MapReduce.Output(*clientBatch)
 					for i, o := range output {
 						mr.log.Infof("Final : %s | Sending partial result to output: %v", e.Cid(), o)
-						err = mr.Output.Send(o, e.Cid(), uint64(i))
+						err = mr.finalReducer.Output.Send(o, e.Cid(), uint64(i))
 					}
 					if err != nil {
 						e.Nack(false)
@@ -365,16 +355,16 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 						_ = err
 						return
 					}
-					err := mr.Output.Prune(e.Cid())
+					err := mr.finalReducer.Output.Prune(e.Cid())
 					if err != nil {
 						mr.log.Errorf("input : %s | Prune failed: %s", e.Cid(), err)
 						e.Nack(false)
 					}
 
-					delete(mr.FinalReduceBatches, e.Cid())
+					delete(mr.finalReducer.FinalReduceBatches, e.Cid())
 
 					mr.log.Infof("Final : %s | Sending EOF after sending partial result", e.Cid())
-					err = mr.Output.SendEOF(e.Cid())
+					err = mr.finalReducer.Output.SendEOF(e.Cid())
 					if err != nil {
 						mr.log.Errorf("Final : %s | SendEOF failed: %s", e.Cid(), err)
 						e.Nack(false)
@@ -393,29 +383,29 @@ func (mr *MapReducer[I, A, R]) finalReduce(ctx context.Context) chan error {
 }
 
 func (mr *MapReducer[I, A, R]) Close() {
-	if err := mr.Input.Close(); err != nil {
+	if err := mr.partialReducer.Input.Close(); err != nil {
 		mr.log.Errorf("Error closing input channel: %s", err)
 	}
 
-	for _, receiver := range mr.FinalReduceReceiver {
+	for _, receiver := range mr.finalReducer.FinalReduceReceiver {
 		if err := receiver.Close(); err != nil {
 			mr.log.Errorf("Error closing final reduce receiver: %s", err)
 		}
 	}
 
-	if err := mr.FinalReduceSender.Close(); err != nil {
+	if err := mr.partialReducer.FinalReduceSender.Close(); err != nil {
 		mr.log.Errorf("Error closing final reduce channel (sender): %s", err)
 	}
 
-	if err := mr.Output.Close(); err != nil {
+	if err := mr.finalReducer.Output.Close(); err != nil {
 		mr.log.Errorf("Error closing output channel: %s", err)
 	}
 
-	if err := mr.connIn.Close(); err != nil {
+	if err := mr.partialReducer.connIn.Close(); err != nil {
 		mr.log.Errorf("Error closing input connection: %s", err)
 	}
 
-	if err := mr.connOut.Close(); err != nil {
+	if err := mr.finalReducer.connOut.Close(); err != nil {
 		mr.log.Errorf("Error closing output connection: %s", err)
 	}
 

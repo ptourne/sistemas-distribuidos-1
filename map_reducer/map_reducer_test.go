@@ -138,7 +138,7 @@ func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, sh
 		)
 		assert.NoError(t, err)
 		assert.NotNil(t, mapReducer)
-		assert.NotNil(t, mapReducer.Input)
+		assert.NotNil(t, mapReducer.partialReducer.Input)
 
 		handler := make(chan struct{})
 		go func() {
