@@ -13,13 +13,13 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 )
 
-func ReloadStateFromDisk(joinerType string, joinerID string, moviesHeader []string, dataHeader []string, log *logger.ConsoleLogger, readDataFunc func(string, map[string]*model.Row) error, writeMovieFunc func(*csv.Writer, string, *model.Row) error, writeDataFunc func(*csv.Writer, string, *model.Row) error) (map[string]map[string]*model.Row, map[string]map[string]*model.Row, map[string]uint64) {
+func ReloadStateFromDisk(joinerType string, joinerID string, moviesHeader []string, dataHeader []string, log *logger.ConsoleLogger, readDataFunc func(string, map[string]*model.Row) error, writeMovieFunc func(*csv.Writer, string, *model.Row) error, writeDataFunc func(*csv.Writer, string, *model.Row) error) (map[uint64]map[string]*model.Row, map[uint64]map[string]*model.Row, map[uint64]uint64) {
 	rootDir := fmt.Sprintf("joiner_%s/joiner%s", joinerType, joinerID)
 	log.Infof("Reloading pending movies from: %s", rootDir)
 
-	pendingMovies := make(map[string]map[string]*model.Row)
-	processedMovies := make(map[string]map[string]*model.Row)
-	msgIDs := make(map[string]uint64)
+	pendingMovies := make(map[uint64]map[string]*model.Row)
+	processedMovies := make(map[uint64]map[string]*model.Row)
+	msgIDs := make(map[uint64]uint64)
 	includeTitle := joinerType == "ratings"
 	clientDirs, err := os.ReadDir(rootDir)
 	if err != nil {
@@ -31,8 +31,14 @@ func ReloadStateFromDisk(joinerType string, joinerID string, moviesHeader []stri
 		if !clientDir.IsDir() {
 			continue
 		}
-		clientId := clientDir.Name()
-		clientPath := fmt.Sprintf("%s/%s", rootDir, clientId)
+		clientIdStr := clientDir.Name()
+		clientPath := fmt.Sprintf("%s/%s", rootDir, clientIdStr)
+		//parseo a uint64
+		clientId, err := strconv.ParseUint(clientIdStr, 10, 64)
+		if err != nil {
+			log.Errorf("Failed to parse client ID %s: %v", clientIdStr, err)
+			continue
+		}
 
 		files, err := os.ReadDir(clientPath)
 		if err != nil {
@@ -116,7 +122,7 @@ func ReloadStateFromDisk(joinerType string, joinerID string, moviesHeader []stri
 	return pendingMovies, processedMovies, msgIDs
 }
 
-func getMsgId(filePath string, clientId string, msgIDs map[string]uint64) {
+func getMsgId(filePath string, clientId uint64, msgIDs map[uint64]uint64) {
 	file, err := os.Open(filePath)
 	if err != nil { // If the file doesn't exist, we assume msgID is 0
 		msgIDs[clientId] = 0
@@ -321,7 +327,7 @@ func ReadRatingsCSVToMap(fileName string, ratings map[string]*model.Row) error {
 	return nil
 }
 
-func SaveData(clientID string, data map[string]*model.Row, header []string, fileName string, log *logger.ConsoleLogger, writeFunction func(*csv.Writer, string, *model.Row) error) error {
+func SaveData(clientID uint64, data map[string]*model.Row, header []string, fileName string, log *logger.ConsoleLogger, writeFunction func(*csv.Writer, string, *model.Row) error) error {
 	writeHeader := false
 	if stat, err := os.Stat(fileName); err == nil {
 		if stat.Size() == 0 {

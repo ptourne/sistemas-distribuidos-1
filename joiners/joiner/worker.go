@@ -23,10 +23,10 @@ const MIDDLEWARE = "rabbitmq"
 
 type Worker struct {
 	Tasks                 task.JoinerTask[*model.Row, *model.Row]
-	ClientsFinishedMovies map[string]middleware.Envelope[*model.Row]
-	ClientsMoviesEOFs     map[string]middleware.Envelope[*model.Row]
-	ClientsFinishedInput  map[string]middleware.Envelope[*model.Row]
-	ClientsFinished       map[string]bool
+	ClientsFinishedMovies map[uint64]middleware.Envelope[*model.Row]
+	ClientsMoviesEOFs     map[uint64]middleware.Envelope[*model.Row]
+	ClientsFinishedInput  map[uint64]middleware.Envelope[*model.Row]
+	ClientsFinished       map[uint64]bool
 }
 
 type TType int
@@ -66,10 +66,10 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 			return
 		case envelope, ok = <-inputChannels[0]:
 			if envelope != nil && envelope.Type() == middleware.EOF {
-				log.Infof("Movies: EOF message received from %s", envelope.Cid())
+				log.Infof("Movies: EOF message received from %d", envelope.Cid())
 				_, exists := w.ClientsFinishedMovies[envelope.Cid()]
 				if exists {
-					log.Errorf("Client %s finished but already registered", envelope.Cid())
+					log.Errorf("Client %d finished but already registered", envelope.Cid())
 					err = envelope.Ack(false)
 					if err != nil {
 						log.Warnf("Failed to ack EOF message for movies: %v", err)
@@ -80,7 +80,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 				senderMoviesEOFs.SendEOF(envelope.Cid())
 
 			} else if envelope != nil && envelope.Type() == middleware.Prune {
-				log.Infof("Movies: Received prune message for client %s", envelope.Cid())
+				log.Infof("Movies: Received prune message for client %d", envelope.Cid())
 				err = envelope.Ack(false)
 				if err != nil {
 					log.Warnf("Failed to ack prune message for movies: %v", err)
@@ -93,10 +93,10 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 			}
 		case envelope, ok = <-inputChannels[1]:
 			if envelope != nil && envelope.Type() == middleware.EOF {
-				log.Infof("Credits/Ratings: EOF message received from %s", envelope.Cid())
+				log.Infof("Credits/Ratings: EOF message received from %d", envelope.Cid())
 				_, exists := w.ClientsFinishedInput[envelope.Cid()]
 				if exists {
-					log.Errorf("Client %s finished but already registered", envelope.Cid())
+					log.Errorf("Client %d finished but already registered", envelope.Cid())
 					err = envelope.Ack(false)
 					if err != nil {
 						log.Warnf("Failed to ack EOF message for credits/ratings: %v", err)
@@ -106,7 +106,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 				w.ClientsFinishedInput[envelope.Cid()] = envelope
 				currentTask.ProcessPendingMovies(envelope.Cid())
 			} else if envelope != nil && envelope.Type() == middleware.Prune {
-				log.Infof("Credits/Ratings: Received prune message for client %s", envelope.Cid())
+				log.Infof("Credits/Ratings: Received prune message for client %d", envelope.Cid())
 				err = envelope.Ack(false)
 				if err != nil {
 					log.Warnf("Failed to ack prune message for credits/ratings: %v", err)
@@ -129,13 +129,13 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 					_, exists := w.ClientsMoviesEOFs[envelope.Cid()]
 					_, finished := w.ClientsFinished[envelope.Cid()]
 					if !exists && !finished {
-						log.Infof("MoviesEOFs: EOF message received for %s", envelope.Cid())
+						log.Infof("MoviesEOFs: EOF message received for %d", envelope.Cid())
 						w.ClientsMoviesEOFs[envelope.Cid()] = envelope
 						mustACK = false
 					}
 				}
 				if mustACK {
-					log.Infof("MoviesEOFs: Acking message type %s for %s", envelope.Type(), envelope.Cid())
+					log.Infof("MoviesEOFs: Acking message type %s for %d", envelope.Type(), envelope.Cid())
 					err = envelope.Ack(false)
 					if err != nil {
 						log.Warnf("Failed to ack EOF message for moviesEOFs: %v", err)
@@ -249,7 +249,7 @@ func (w *Worker) processEOF(envelope middleware.Envelope[*model.Row], id string,
 	eofMovies2, existsMovies2 := w.ClientsMoviesEOFs[envelope.Cid()]
 	eofInput, existsInput := w.ClientsFinishedInput[envelope.Cid()]
 	if (existsMovies || existsMovies2) && existsInput {
-		log.Infof("Client %s finished", envelope.Cid())
+		log.Infof("Client %d finished", envelope.Cid())
 		delete(w.ClientsFinishedMovies, envelope.Cid())
 		delete(w.ClientsFinishedInput, envelope.Cid())
 		if id == "0" {
@@ -257,7 +257,7 @@ func (w *Worker) processEOF(envelope middleware.Envelope[*model.Row], id string,
 		} else {
 			currentTask.FinishProcessingClient(envelope.Cid(), false)
 		}
-		log.Infof("Finished processing client %s", envelope.Cid())
+		log.Infof("Finished processing client %d", envelope.Cid())
 		if existsMovies {
 			err = eofMovies.Ack(false)
 			if err != nil {
@@ -342,10 +342,10 @@ func NewCreditsWorker(subscribers []string, id string, workerLogger *logger.Cons
 
 	return Worker{
 		Tasks:                 joiner_credits,
-		ClientsFinishedMovies: make(map[string]middleware.Envelope[*model.Row]),
-		ClientsMoviesEOFs:     make(map[string]middleware.Envelope[*model.Row]),
-		ClientsFinishedInput:  make(map[string]middleware.Envelope[*model.Row]),
-		ClientsFinished:       make(map[string]bool),
+		ClientsFinishedMovies: make(map[uint64]middleware.Envelope[*model.Row]),
+		ClientsMoviesEOFs:     make(map[uint64]middleware.Envelope[*model.Row]),
+		ClientsFinishedInput:  make(map[uint64]middleware.Envelope[*model.Row]),
+		ClientsFinished:       make(map[uint64]bool),
 	}
 }
 
@@ -357,9 +357,9 @@ func NewRatingsWorker(subscribers []string, id string, workerLogger *logger.Cons
 
 	return Worker{
 		Tasks:                 joiner_ratings,
-		ClientsFinishedMovies: make(map[string]middleware.Envelope[*model.Row]),
-		ClientsMoviesEOFs:     make(map[string]middleware.Envelope[*model.Row]),
-		ClientsFinishedInput:  make(map[string]middleware.Envelope[*model.Row]),
-		ClientsFinished:       make(map[string]bool),
+		ClientsFinishedMovies: make(map[uint64]middleware.Envelope[*model.Row]),
+		ClientsMoviesEOFs:     make(map[uint64]middleware.Envelope[*model.Row]),
+		ClientsFinishedInput:  make(map[uint64]middleware.Envelope[*model.Row]),
+		ClientsFinished:       make(map[uint64]bool),
 	}
 }
