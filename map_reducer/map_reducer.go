@@ -91,7 +91,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 			log:            log,
 			MapReduce:      mapReducer,
 			connIn:         connIn,
-			ReduceBatches:  make(map[string]*A),
+			ReduceBatches:  make(map[uint64]*A),
 			Receiver:       inputCh,
 			Sender:         finalReduceOut,
 			transactionLog: nil,
@@ -99,7 +99,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		finalReducer: &FinalReducer[I, A, R]{
 			log:            log,
 			MapReduce:      mapReducer,
-			ReduceBatches:  make(map[string]*A),
+			ReduceBatches:  make(map[uint64]*A),
 			connOut:        connOut,
 			Sender:         output,
 			Receiver:       finalReduceInMap,

@@ -450,6 +450,7 @@ func (s *SenderChannel[T]) SendEOFRK(ctx context.Context, routingKey string, cid
 	s.Log.Debugf("SendEOFRK in chan %s with routingKey %s and cid %d", s.exchangeName, routingKey, cid)
 	bufId := make([]byte, 8)
 	binary.BigEndian.PutUint64(bufId, uint64(0))
+	cidC := int64(cid)
 	err := s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
 		routingKey,     // routing key
@@ -459,7 +460,7 @@ func (s *SenderChannel[T]) SendEOFRK(ctx context.Context, routingKey string, cid
 			ContentType: "application/message",
 			Body:        []byte{},
 			Headers: amqp.Table{
-				"cid":  cid,
+				"cid":  cidC,
 				"type": eofCid.String(),
 				"id":   bufId,
 			},
@@ -751,12 +752,13 @@ func (s *SenderRabbitmq[T]) Prune(cid uint64) error {
 func (s SenderChannel[T]) Prune(cid uint64) error {
 	bufId := make([]byte, 8)
 	binary.BigEndian.PutUint64(bufId, uint64(0))
+	cidC := int64(cid)
 	c, err := s.ch.PublishWithDeferredConfirm(s.exchangeName, "", false, false,
 		amqp.Publishing{
 			ContentType: "application/message",
 			Body:        []byte{},
 			Headers: amqp.Table{
-				"cid":  cid,
+				"cid":  cidC,
 				"type": prune.String(),
 				"id":   bufId,
 			},

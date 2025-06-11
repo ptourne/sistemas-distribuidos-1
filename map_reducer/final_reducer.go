@@ -14,7 +14,7 @@ import (
 type FinalReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]] struct {
 	log            *logger.ConsoleLogger
 	MapReduce      MapReduce[I, A, R]
-	ReduceBatches  map[string]*A
+	ReduceBatches  map[uint64]*A
 	connOut        middleware.Connection[R]
 	Receiver       map[string]middleware.Receiver[A] // It will be null for all but the leader
 	Sender         middleware.Sender[R]
@@ -98,7 +98,7 @@ func (fr *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 				}
 				switch e.Type() {
 				case middleware.Normal:
-					fr.log.Infof("Final : %s | Saving final reduce batch", e.Cid())
+					fr.log.Infof("Final : %d | Saving final reduce batch", e.Cid())
 					clientBatch, ok := fr.ReduceBatches[e.Cid()]
 					if !ok {
 						acc := e.Msg()
@@ -110,22 +110,22 @@ func (fr *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 					}
 					e.Ack(false)
 				case middleware.EOF:
-					fr.log.Infof("Final EOF: %s | Pruning final reduce batch", e.Cid())
+					fr.log.Infof("Final EOF: %d | Pruning final reduce batch", e.Cid())
 					clientBatch, ok := fr.ReduceBatches[e.Cid()]
 					if !ok {
-						fr.log.Infof("Final : %s | Final Reduce batch not found on Prune", e.Cid())
+						fr.log.Infof("Final : %d | Final Reduce batch not found on Prune", e.Cid())
 						e.Ack(false)
 						break
 					}
 					if clientBatch == nil {
-						fr.log.Infof("Final : %s | Final Reduce batch is empty on Prune", e.Cid())
+						fr.log.Infof("Final : %d | Final Reduce batch is empty on Prune", e.Cid())
 						e.Ack(false)
 						break
 					}
-					fr.log.Debugf("Final : %s | clientBatch before: %v", e.Cid(), clientBatch)
+					fr.log.Debugf("Final : %d | clientBatch before: %v", e.Cid(), clientBatch)
 					output := fr.MapReduce.Output(*clientBatch)
 					for i, o := range output {
-						fr.log.Infof("Final : %s | Sending partial result to output: %v", e.Cid(), o)
+						fr.log.Infof("Final : %d | Sending partial result to output: %v", e.Cid(), o)
 						err = fr.Sender.Send(o, e.Cid(), uint64(i))
 					}
 					if err != nil {
@@ -136,22 +136,22 @@ func (fr *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 					}
 					err := fr.Sender.Prune(e.Cid())
 					if err != nil {
-						fr.log.Errorf("input : %s | Prune failed: %s", e.Cid(), err)
+						fr.log.Errorf("input : %d | Prune failed: %v", e.Cid(), err)
 						e.Nack(false)
 					}
 
 					delete(fr.ReduceBatches, e.Cid())
 
-					fr.log.Infof("Final : %s | Sending EOF after sending partial result", e.Cid())
+					fr.log.Infof("Final : %d | Sending EOF after sending partial result", e.Cid())
 					err = fr.Sender.SendEOF(e.Cid())
 					if err != nil {
-						fr.log.Errorf("Final : %s | SendEOF failed: %s", e.Cid(), err)
+						fr.log.Errorf("Final : %d | SendEOF failed: %s", e.Cid(), err)
 						e.Nack(false)
 						return
 					}
 					e.Ack(false)
 				case middleware.Prune:
-					fr.log.Infof("Final : %s | Received PRUNE", e.Cid())
+					fr.log.Infof("Final : %d | Received PRUNE", e.Cid())
 					e.Ack(false)
 				}
 			}

@@ -15,7 +15,7 @@ type PartialReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Se
 	log            *logger.ConsoleLogger
 	MapReduce      MapReduce[I, A, R]
 	Receiver       middleware.Receiver[I]
-	ReduceBatches  map[string]*A
+	ReduceBatches  map[uint64]*A
 	Sender         middleware.Sender[A]
 	connIn         middleware.Connection[I]
 	transactionLog transaction_log.TransactionLog
@@ -51,17 +51,17 @@ func (pr *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 					msg := envelope.Msg()
 					err := pr.reduce(envelope.Cid(), msg)
 					if err != nil {
-						err = fmt.Errorf("input : %s | Error processing message: %w", envelope.Cid(), err)
+						err = fmt.Errorf("input : %d | Error processing message: %w", envelope.Cid(), err)
 						envelope.Nack(false)
 					}
 
 					envelope.Ack(false)
 				case middleware.EOF:
-					pr.log.Debugf("input : %s | Received EOF", envelope.Cid())
+					pr.log.Debugf("input : %d | Received EOF", envelope.Cid())
 					err = pr.Sender.SendEOF(envelope.Cid())
 					envelope.Ack(false)
 				case middleware.Prune:
-					pr.log.Debugf("input : %s | Received Prune", envelope.Cid())
+					pr.log.Debugf("input : %d | Received Prune", envelope.Cid())
 					clientBatch, ok := pr.ReduceBatches[envelope.Cid()]
 					if ok {
 						err := pr.Sender.Send(*clientBatch, envelope.Cid(), 0) // TODO id!!
@@ -72,7 +72,7 @@ func (pr *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 					}
 					err = pr.Sender.Prune(envelope.Cid())
 					if err != nil {
-						err = fmt.Errorf("input : %s | Prune failed: %s", envelope.Cid(), err)
+						err = fmt.Errorf("input : %d | Prune failed: %s", envelope.Cid(), err)
 						envelope.Nack(false)
 						return
 					}
@@ -86,30 +86,30 @@ func (pr *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 }
 
 func (pr *PartialReducer[I, A, R]) reduce(cid uint64, msg I) error {
-	pr.log.Debugf("input : %s | Received input", cid)
+	pr.log.Debugf("input : %d | Received input", cid)
 	acc := pr.MapReduce.Map(msg)
 	for _, a := range acc {
 		err := pr.reduceAndStore(cid, a)
 		if err != nil {
-			pr.log.Errorf("input : %s | Error reducing and sending: %s", cid, err)
+			pr.log.Errorf("input : %d | Error reducing and sending: %v", cid, err)
 			return fmt.Errorf("error reducing and sending: %w", err)
 		}
 	}
 	return nil
 }
 
-func (pr *PartialReducer[I, A, R]) reduceAndStore(cid string, msg A) error {
-	pr.log.Infof("reduc : %s | reduceAndStore ", cid)
+func (pr *PartialReducer[I, A, R]) reduceAndStore(cid uint64, msg A) error {
+	pr.log.Infof("reduc : %d | reduceAndStore ", cid)
 	clientBatch, ok := pr.ReduceBatches[cid]
 	if ok {
-		pr.log.Infof("reduc : %s | reduceAndStore partial", cid)
+		pr.log.Infof("reduc : %d | reduceAndStore partial", cid)
 		reduc := []A{*clientBatch, msg}
 		reduced := pr.MapReduce.Reduce(reduc)
 		pr.ReduceBatches[cid] = &reduced
 		return nil
 	}
 
-	pr.log.Infof("reduc : %s | reduceAndStore | Creating new batch", cid)
+	pr.log.Infof("reduc : %d | reduceAndStore | Creating new batch", cid)
 	pr.ReduceBatches[cid] = &msg
 	return nil
 }
@@ -118,10 +118,10 @@ func (pr *PartialReducer[I, A, R]) Received(cid, id uint64, data []byte) error {
 	var nul I
 	msg, err := nul.Decode(data)
 	if err != nil {
-		pr.log.Errorf("input : %s | Received error decoding message: %s", cid, err)
+		pr.log.Errorf("input : %d | Received error decoding message: %s", cid, err)
 		return fmt.Errorf("error decoding message: %w", err)
 	}
-	pr.log.Debugf("input : %s | Received message: %v", cid, msg)
+	pr.log.Debugf("input : %d | Received message: %v", cid, msg)
 	return pr.reduce(cid, msg)
 }
 

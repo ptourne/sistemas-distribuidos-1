@@ -138,7 +138,7 @@ func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, sh
 		)
 		assert.NoError(t, err)
 		assert.NotNil(t, mapReducer)
-		assert.NotNil(t, mapReducer.partialReducer.Input)
+		assert.NotNil(t, mapReducer.partialReducer.Receiver)
 
 		handler := make(chan struct{})
 		go func() {
@@ -206,7 +206,7 @@ func TestMapReducer(t *testing.T) {
 		init := test1container
 		assert.NoError(t, init.Err)
 
-		cid := "1"
+		cid := uint64(1)
 		shardCount := uint(1)
 		shardCountOutput := uint(1)
 		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{})
@@ -292,7 +292,7 @@ func TestMapReducer(t *testing.T) {
 		shardCount := uint(5)
 		shardCountOutput := uint(1)
 
-		cid := "1"
+		cid := uint64(1)
 		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{})
 		assert.NoError(t, err)
 
@@ -377,7 +377,7 @@ func TestMapReducer(t *testing.T) {
 		shardCount := uint(10)
 		shardCountOutput := uint(1)
 
-		cid := "1"
+		cid := uint64(1)
 		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{})
 		assert.NoError(t, err)
 
@@ -465,7 +465,7 @@ func TestMapReducer(t *testing.T) {
 		shardCount := uint(10)
 		shardCountOutput := uint(1)
 
-		cid := "1"
+		cid := uint64(1)
 		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{})
 		assert.NoError(t, err)
 
@@ -553,7 +553,7 @@ func TestMapReducer(t *testing.T) {
 		shardCount := uint(10)
 		shardCountOutput := uint(2)
 
-		cid := "1"
+		cid := uint64(1)
 		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer2{})
 		assert.NoError(t, err)
 
@@ -654,7 +654,7 @@ func TestMapReducer(t *testing.T) {
 		shardCount := uint(10)
 		shardCountOutput := uint(2)
 
-		cid := "1"
+		cid := uint64(1)
 		sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{})
 		assert.NoError(t, err)
 
@@ -747,9 +747,9 @@ func TestMapReducer(t *testing.T) {
 }
 
 func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes, countPerCID uint64) {
-	cids := []string{}
+	cids := []uint64{}
 	for i := range cidCount {
-		cids = append(cids, fmt.Sprintf("%d", i))
+		cids = append(cids, i)
 	}
 	shardCount := uint(10)
 	shardCountOutput := uint(1)
@@ -772,7 +772,7 @@ func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes,
 		assert.NoError(t, err)
 	}
 
-	steps := map[string]map[int]int{} //steps
+	steps := map[uint64]map[int]int{} //steps
 	// no_lider_msg := map[string]uint{} //siempre tiene que dar 9
 	for i := range cidCount {
 		steps[cids[i]] = map[int]int{}
@@ -781,7 +781,7 @@ func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes,
 		}
 	}
 
-	cant_received_msg := map[string]uint{}
+	cant_received_msg := map[uint64]uint{}
 	for i := 0; i < int(cidCount); i++ {
 		cant_received_msg[cids[i]] = 0
 	}
@@ -800,7 +800,7 @@ func testBulk(t *testing.T, cidCount uint64, init rabbitmq.AsyncDeployRabbitRes,
 			}
 
 			assert.NoError(t, err)
-			log.Debugf("Received message type %s cid %s", e.Type(), e.Cid())
+			log.Debugf("Received message type %s cid %d", e.Type(), e.Cid())
 			step := steps[e.Cid()]
 
 			switch step[i] {
