@@ -58,7 +58,7 @@ func (f CleanMovies) ProcessAndSend(envelope middleware.Envelope[*model.Row]) er
 	case middleware.Prune:
 		err := f.taskSender.Prune(cid)
 		if err != nil {
-			log.Errorf("cid %s | Prune failed in: %s with err:%s", cid, err, f.Name())
+			log.Errorf("cid %d | Prune failed in: %s with err:%s", cid, err, f.Name())
 			envelope.Nack(true)
 		}
 		return nil

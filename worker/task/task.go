@@ -21,9 +21,9 @@ type Task[I codec.Serializable[I], O codec.Serializable[O]] interface {
 
 type JoinerTask[I codec.Serializable[I], O codec.Serializable[O]] interface {
 	Task[I, O]
-	ProcessPendingMovies(clientID string) error
+	ProcessPendingMovies(clientID uint64) error
 	NameWithId() string
-	FinishProcessingClient(clientID string, sendFinish bool) error
+	FinishProcessingClient(clientID uint64, sendFinish bool) error
 	Id() string
 	Logger() *logger.ConsoleLogger
 }

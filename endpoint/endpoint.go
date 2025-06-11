@@ -23,7 +23,7 @@ type Endpoint struct {
 	Running         bool
 	listener        net.Listener
 	lockClientsConn sync.Mutex
-	clientsConn     map[string]struct {
+	clientsConn     map[uint64]struct {
 		conn   net.Conn
 		output chan middleware.Envelope[*model.Row]
 	}
@@ -42,7 +42,7 @@ func NewEndpoint() (*Endpoint, error) {
 	endpoint := &Endpoint{
 		Running:  true,
 		listener: listener,
-		clientsConn: make(map[string]struct {
+		clientsConn: make(map[uint64]struct {
 			conn   net.Conn
 			output chan middleware.Envelope[*model.Row]
 		}),
@@ -104,12 +104,12 @@ func (e *Endpoint) Run() error {
 			}
 			switch envelope.Type() {
 			case middleware.EOF:
-				log.Infof("cid %s finished receiving", cid)
+				log.Infof("cid %d finished receiving", cid)
 				e.lockClientsConn.Lock()
 				delete(e.clientsConn, envelope.Cid())
 				e.lockClientsConn.Unlock()
 			case middleware.Prune:
-				log.Infof("Prune arrived for cid: %s", envelope.Cid())
+				log.Infof("Prune arrived for cid: %d", envelope.Cid())
 				err = envelope.Ack(false)
 				if err != nil {
 					log.Errorf("failed to ack message in endpoint %s", err)
@@ -131,7 +131,7 @@ func (e *Endpoint) Run() error {
 			continue
 		}
 		cid := GenerateRandomID()
-		log.Infof("Accepted connection with id: %s", cid)
+		log.Infof("Accepted connection with id: %d", cid)
 		e.wg.Add(1)
 		go e.handleClient(conn, ip, middlewareChanByte, cid)
 	}
@@ -139,7 +139,7 @@ func (e *Endpoint) Run() error {
 	return nil
 }
 
-func (e *Endpoint) handleClient(conn net.Conn, ip string, middlewareChanByte middleware.Connection[*common.PackageFile], cid string) {
+func (e *Endpoint) handleClient(conn net.Conn, ip string, middlewareChanByte middleware.Connection[*common.PackageFile], cid uint64) {
 	defer e.wg.Done()
 	structCid := struct {
 		conn   net.Conn
@@ -157,7 +157,7 @@ func (e *Endpoint) handleClient(conn net.Conn, ip string, middlewareChanByte mid
 		log.Errorf("error recibiendo o enviando querys: %v", err)
 	}
 	e.lockClientsConn.Lock()
-	log.Infof("Closing connection with id: %s", cid)
+	log.Infof("Closing connection with id: %d", cid)
 	conn.Close()
 	delete(e.clientsConn, cid)
 	e.lockClientsConn.Unlock()
@@ -174,19 +174,19 @@ func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
 	return conn, remoteAddr, nil
 }
 
-func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, output chan middleware.Envelope[*model.Row], cid string) error {
-	log.Infof("Receiving and sending querys results to client %s", cid)
+func (e *Endpoint) ReceiveAndSendQuerysResults(conn net.Conn, ip string, output chan middleware.Envelope[*model.Row], cid uint64) error {
+	log.Infof("Receiving and sending querys results to client %d", cid)
 	var err error
 OuterLoop:
 	for {
 		envelope := <-output
 		if envelope.Cid() != cid {
-			log.Errorf("Received message from wrong cid: %s", envelope.Cid())
+			log.Errorf("Received message from wrong cid: %d", envelope.Cid())
 			continue
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
-			log.Infof("No more querys with cid %s and ip %s", cid, ip)
+			log.Infof("No more querys with cid %d and ip %s", cid, ip)
 			bufAck := []byte("FinishQuerys")
 			err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), model.FinishQuerys)
 			if err != nil {
@@ -198,7 +198,7 @@ OuterLoop:
 			}
 			break OuterLoop
 		case middleware.Prune:
-			log.Infof("Prune arrived for cid: %s with ip %s", envelope.Cid(), ip)
+			log.Infof("Prune arrived for cid: %d with ip %s", envelope.Cid(), ip)
 			err = envelope.Ack(false)
 			if err != nil {
 				return fmt.Errorf("failed to ack message in endpoint %s", err)
@@ -217,7 +217,7 @@ OuterLoop:
 			}
 		}
 
-		log.Infof("Writing to conn: %s (client %s)", ip, cid)
+		log.Infof("Writing to conn: %s (client %d)", ip, cid)
 		err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), receivedMovie.Type)
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)
@@ -231,7 +231,7 @@ OuterLoop:
 	return nil
 }
 
-func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.Connection[*common.PackageFile], cid string) error {
+func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareChan middleware.Connection[*common.PackageFile], cid uint64) error {
 	fileBytes := "file_bytes"
 	fileBytesSender, err := middlewareChan.WriteTo(fileBytes, []string{"file_bytes"}, "0", 1)
 	if err != nil {
@@ -329,7 +329,7 @@ func (e *Endpoint) StopEndpoint() {
 		}
 		close(structCid.output)
 	}
-	e.clientsConn = make(map[string]struct {
+	e.clientsConn = make(map[uint64]struct {
 		conn   net.Conn
 		output chan middleware.Envelope[*model.Row]
 	})

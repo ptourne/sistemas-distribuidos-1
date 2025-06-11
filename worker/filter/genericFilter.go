@@ -102,7 +102,7 @@ func (f GenericFilter) ProcessAndSend(envelope middleware.Envelope[*model.Row]) 
 	case middleware.Prune:
 		err := f.taskSender.Prune(cid)
 		if err != nil {
-			log.Errorf("cid %s | Prune failed in: %s with err:%s", cid, err, f.Name())
+			log.Errorf("cid %d | Prune failed in: %s with err:%s", cid, err, f.Name())
 			envelope.Nack(true)
 		}
 		return nil
@@ -110,7 +110,7 @@ func (f GenericFilter) ProcessAndSend(envelope middleware.Envelope[*model.Row]) 
 		// log.Infof("NORMAL arrived for cid: %s in %s movieID: %s", cid, f.Name(), row.Strings["movieID"])
 		output, err := f.process(row)
 		if err != nil {
-			log.Errorf("cid %s | Error processing row: %v", cid, err)
+			log.Errorf("cid %d | Error processing row: %v", cid, err)
 			return err
 		}
 		if output == nil {

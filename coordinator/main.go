@@ -48,7 +48,7 @@ func main() {
 		log.Infof("Received SIGTERM. Shutting down gracefully...")
 		cancelHearbeat()
 	}()
-	inputsChannelMap := map[string]*ChannelsCid{}
+	inputsChannelMap := map[uint64]*ChannelsCid{}
 	inputChannelMapLock := sync.Mutex{}
 	wg.Add(1)
 	go func() {
@@ -87,7 +87,7 @@ func main() {
 			case channelsCid.input <- envelope:
 				// enviado con éxito
 			case <-ctx.Done():
-				log.Infof("Context cancelled before sending to input channel of cid: %s", envelope.Cid())
+				log.Infof("Context cancelled before sending to input channel of cid: %d", envelope.Cid())
 				return
 			}
 
@@ -113,7 +113,7 @@ func main() {
 	log.Infof("EXITING COORDINATOR")
 }
 
-func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[string]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex, wg *sync.WaitGroup, lastQuery bool) {
+func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[uint64]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex, wg *sync.WaitGroup, lastQuery bool) {
 	defer wg.Done()
 	for {
 		envelope, err := queue.Next(ctx)
@@ -140,7 +140,7 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 		switch envelope.Type() {
 		case middleware.EOF:
 			if lastQuery {
-				log.Infof("cid %s finished receiving", cid)
+				log.Infof("cid %d finished receiving", cid)
 				inputChannelMapLock.Lock()
 				//close(getFuc(channelsCid))
 				finished = true
@@ -169,9 +169,9 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 	}
 }
 
-func handleClient(cid string, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context) {
+func handleClient(cid uint64, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context) {
 	defer wg.Done()
-	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%s", cid), logger.Info)
+	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
 	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
 	if err != nil {
 		log.Errorf("Failed to parse n_workers: %v", err)
@@ -563,7 +563,7 @@ func (c *ChannelsCid) Close() {
 	})
 }
 
-func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
+func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row]) {
 	expectedOutputQ1 := []*model.Row{
 		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
 		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
@@ -593,7 +593,7 @@ func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q1", expectedOutputQ1, removeQ1, false)
 }
 
-func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
+func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row]) {
 	expectedOutputQ2 := []*model.Row{
 		{Numerics: map[string]uint64{"budget_sum": 120153886644}, Strings: map[string]string{"country": "US"}},
 		{Numerics: map[string]uint64{"budget_sum": 2256831838}, Strings: map[string]string{"country": "FR"}},
@@ -604,7 +604,7 @@ func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q2", expectedOutputQ2, removeQ2, false)
 }
 
-func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
+func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row]) {
 	//expectedOutputQ3 := []*model.Row{
 	// 	{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
 	// 	{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
@@ -622,7 +622,7 @@ func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3_200k, removeQ3, false)
 }
 
-func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row]) {
+func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, qReceiver chan middleware.Envelope[*model.Row]) {
 	expectedOutputQ4 := []*model.Row{
 		{Numerics: map[string]uint64{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
 		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
@@ -638,7 +638,7 @@ func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Q4", expectedOutputQ4, removeQ4, false)
 }
 
-func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, q1Receiver chan middleware.Envelope[*model.Row]) {
+func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row]) {
 	expectedOutputQ5 := []*model.Row{
 		{Strings: map[string]string{"sentiment": "NEGATIVE"}, Floats: map[string]float64{"avg_rate": 5453.397595}},
 		{Strings: map[string]string{"sentiment": "POSITIVE"}, Floats: map[string]float64{"avg_rate": 5668.650541}},
@@ -646,7 +646,7 @@ func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q5", expectedOutputQ5, removeQ5, true)
 }
 
-func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid string, qReceiver chan middleware.Envelope[*model.Row], queryNumber string, expectedOutput []*model.Row, remove func([]*model.Row, *model.Row, *logger.ConsoleLogger, string) []*model.Row, lastQuery bool) {
+func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, qReceiver chan middleware.Envelope[*model.Row], queryNumber string, expectedOutput []*model.Row, remove func([]*model.Row, *model.Row, *logger.ConsoleLogger, uint64) []*model.Row, lastQuery bool) {
 	lastIdSent := uint64(0)
 	log.Infof("Verifying %s", queryNumber)
 	err := allQuerysToEndpointSender.Send(model.RowQueryName(queryNumber), cid, lastIdSent)
@@ -663,12 +663,12 @@ OuterLoop:
 			return
 		}
 		if envelope.Cid() != cid {
-			log.Errorf("Received message from wrong cid: %s", envelope.Cid())
+			log.Errorf("Received message from wrong cid: %d", envelope.Cid())
 			continue
 		}
 		switch envelope.Type() {
 		case middleware.EOF:
-			log.Infof("Client %s | Query %s | No more rows , EOF arrived", cid, queryNumber)
+			log.Infof("Client %d | Query %s | No more rows , EOF arrived", cid, queryNumber)
 			if lastQuery {
 				allQuerysToEndpointSender.SendEOF(cid)
 			}
@@ -676,13 +676,13 @@ OuterLoop:
 			unwrap(err, "Failed to ack message", log)
 			break OuterLoop
 		case middleware.Prune:
-			log.Infof("Prune arrived for cid: %s in %s", envelope.Cid(), queryNumber)
+			log.Infof("Prune arrived for cid: %d in %s", envelope.Cid(), queryNumber)
 			// err = envelope.Ack(false)
 			// unwrap(err, "Failed to ack message", log)
 			// continue
 			err := allQuerysToEndpointSender.Prune(cid)
 			if err != nil {
-				log.Errorf("cid %s | Prune failed in: %s with err:%s", cid, err, queryNumber)
+				log.Errorf("cid %d | Prune failed in: %s with err:%s", cid, err, queryNumber)
 				envelope.Nack(true)
 			}
 			err = envelope.Ack(false)
@@ -702,38 +702,38 @@ OuterLoop:
 		unwrap(err, "Failed to ack message", log)
 	}
 	if len(expectedOutput) > 0 {
-		log.Errorf("Client %s | Query %s | Not all expected rows received 🛑. Missing %v", cid, queryNumber, expectedOutput)
+		log.Errorf("Client %d | Query %s | Not all expected rows received 🛑. Missing %v", cid, queryNumber, expectedOutput)
 	}
 	if len(expectedOutput) == 0 {
-		log.Infof("CLIENT %s | QUERY %s | ALL EXPECTED ROWS RECEIVED 🟢", cid, queryNumber)
+		log.Infof("CLIENT %d | QUERY %s | ALL EXPECTED ROWS RECEIVED 🟢", cid, queryNumber)
 	}
 }
 
-func removeQ1(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
+func removeQ1(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger, cid uint64) []*model.Row {
 
 	for i, v := range slice {
 		if v.Strings["title"] == movie.Strings["title"] && stringSlicesEqual(v.Arrays["genres"], movie.Arrays["genres"]) {
-			log.Infof("Client %s | Query Q1 | Film matched expected", cid)
+			log.Infof("Client %d | Query Q1 | Film matched expected", cid)
 			return slices.Delete(slice, i, i+1)
 		}
 	}
-	log.Errorf("Client %s | Query Q1 | Film not matched expected", cid)
+	log.Errorf("Client %d | Query Q1 | Film not matched expected", cid)
 	return slice
 }
 
-func removeQ2(slice []*model.Row, country *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
+func removeQ2(slice []*model.Row, country *model.Row, log *logger.ConsoleLogger, cid uint64) []*model.Row {
 
 	for i, v := range slice {
 		if v.Strings["country"] == country.Strings["country"] {
 			if v.Numerics["budget_sum"] == country.Numerics["budget_sum"] {
-				log.Infof("Client %s | Query Q2 | Country matched expected", cid)
+				log.Infof("Client %d | Query Q2 | Country matched expected", cid)
 				return slices.Delete(slice, i, i+1)
 			} else {
-				log.Errorf("Client %s | Query Q2 | Budget sum not matched expected 😔: %d != %d", cid, country.Numerics["budget_sum"], v.Numerics["budget_sum"])
+				log.Errorf("Client %d | Query Q2 | Budget sum not matched expected 😔: %d != %d", cid, country.Numerics["budget_sum"], v.Numerics["budget_sum"])
 			}
 		}
 	}
-	log.Errorf("Client %s | Query Q2 | Country not matched expected 🛑", cid)
+	log.Errorf("Client %d | Query Q2 | Country not matched expected 🛑", cid)
 	return slice
 }
 
@@ -749,42 +749,42 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
-func removeQ3(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
+func removeQ3(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger, cid uint64) []*model.Row {
 
 	for i, v := range slice {
 		if v.Strings["title"] == movie.Strings["title"] && v.Strings["movieID"] == movie.Strings["movieID"] {
-			log.Infof("Client %s | Query Q3 |Film matched expected", cid)
+			log.Infof("Client %d | Query Q3 |Film matched expected", cid)
 			return slices.Delete(slice, i, i+1)
 		}
 	}
-	log.Errorf("Client %s | Query Q3 | Film not matched expected 🛑", cid)
+	log.Errorf("Client %d | Query Q3 | Film not matched expected 🛑", cid)
 	return slice
 }
 
-func removeQ4(slice []*model.Row, actor *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
+func removeQ4(slice []*model.Row, actor *model.Row, log *logger.ConsoleLogger, cid uint64) []*model.Row {
 
 	for i, v := range slice {
 		if v.Strings["actor"] == actor.Strings["actor"] {
 			if v.Numerics["count"] == actor.Numerics["count"] {
-				log.Infof("Client %s | Query Q4 | Actor matched expected", cid)
+				log.Infof("Client %d | Query Q4 | Actor matched expected", cid)
 				return slices.Delete(slice, i, i+1)
 			} else {
 				log.Errorf("Count not matched expected 😔: %d != %d", actor.Numerics["count"], v.Numerics["count"])
 			}
 		}
 	}
-	log.Errorf("Client %s | Query Q4 | Actor not matched expected 🛑", cid)
+	log.Errorf("Client %d | Query Q4 | Actor not matched expected 🛑", cid)
 	return slice
 }
 
-func removeQ5(expectedOutputQ5 []*model.Row, receivedSentiment *model.Row, log *logger.ConsoleLogger, cid string) []*model.Row {
+func removeQ5(expectedOutputQ5 []*model.Row, receivedSentiment *model.Row, log *logger.ConsoleLogger, cid uint64) []*model.Row {
 	for i, v := range expectedOutputQ5 {
 		if v.Strings["sentiment"] == receivedSentiment.Strings["sentiment"] {
 			if v.Floats["avg_rate"]-receivedSentiment.Floats["avg_rate"] < 0.0001 {
-				log.Infof("Client %s | Query Q5 | Sentiment matched expected", cid)
+				log.Infof("Client %d | Query Q5 | Sentiment matched expected", cid)
 				return slices.Delete(expectedOutputQ5, i, i+1)
 			} else {
-				log.Errorf("Client %s | Query Q5 | Avg rate not matched expected 😔: %f != %f", cid, receivedSentiment.Floats["avg_rate"], v.Floats["avg_rate"])
+				log.Errorf("Client %d | Query Q5 | Avg rate not matched expected 😔: %f != %f", cid, receivedSentiment.Floats["avg_rate"], v.Floats["avg_rate"])
 			}
 		}
 	}
