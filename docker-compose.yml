@@ -14,7 +14,7 @@ services:
             timeout: 10s
             retries: 10
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
     sentiment_server0:
         container_name: sentiment_server0
@@ -249,7 +249,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
 
     joiner_credits1:
         container_name: joiner_credits1
@@ -271,7 +271,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
 
     joiner_credits2:
         container_name: joiner_credits2
@@ -293,7 +293,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
 
     joiner_rating0:
         container_name: joiner_rating0
@@ -315,7 +315,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
     joiner_rating1:
         container_name: joiner_rating1
@@ -337,7 +337,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
     joiner_rating2:
         container_name: joiner_rating2
@@ -359,7 +359,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
     reduce_by_country_sum_budget0:
         container_name: reduce_by_country_sum_budget0
@@ -800,7 +800,7 @@ services:
         depends_on:
             - endpoint
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/client/datasets:/datasets
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
 
     monitor0:
         container_name: monitor0

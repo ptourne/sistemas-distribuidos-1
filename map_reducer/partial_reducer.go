@@ -3,7 +3,6 @@ package map_reducer
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
@@ -125,54 +124,54 @@ func (pr *PartialReducer[I, A, R]) Received(cid, id uint64, data []byte) error {
 	return pr.reduce(cid, msg)
 }
 
-func (pr *PartialReducer[I, A, R]) ReceivedEOF(cid uint64) error {
+// func (pr *PartialReducer[I, A, R]) ReceivedEOF(cid uint64) error {
 
-}
+// }
 
-func (pr *PartialReducer[I, A, R]) Acknowledged() error {
+// func (pr *PartialReducer[I, A, R]) Acknowledged() error {
 
-}
+// }
 
-func (pr *PartialReducer[I, A, R]) FromCheckpoint(data []byte) error {
-	pr.log.Debugf("input : FromCheckpoint | Data: %s", data)
-	if len(data) == 0 {
-		pr.log.Debugf("input : FromCheckpoint | No data to restore")
-		return nil
-	}
+// func (pr *PartialReducer[I, A, R]) FromCheckpoint(data []byte) error {
+// 	pr.log.Debugf("input : FromCheckpoint | Data: %s", data)
+// 	if len(data) == 0 {
+// 		pr.log.Debugf("input : FromCheckpoint | No data to restore")
+// 		return nil
+// 	}
 
-	pr.ReduceBatches = make(map[string]*A)
-	entries := string(data)
-	for {
-		parts := strings.SplitN(entries, ":", 2)
-		if len(parts) != 2 {
-			pr.log.Errorf("input : FromCheckpoint | Invalid entry format: %s", entries)
-			return fmt.Errorf("invalid entry format: %s", entries)
-		}
-		key := parts[0]
-		var nul A
-		parts2 := strings.SplitN(parts[1], ";", 2)
-		value, err := nul.Decode([]byte(parts2[0]))
-		if err != nil {
-			pr.log.Errorf("input : FromCheckpoint | Error decoding value: %s", err)
-			return fmt.Errorf("error decoding value: %w", err)
-		}
-		pr.ReduceBatches[key] = &value
-		entries = parts2[1]
-	}
-	pr.log.Debugf("input : FromCheckpoint | ReduceBatches restored: %v", pr.ReduceBatches)
-	return nil
-}
+// 	pr.ReduceBatches = make(map[string]*A)
+// 	entries := string(data)
+// 	for {
+// 		parts := strings.SplitN(entries, ":", 2)
+// 		if len(parts) != 2 {
+// 			pr.log.Errorf("input : FromCheckpoint | Invalid entry format: %s", entries)
+// 			return fmt.Errorf("invalid entry format: %s", entries)
+// 		}
+// 		key := parts[0]
+// 		var nul A
+// 		parts2 := strings.SplitN(parts[1], ";", 2)
+// 		value, err := nul.Decode([]byte(parts2[0]))
+// 		if err != nil {
+// 			pr.log.Errorf("input : FromCheckpoint | Error decoding value: %s", err)
+// 			return fmt.Errorf("error decoding value: %w", err)
+// 		}
+// 		pr.ReduceBatches[key] = &value
+// 		entries = parts2[1]
+// 	}
+// 	pr.log.Debugf("input : FromCheckpoint | ReduceBatches restored: %v", pr.ReduceBatches)
+// 	return nil
+// }
 
-func (pr *PartialReducer[I, A, R]) Dump() []byte {
-	buf := []byte{}
-	for key, value := range pr.ReduceBatches {
-		data, err := (*value).Encode()
-		if err != nil {
-			pr.log.Errorf("input : %s | Error encoding value: %s", key, err)
-			panic(fmt.Sprintf("error encoding value: %s", err))
-		}
-		buf = append(buf, []byte(fmt.Sprintf("%s:%s;", key, data))...)
-	}
-	pr.log.Debugf("input : Dumping ReduceBatches: %s", buf)
-	return buf
-}
+// func (pr *PartialReducer[I, A, R]) Dump() []byte {
+// 	buf := []byte{}
+// 	for key, value := range pr.ReduceBatches {
+// 		data, err := (*value).Encode()
+// 		if err != nil {
+// 			pr.log.Errorf("input : %s | Error encoding value: %s", key, err)
+// 			panic(fmt.Sprintf("error encoding value: %s", err))
+// 		}
+// 		buf = append(buf, []byte(fmt.Sprintf("%s:%s;", key, data))...)
+// 	}
+// 	pr.log.Debugf("input : Dumping ReduceBatches: %s", buf)
+// 	return buf
+// }
