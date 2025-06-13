@@ -51,6 +51,7 @@ func main() {
 	}()
 	inputsChannelMap := map[uint64]*ChannelsCid{}
 	inputChannelMapLock := sync.Mutex{}
+
 	recoverFromLogs(config, inputsChannelMap, &inputChannelMapLock, ctx, &wg, log)
 	wg.Add(1)
 	go func() {
@@ -130,28 +131,9 @@ func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*Channels
 		inputsChannelMap[cid] = channelsCid
 		inputChannelMapLock.Unlock()
 		wg.Add(1)
+		go handleClientRecover(transactionLog, channelsCid, c, wg, ctx)
 	}
-	// 	go handleClient(cid, channelsCid, c, wg, ctx)
-
-	// 	if len(transactionLog.Read()) == 0 {
-	// 		log.Infof("No read data for cid %d", cid)
-	// 		continue
-	// 	}
-
-	// 	for _, fileName := range transactionLog.Read() {
-	// 		log.Infof("Recovering file %s for cid %d", fileName, cid)
-	// 		envelope := middleware.NewEnvelope[*common.PackageFile](cid, &common.PackageFile{PackageType: common.FileName, Buf: utils.NewBuffer(fileName)}, middleware.EOF)
-	// 		select {
-	// 		case channelsCid.input <- envelope:
-	// 			log.Infof("Sent envelope for file %s to input channel of cid %d", fileName, cid)
-	// 		case <-ctx.Done():
-	// 			log.Infof("Context cancelled before sending envelope for file %s to input channel of cid %d", fileName, cid)
-	// 			return
-	// 		}
-	// 	}
-	// }
 	log.Infof("Recovery from logs completed")
-
 }
 
 func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[uint64]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex, wg *sync.WaitGroup, lastQuery bool) {
@@ -377,7 +359,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 		}
 	}
 
-	connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: lastReadNotIncluded, ctx: ctx, envelopesToAck: []middleware.Envelope[*common.PackageFile]{}}
+	connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: lastReadNotIncluded, ctx: ctx, envelopesToAck: []middleware.Envelope[*common.PackageFile]{}, lastIdACK: lastIdACK}
 	reader := csv.NewReader(connReader)
 
 	d, err := reader.Read()
@@ -980,6 +962,7 @@ type ConnReader struct {
 	lastReadNotIncluded []byte
 	ctx                 context.Context
 	envelopesToAck      []middleware.Envelope[*common.PackageFile]
+	lastIdACK           uint64
 }
 
 func (c *ConnReader) ackAllEnvelopes() error {
@@ -1013,6 +996,14 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 		if msgEnvelope == nil {
 			return 0, fmt.Errorf("invalid message es NIL")
 		}
+
+		if msgEnvelope.Id() < cr.lastIdACK {
+			err := msgEnvelope.Ack(false)
+			if err != nil {
+				return 0, fmt.Errorf("failed to ack envelope: %v", err)
+			}
+		}
+
 		msg := msgEnvelope.Msg()
 		data := msg.Buf.Bytes
 		t := msg.PackageType
