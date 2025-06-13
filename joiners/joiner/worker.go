@@ -56,7 +56,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 	currentTask := w.Tasks
 	id := currentTask.Id()
 
-	moviesEOFsChan, receiverMoviesEOFs, senderMoviesEOFs := w.setupMoviesEOFHandling(middlewareConnection, log)
+	moviesEOFsChan, receiverMoviesEOFs, senderMoviesEOFs := w.setupMoviesEOFHandling(middlewareConnection, log, id)
 	go receiveMoviesEOFFromPeers(receiverMoviesEOFs, moviesEOFsChan, log)
 
 	for {
@@ -180,20 +180,32 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 	currentTask.Finish()
 }
 
-func (w *Worker) setupMoviesEOFHandling(conn middleware.Connection[*model.Row], log *logger.ConsoleLogger) (chan middleware.Envelope[*model.Row], middleware.Receiver[*model.Row], middleware.Sender[*model.Row]) {
+func (w *Worker) setupMoviesEOFHandling(conn middleware.Connection[*model.Row], log *logger.ConsoleLogger, id string) (chan middleware.Envelope[*model.Row], middleware.Receiver[*model.Row], middleware.Sender[*model.Row]) {
 	groupQueueName := w.Tasks.NameWithId()
 
 	prefetch := 100
 
 	peerCount := getWorkerCount(log)
-	receiver, err := conn.ConsumeFrom("moviesEOFs", groupQueueName, "0", prefetch, uint(1))
+
+	joinerType := "credits"
+	if strings.Contains(w.Tasks.Name(), "ratings") {
+		joinerType = "ratings"
+	}
+
+	exchangeName := fmt.Sprintf("moviesEOFs_%s", joinerType)
+
+	receiver, err := conn.ConsumeFrom(exchangeName, groupQueueName, "0", prefetch, uint(1))
 	unwrap(err, "Failed to consume moviesEOFs", log)
 
 	moviesEOFsChan := make(chan middleware.Envelope[*model.Row])
-	subscribers := generateSubscribers(w.Tasks.Name(), peerCount)
 
-	sender, err := conn.WriteTo("moviesEOFs", subscribers, w.Tasks.Id(), uint(1))
-	unwrap(err, "Failed to create moviesEOFs sender", log)
+	var sender middleware.Sender[*model.Row]
+
+	if id == "0" {
+		subscribers := generateSubscribers(peerCount, joinerType)
+		sender, err = conn.WriteTo(exchangeName, subscribers, id, uint(1))
+		unwrap(err, "Failed to create moviesEOFs sender", log)
+	}
 
 	return moviesEOFsChan, receiver, sender
 }
@@ -209,15 +221,11 @@ func getWorkerCount(log *logger.ConsoleLogger) int {
 	return peers
 }
 
-func generateSubscribers(taskName string, count int) []string {
+func generateSubscribers(count int, joinerType string) []string {
 	prefix := "joiner"
-	joinerType := "credits"
-	if strings.Contains(taskName, "ratings") {
-		joinerType = "ratings"
-	}
-	subs := make([]string, count)
+	subs := []string{}
 	for i := range count {
-		subs[i] = fmt.Sprintf("%s_%d_%s", prefix, i, joinerType)
+		subs = append(subs, fmt.Sprintf("%s_%d_%s", prefix, i, joinerType))
 	}
 	return subs
 }
@@ -227,13 +235,17 @@ func (w *Worker) shutdown(middlewareConnection middleware.Connection[*model.Row]
 	var err error
 	currentTask := w.Tasks
 	currentTask.Finish()
-	err = receiverMoviesEOFs.Close()
-	if err != nil {
-		log.Errorf("Failed to close receiver channel: %v", err)
+	if receiverMoviesEOFs != nil {
+		err = receiverMoviesEOFs.Close()
+		if err != nil {
+			log.Errorf("Failed to close receiver channel: %v", err)
+		}
 	}
-	err = senderMoviesEOFs.Close()
-	if err != nil {
-		log.Errorf("Failed to close receiver channel: %v", err)
+	if senderMoviesEOFs != nil {
+		err = senderMoviesEOFs.Close()
+		if err != nil {
+			log.Errorf("Failed to close receiver channel: %v", err)
+		}
 	}
 	close(moviesEOFsChan)
 	err = middlewareConnection.Close()
