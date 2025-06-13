@@ -253,7 +253,7 @@ OuterLoop:
 					panic(fmt.Sprintf("Unknown file name: %s", fileName))
 				}
 
-				connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: make([]byte, 0), ctx: ctx}
+				connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: make([]byte, 0), ctx: ctx, envelopesToAck: []middleware.Envelope[*common.PackageFile]{}}
 				reader := csv.NewReader(connReader)
 
 				d, err := reader.Read()
@@ -263,6 +263,10 @@ OuterLoop:
 					creditsSender.Close()
 					ratingsSender.Close()
 					return
+				}
+				err2 := connReader.ackAllEnvelopes()
+				if err2 != nil {
+					log.Errorf("Failed to ack envelopes: %v", err2)
 				}
 				log.Infof("Received header file: %v", d)
 				unwrap(err, "Failed to read CSV header", log)
@@ -274,6 +278,10 @@ OuterLoop:
 						log.Infof("Processed %d lines from %s", line, fileName)
 					}
 					data, err := reader.Read()
+					err2 := connReader.ackAllEnvelopes()
+					if err2 != nil {
+						log.Errorf("Failed to ack envelopes: %v", err2)
+					}
 					if err != nil {
 						if err.Error() == "read canceled by context" {
 							log.Infof("Context cancelled, exiting handleClient")
@@ -406,7 +414,7 @@ func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQCon
 	config.CoordinatorPrefetch = prefetch
 	config.ReceiverTest = "clean_movies"
 
-	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, "0", config.CoordinatorPrefetch, 1)
+	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, "0", 1000, 1)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
@@ -838,6 +846,18 @@ type ConnReader struct {
 	ch                  chan middleware.Envelope[*common.PackageFile]
 	lastReadNotIncluded []byte
 	ctx                 context.Context
+	envelopesToAck      []middleware.Envelope[*common.PackageFile]
+}
+
+func (c *ConnReader) ackAllEnvelopes() error {
+	for _, envelope := range c.envelopesToAck {
+		err := envelope.Ack(false)
+		if err != nil {
+			return fmt.Errorf("failed to ack envelope: %v", err)
+		}
+	}
+	c.envelopesToAck = []middleware.Envelope[*common.PackageFile]{}
+	return nil
 }
 
 func (cr *ConnReader) Read(buff []byte) (n int, err error) {
@@ -877,7 +897,19 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 			n = 0
 			err = fmt.Errorf("invalid message type: %v", t)
 		}
-		msgEnvelope.Ack(false)
+		cr.envelopesToAck = append(cr.envelopesToAck, msgEnvelope)
 		return n, err
 	}
+}
+
+func readFromReader(reader *csv.Reader, connReader *ConnReader) ([]string, error) {
+	data, err1 := reader.Read()
+	err2 := connReader.ackAllEnvelopes()
+	if err1 != nil {
+		return nil, err1
+	}
+	if err2 != nil {
+		return nil, err2
+	}
+	return data, nil
 }
