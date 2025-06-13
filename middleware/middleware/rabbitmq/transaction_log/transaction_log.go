@@ -14,6 +14,7 @@ type ReceivedType rune
 
 const (
 	ReceivedType_Normal ReceivedType = 'N'
+	ReceivedType_Prune  ReceivedType = 'P'
 	ReceivedType_EOF    ReceivedType = 'E'
 )
 
@@ -26,6 +27,7 @@ type Transaction struct {
 
 type TransactionLog interface {
 	Received(cid, id uint64, data []byte) error
+	ReceivedPrune(cid uint64) error
 	ReceivedEOF(cid uint64) error
 	Acknowledged() error
 	OpenedTransaction() *Transaction
@@ -36,6 +38,7 @@ type TransactionLog interface {
 
 type A interface {
 	Received(cid, id uint64, data []byte) error
+	ReceivedPrune(cid uint64) error
 	ReceivedEOF(cid uint64) error
 	Acknowledged() error
 	FromCheckpoint(data []byte) error
@@ -212,15 +215,14 @@ func (l *transactionLog) CatchUpWithLog(reader io.Reader, parent A) error {
 			break
 		}
 		switch LogType(logType[0]) {
-		case LogType_Received:
-			var log received
+		case LogType_ReceivedNormal:
+			var log receivedNormal
 			err := log.Decode(reader)
 			if err != nil {
 				break
 			}
 			l.received(log)
 			parent.Received(log.cid, log.id, log.data)
-
 		case LogType_ReceivedEOF:
 			var log receivedEof
 			err := log.Decode(reader)
@@ -229,6 +231,14 @@ func (l *transactionLog) CatchUpWithLog(reader io.Reader, parent A) error {
 			}
 			l.receivedEOF(log)
 			parent.ReceivedEOF(log.cid)
+		case LogType_ReceivedPrune:
+			var log receivedPrune
+			err := log.Decode(reader)
+			if err != nil {
+				break
+			}
+			l.receivedPrune(log)
+			parent.ReceivedPrune(log.cid)
 		case LogType_Acknowledged:
 			l.acknowledged()
 			parent.Acknowledged()
@@ -353,7 +363,7 @@ func newTransactionLog(dirPath string, idx uint64) (*transactionLog, error) {
 }
 
 func (t *transactionLog) Received(cid, id uint64, data []byte) error {
-	received := received{cid, id, data}
+	received := receivedNormal{cid, id, data}
 	t.received(received)
 	buf := received.Encode()
 	if err := codec.DoWrite(buf, t.logWriter); err != nil {
@@ -365,7 +375,7 @@ func (t *transactionLog) Received(cid, id uint64, data []byte) error {
 	return nil
 }
 
-func (t *transactionLog) received(log received) {
+func (t *transactionLog) received(log receivedNormal) {
 	t.acknowledged()
 	t.openedTransaction = &Transaction{
 		Cid:  log.cid,
@@ -386,6 +396,27 @@ func (t *transactionLog) ReceivedEOF(cid uint64) error {
 		return fmt.Errorf("failed to sync log file: %w", err)
 	}
 	return nil
+}
+
+func (t *transactionLog) ReceivedPrune(cid uint64) error {
+	received := receivedPrune{cid}
+	t.receivedPrune(received)
+	buf := received.Encode()
+	if err := codec.DoWrite(buf, t.logWriter); err != nil {
+		return fmt.Errorf("failed to write received log: %w", err)
+	}
+	if err := t.logWriter.Sync(); err != nil {
+		return fmt.Errorf("failed to sync log file: %w", err)
+	}
+	return nil
+}
+
+func (t *transactionLog) receivedPrune(log receivedPrune) {
+	t.acknowledged()
+	t.openedTransaction = &Transaction{
+		Cid: log.cid,
+		T:   ReceivedType_Prune,
+	}
 }
 
 func (t *transactionLog) receivedEOF(log receivedEof) {

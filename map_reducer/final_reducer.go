@@ -1,6 +1,7 @@
 package map_reducer
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"reflect"
@@ -19,6 +20,8 @@ type FinalReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Seri
 	Receiver       map[string]middleware.Receiver[A] // It will be null for all but the leader
 	Sender         middleware.Sender[R]
 	transactionLog transaction_log.TransactionLog
+	pendingPrune   *uint64
+	pendingEOF     *uint64
 }
 
 type NextAsyncRes[T codec.Serializable[T]] struct {
@@ -159,4 +162,122 @@ func (fr *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 	}
 	go task()
 	return res
+}
+
+func (pr *FinalReducer[I, A, R]) Received(cid, id uint64, data []byte) error {
+	var nul I
+	msg, err := nul.Decode(data)
+	if err != nil {
+		pr.log.Errorf("input : %d | Received error decoding message: %s", cid, err)
+		return fmt.Errorf("error decoding message: %w", err)
+	}
+	pr.log.Debugf("input : %d | Received message: %v", cid, msg)
+	return pr.reduce(cid, msg)
+}
+
+func (pr *FinalReducer[I, A, R]) ReceivedPrune(cid uint64) error {
+	pr.pendingPrune = &cid
+	return nil
+}
+
+func (pr *FinalReducer[I, A, R]) ReceivedEOF(cid uint64) error {
+	pr.pendingEOF = &cid
+	return nil
+}
+
+func (pr *FinalReducer[I, A, R]) Acknowledged() error {
+	pr.pendingPrune = nil
+	pr.pendingEOF = nil
+	return nil
+}
+
+func (pr *FinalReducer[I, A, R]) Conclude() error {
+	pr.log.Debugf("input : Conclude | Finalizing FinalReducer")
+	if pr.pendingPrune != nil {
+		err := pr.processPrune(*pr.pendingPrune)
+		if err != nil {
+			return fmt.Errorf("error processing pending prune: %w", err)
+		}
+		pr.pendingPrune = nil
+	}
+	if pr.pendingEOF != nil {
+		err := pr.Sender.SendEOF(*pr.pendingEOF)
+		if err != nil {
+			return fmt.Errorf("error sending pending EOF: %w", err)
+		}
+		pr.pendingEOF = nil
+	}
+	return nil
+}
+
+func (pr *FinalReducer[I, A, R]) FromCheckpoint(data []byte) error {
+	pr.log.Debugf("input : FromCheckpoint | Data: %s", data)
+	if len(data) == 0 {
+		pr.log.Debugf("input : FromCheckpoint | No data to restore")
+		return nil
+	}
+
+	pr.ReduceBatches = make(map[uint64]*A)
+	reader := bytes.NewReader(data)
+	for {
+		key, err := codec.Uint64Decode(reader)
+		if err != nil {
+			if err.Error() == "EOF" {
+				pr.log.Debugf("input : FromCheckpoint | Reached end of data")
+				break
+			}
+			pr.log.Errorf("input : FromCheckpoint | Error decoding key: %s", err)
+			return fmt.Errorf("error decoding key: %w", err)
+		}
+		valueDataLen, err := codec.Uint64Decode(reader)
+		if err != nil {
+			pr.log.Errorf("input : FromCheckpoint | Error decoding value data len: %s", err)
+			return fmt.Errorf("error decoding key: %w", err)
+		}
+		valueData, err := codec.DoRead(valueDataLen, reader)
+		if err != nil {
+			pr.log.Errorf("input : FromCheckpoint | Error reading value data: %s", err)
+			return fmt.Errorf("error reading value data: %w", err)
+		}
+		var nul A
+		value, err := nul.Decode(valueData)
+		if err != nil {
+			pr.log.Errorf("input : FromCheckpoint | Error decoding value: %s", err)
+			return fmt.Errorf("error decoding value: %w", err)
+		}
+		pr.ReduceBatches[key] = &value
+	}
+	pr.log.Debugf("input : FromCheckpoint | ReduceBatches restored: %v", pr.ReduceBatches)
+	return nil
+}
+
+func (pr *FinalReducer[I, A, R]) Dump() []byte {
+	pr.log.Debugf("input : Dump | Dumping ReduceBatches")
+	if len(pr.ReduceBatches) == 0 {
+		pr.log.Debugf("input : Dump | No data to dump")
+		return nil
+	}
+
+	var buf bytes.Buffer
+	for key, value := range pr.ReduceBatches {
+		keyData, err := codec.Uint64Encode(key)
+		if err != nil {
+			pr.log.Errorf("input : Dump | Error encoding key: %s", err)
+			continue
+		}
+		valueData, err := (*value).Encode()
+		if err != nil {
+			pr.log.Errorf("input : Dump | Error encoding value: %s", err)
+			continue
+		}
+		valueDataLen, err := codec.Uint64Encode(uint64(len(valueData)))
+		if err != nil {
+			pr.log.Errorf("input : Dump | Error encoding value data length: %s", err)
+			continue
+		}
+		buf.Write(keyData)
+		buf.Write(valueDataLen)
+		buf.Write(valueData)
+	}
+	return buf.Bytes()
 }

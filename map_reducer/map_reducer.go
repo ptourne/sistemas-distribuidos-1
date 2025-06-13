@@ -8,6 +8,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq/transaction_log"
 )
 
 // MapReducer is a struct that represents a map-reduce operation.
@@ -35,7 +36,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	id string,
 	workersCount uint,
 	shardCountOutput uint,
-	// dirPath string,
+	dirPath string,
 ) (*MapReducer[I, A, R], error) {
 	log := logger.NewConsoleLogger(fmt.Sprintf("worker_mp_%s", id), logger.Debug)
 
@@ -106,8 +107,23 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		},
 	}
 
-	// mr.partialReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.partialReducer)
-	// mr.finalReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.finalReducer)
+	mr.partialReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.partialReducer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transaction log for partial reducer: %w", err)
+	}
+	err = mr.partialReducer.Conclude()
+	if err != nil {
+		return nil, fmt.Errorf("failed to conclude partial reducer: %w", err)
+	}
+	mr.finalReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.finalReducer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transaction log for final reducer: %w", err)
+	}
+	err = mr.partialReducer.Conclude()
+	if err != nil {
+		return nil, fmt.Errorf("failed to conclude final reducer: %w", err)
+	}
+	mr.partialReducer.log.Infof("MapReducer : NewMapReducer | Created with input: %s, name: %s, batchSize: %d", input, name, batchSize)
 
 	return mr, nil
 }

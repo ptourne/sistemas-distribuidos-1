@@ -9,7 +9,7 @@ import (
 )
 
 type Op struct {
-	*received
+	*receivedNormal
 	*receivedEof
 	*acknowledged
 	*dump
@@ -21,7 +21,7 @@ type dump struct {
 func TestTransactionLog(t *testing.T) {
 	t.Run("Test Closed Transaction", func(t *testing.T) {
 		testWithOps(t, []Op{
-			{received: &received{1, 1, []byte("data")}},
+			{receivedNormal: &receivedNormal{1, 1, []byte("data")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			assert.True(t, tl.IsDuplicate(1, 1))
@@ -32,9 +32,9 @@ func TestTransactionLog(t *testing.T) {
 
 	t.Run("Test Non-Contiguous Transactions", func(t *testing.T) {
 		testWithOps(t, []Op{
-			{received: &received{1, 1, []byte("data")}},
+			{receivedNormal: &receivedNormal{1, 1, []byte("data")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{1, 3, []byte("data")}},
+			{receivedNormal: &receivedNormal{1, 3, []byte("data")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			assert.True(t, tl.IsDuplicate(1, 1))
@@ -45,19 +45,19 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Multiple Clients Isolation", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Client 1 transactions
-			{received: &received{1, 1, []byte("client1_data1")}},
+			{receivedNormal: &receivedNormal{1, 1, []byte("client1_data1")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{1, 2, []byte("client1_data2")}},
+			{receivedNormal: &receivedNormal{1, 2, []byte("client1_data2")}},
 			{acknowledged: &acknowledged{}},
 
 			// Client 2 transactions
-			{received: &received{2, 1, []byte("client2_data1")}},
+			{receivedNormal: &receivedNormal{2, 1, []byte("client2_data1")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{2, 3, []byte("client2_data3")}},
+			{receivedNormal: &receivedNormal{2, 3, []byte("client2_data3")}},
 			{acknowledged: &acknowledged{}},
 
 			// Client 3 transactions
-			{received: &received{3, 5, []byte("client3_data5")}},
+			{receivedNormal: &receivedNormal{3, 5, []byte("client3_data5")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Verify each client's transactions are tracked correctly
@@ -79,13 +79,13 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test EOF Messages Don't Mix Between Clients", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Normal and EOF messages for different clients
-			{received: &received{1, 1, []byte("client1_normal")}},
+			{receivedNormal: &receivedNormal{1, 1, []byte("client1_normal")}},
 			{acknowledged: &acknowledged{}},
 			{receivedEof: &receivedEof{2}},
 			{acknowledged: &acknowledged{}},
 			{receivedEof: &receivedEof{1}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{3, 10, []byte("client3_normal")}},
+			{receivedNormal: &receivedNormal{3, 10, []byte("client3_normal")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Verify each client's transactions are properly isolated
@@ -108,7 +108,7 @@ func TestTransactionLog(t *testing.T) {
 		for cid := uint64(1); cid <= uint64(numClients); cid++ {
 			for id := uint64(1); id <= uint64(transactionsPerClient); id++ {
 				data := []byte(fmt.Sprintf("client%d_msg%d", cid, id))
-				ops = append(ops, Op{received: &received{cid, id, data}})
+				ops = append(ops, Op{receivedNormal: &receivedNormal{cid, id, data}})
 				ops = append(ops, Op{acknowledged: &acknowledged{}})
 			}
 		}
@@ -134,15 +134,15 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Client ID Edge Cases", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Test with client ID 0
-			{received: &received{0, 1, []byte("client0_data")}},
+			{receivedNormal: &receivedNormal{0, 1, []byte("client0_data")}},
 			{acknowledged: &acknowledged{}},
 
 			// Test with very large client ID
-			{received: &received{^uint64(0), 1, []byte("max_client_data")}},
+			{receivedNormal: &receivedNormal{^uint64(0), 1, []byte("max_client_data")}},
 			{acknowledged: &acknowledged{}},
 
 			// Test with regular client ID
-			{received: &received{42, 1, []byte("client42_data")}},
+			{receivedNormal: &receivedNormal{42, 1, []byte("client42_data")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Verify each client ID is handled correctly
@@ -166,13 +166,13 @@ func TestTransactionLog(t *testing.T) {
 		// This test specifically verifies that after recovery from disk,
 		// client isolation is maintained
 		testWithOps(t, []Op{
-			{received: &received{100, 5, []byte("client100_before_recovery")}},
+			{receivedNormal: &receivedNormal{100, 5, []byte("client100_before_recovery")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{200, 3, []byte("client200_before_recovery")}},
+			{receivedNormal: &receivedNormal{200, 3, []byte("client200_before_recovery")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{100, 10, []byte("client100_after_recovery")}},
+			{receivedNormal: &receivedNormal{100, 10, []byte("client100_after_recovery")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{300, 1, []byte("client300_new")}},
+			{receivedNormal: &receivedNormal{300, 1, []byte("client300_new")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Verify all client transactions are preserved after recovery
@@ -190,18 +190,18 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Checkpoint Basic Functionality", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Some initial transactions
-			{received: &received{1, 1, []byte("before_checkpoint_1")}},
+			{receivedNormal: &receivedNormal{1, 1, []byte("before_checkpoint_1")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{2, 1, []byte("before_checkpoint_2")}},
+			{receivedNormal: &receivedNormal{2, 1, []byte("before_checkpoint_2")}},
 			{acknowledged: &acknowledged{}},
 
 			// Create checkpoint
 			{dump: &dump{}},
 
 			// Transactions after checkpoint
-			{received: &received{1, 2, []byte("after_checkpoint_1")}},
+			{receivedNormal: &receivedNormal{1, 2, []byte("after_checkpoint_1")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{3, 1, []byte("after_checkpoint_3")}},
+			{receivedNormal: &receivedNormal{3, 1, []byte("after_checkpoint_3")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Verify all transactions are tracked correctly after checkpoint
@@ -219,25 +219,25 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Multiple Checkpoints", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Initial transactions
-			{received: &received{1, 1, []byte("data1")}},
+			{receivedNormal: &receivedNormal{1, 1, []byte("data1")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{2, 1, []byte("data2")}},
+			{receivedNormal: &receivedNormal{2, 1, []byte("data2")}},
 			{acknowledged: &acknowledged{}},
 
 			// First checkpoint
 			{dump: &dump{}},
 
 			// More transactions
-			{received: &received{1, 2, []byte("data3")}},
+			{receivedNormal: &receivedNormal{1, 2, []byte("data3")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{3, 1, []byte("data4")}},
+			{receivedNormal: &receivedNormal{3, 1, []byte("data4")}},
 			{acknowledged: &acknowledged{}},
 
 			// Second checkpoint
 			{dump: &dump{}},
 
 			// Final transactions
-			{received: &received{1, 3, []byte("data5")}},
+			{receivedNormal: &receivedNormal{1, 3, []byte("data5")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// All transactions should be preserved across multiple checkpoints
@@ -252,9 +252,9 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Checkpoint With EOF Messages", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Normal transactions
-			{received: &received{1, 1, []byte("normal1")}},
+			{receivedNormal: &receivedNormal{1, 1, []byte("normal1")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{2, 1, []byte("normal2")}},
+			{receivedNormal: &receivedNormal{2, 1, []byte("normal2")}},
 			{acknowledged: &acknowledged{}},
 
 			// EOF for one client
@@ -265,7 +265,7 @@ func TestTransactionLog(t *testing.T) {
 			{dump: &dump{}},
 
 			// More transactions after checkpoint
-			{received: &received{2, 2, []byte("normal3")}},
+			{receivedNormal: &receivedNormal{2, 2, []byte("normal3")}},
 			{acknowledged: &acknowledged{}},
 			{receivedEof: &receivedEof{2}},
 			{acknowledged: &acknowledged{}},
@@ -285,20 +285,20 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Checkpoint Recovery Preserves Client Isolation", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Transactions for multiple clients
-			{received: &received{10, 5, []byte("client10_pre_checkpoint")}},
+			{receivedNormal: &receivedNormal{10, 5, []byte("client10_pre_checkpoint")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{20, 3, []byte("client20_pre_checkpoint")}},
+			{receivedNormal: &receivedNormal{20, 3, []byte("client20_pre_checkpoint")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{30, 7, []byte("client30_pre_checkpoint")}},
+			{receivedNormal: &receivedNormal{30, 7, []byte("client30_pre_checkpoint")}},
 			{acknowledged: &acknowledged{}},
 
 			// Create checkpoint
 			{dump: &dump{}},
 
 			// More transactions after checkpoint
-			{received: &received{10, 6, []byte("client10_post_checkpoint")}},
+			{receivedNormal: &receivedNormal{10, 6, []byte("client10_post_checkpoint")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{40, 1, []byte("client40_new")}},
+			{receivedNormal: &receivedNormal{40, 1, []byte("client40_new")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Verify all client transactions are preserved
@@ -319,21 +319,21 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Checkpoint With Interleaved Operations", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Interleaved operations between multiple clients
-			{received: &received{100, 1, []byte("client100_msg1")}},
-			{received: &received{200, 1, []byte("client200_msg1")}},
+			{receivedNormal: &receivedNormal{100, 1, []byte("client100_msg1")}},
+			{receivedNormal: &receivedNormal{200, 1, []byte("client200_msg1")}},
 			{acknowledged: &acknowledged{}}, // acks client 100, msg 1
-			{received: &received{100, 2, []byte("client100_msg2")}},
+			{receivedNormal: &receivedNormal{100, 2, []byte("client100_msg2")}},
 			{acknowledged: &acknowledged{}}, // acks client 200, msg 1
-			{received: &received{300, 1, []byte("client300_msg1")}},
+			{receivedNormal: &receivedNormal{300, 1, []byte("client300_msg1")}},
 			{acknowledged: &acknowledged{}}, // acks client 100, msg 2
 
 			// Create checkpoint
 			{dump: &dump{}},
 
 			// More interleaved operations
-			{received: &received{200, 2, []byte("client200_msg2")}},
+			{receivedNormal: &receivedNormal{200, 2, []byte("client200_msg2")}},
 			{acknowledged: &acknowledged{}}, // acks client 300, msg 1
-			{received: &received{100, 3, []byte("client100_msg3")}},
+			{receivedNormal: &receivedNormal{100, 3, []byte("client100_msg3")}},
 			{acknowledged: &acknowledged{}}, // acks client 200, msg 2
 			{acknowledged: &acknowledged{}}, // acks client 100, msg 3
 		}, func(tl TransactionLog) {
@@ -355,20 +355,20 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Checkpoint Recovery With Large Client IDs", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Test with edge case client IDs
-			{received: &received{0, 1, []byte("client0_data")}},
+			{receivedNormal: &receivedNormal{0, 1, []byte("client0_data")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{^uint64(0), 1, []byte("max_client_data")}},
+			{receivedNormal: &receivedNormal{^uint64(0), 1, []byte("max_client_data")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{^uint64(0) - 1, 5, []byte("near_max_client_data")}},
+			{receivedNormal: &receivedNormal{^uint64(0) - 1, 5, []byte("near_max_client_data")}},
 			{acknowledged: &acknowledged{}},
 
 			// Create checkpoint
 			{dump: &dump{}},
 
 			// More transactions with edge case IDs
-			{received: &received{0, 2, []byte("client0_data2")}},
+			{receivedNormal: &receivedNormal{0, 2, []byte("client0_data2")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{^uint64(0), 2, []byte("max_client_data2")}},
+			{receivedNormal: &receivedNormal{^uint64(0), 2, []byte("max_client_data2")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Verify edge case client IDs work correctly with checkpoints
@@ -387,20 +387,20 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Cross-Client Isolation With Checkpoints", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Multiple clients with same transaction IDs but different cids
-			{received: &received{1, 5, []byte("client1_transaction5")}},
+			{receivedNormal: &receivedNormal{1, 5, []byte("client1_transaction5")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{2, 5, []byte("client2_transaction5")}},
+			{receivedNormal: &receivedNormal{2, 5, []byte("client2_transaction5")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{3, 5, []byte("client3_transaction5")}},
+			{receivedNormal: &receivedNormal{3, 5, []byte("client3_transaction5")}},
 			{acknowledged: &acknowledged{}},
 
 			// Create checkpoint
 			{dump: &dump{}},
 
 			// More transactions with same IDs
-			{received: &received{1, 10, []byte("client1_transaction10")}},
+			{receivedNormal: &receivedNormal{1, 10, []byte("client1_transaction10")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{2, 10, []byte("client2_transaction10")}},
+			{receivedNormal: &receivedNormal{2, 10, []byte("client2_transaction10")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// Each client should only know about its own transactions
@@ -421,25 +421,25 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("Test Sequential Checkpoints With Different Clients", func(t *testing.T) {
 		testWithOps(t, []Op{
 			// Client 1 operations
-			{received: &received{1, 1, []byte("client1_msg1")}},
+			{receivedNormal: &receivedNormal{1, 1, []byte("client1_msg1")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{1, 2, []byte("client1_msg2")}},
+			{receivedNormal: &receivedNormal{1, 2, []byte("client1_msg2")}},
 			{acknowledged: &acknowledged{}},
 
 			// First checkpoint
 			{dump: &dump{}},
 
 			// Client 2 operations
-			{received: &received{2, 1, []byte("client2_msg1")}},
+			{receivedNormal: &receivedNormal{2, 1, []byte("client2_msg1")}},
 			{acknowledged: &acknowledged{}},
-			{received: &received{2, 2, []byte("client2_msg2")}},
+			{receivedNormal: &receivedNormal{2, 2, []byte("client2_msg2")}},
 			{acknowledged: &acknowledged{}},
 
 			// Second checkpoint
 			{dump: &dump{}},
 
 			// Client 3 operations
-			{received: &received{3, 1, []byte("client3_msg1")}},
+			{receivedNormal: &receivedNormal{3, 1, []byte("client3_msg1")}},
 			{acknowledged: &acknowledged{}},
 		}, func(tl TransactionLog) {
 			// All clients should be correctly isolated
@@ -524,8 +524,8 @@ func testWithOps(t *testing.T, ops []Op, tests func(tl TransactionLog)) {
 
 	for _, op := range ops {
 		var err error
-		if op.received != nil {
-			err = tl.Received(op.received.cid, op.received.id, op.received.data)
+		if op.receivedNormal != nil {
+			err = tl.Received(op.receivedNormal.cid, op.receivedNormal.id, op.receivedNormal.data)
 		} else if op.receivedEof != nil {
 			err = tl.ReceivedEOF(op.receivedEof.cid)
 		} else if op.acknowledged != nil {
