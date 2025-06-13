@@ -31,6 +31,7 @@ type transactionLog struct {
 type TransactionLog interface {
 	Update(fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64) error
 	Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64)
+	Cid() uint64
 	Close() error
 }
 
@@ -218,6 +219,9 @@ func (t *transactionLog) Update(fileName string, counter uint64, read []string, 
 
 func (t *transactionLog) Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64) {
 	return t.cid, t.fileName, t.counter, t.read, t.lastReadNotIncluided, t.lastIdACK
+}
+func (t *transactionLog) Cid() uint64 {
+	return t.cid
 }
 
 func (t *transactionLog) Close() error {

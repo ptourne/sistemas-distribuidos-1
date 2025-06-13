@@ -17,6 +17,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
+	"github.com/ptourne/sistemas-distribuidos-1/coordinator/transaction_log"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
@@ -50,6 +51,7 @@ func main() {
 	}()
 	inputsChannelMap := map[uint64]*ChannelsCid{}
 	inputChannelMapLock := sync.Mutex{}
+	recoverFromLogs(config, inputsChannelMap, &inputChannelMapLock, ctx, &wg, log)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -113,6 +115,45 @@ func main() {
 	log.Infof("EXITING COORDINATOR")
 }
 
+func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*ChannelsCid, inputChannelMapLock *sync.Mutex, ctx context.Context, wg *sync.WaitGroup, log *logger.ConsoleLogger) {
+	log.Infof("Recovering from logs")
+	transactionLogs, err := transaction_log.RecoverFromLogs(c.dirPath)
+	if err != nil {
+		log.Errorf("Failed to recover from logs: %v", err)
+		return
+	}
+
+	for _, transactionLog := range transactionLogs {
+		cid := transactionLog.Cid()
+		channelsCid := NewChannelsCid()
+		inputChannelMapLock.Lock()
+		inputsChannelMap[cid] = channelsCid
+		inputChannelMapLock.Unlock()
+		wg.Add(1)
+	}
+	// 	go handleClient(cid, channelsCid, c, wg, ctx)
+
+	// 	if len(transactionLog.Read()) == 0 {
+	// 		log.Infof("No read data for cid %d", cid)
+	// 		continue
+	// 	}
+
+	// 	for _, fileName := range transactionLog.Read() {
+	// 		log.Infof("Recovering file %s for cid %d", fileName, cid)
+	// 		envelope := middleware.NewEnvelope[*common.PackageFile](cid, &common.PackageFile{PackageType: common.FileName, Buf: utils.NewBuffer(fileName)}, middleware.EOF)
+	// 		select {
+	// 		case channelsCid.input <- envelope:
+	// 			log.Infof("Sent envelope for file %s to input channel of cid %d", fileName, cid)
+	// 		case <-ctx.Done():
+	// 			log.Infof("Context cancelled before sending envelope for file %s to input channel of cid %d", fileName, cid)
+	// 			return
+	// 		}
+	// 	}
+	// }
+	log.Infof("Recovery from logs completed")
+
+}
+
 func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], channelString string, log *logger.ConsoleLogger, inputsChannelMap map[uint64]*ChannelsCid, getFuc func(*ChannelsCid) chan middleware.Envelope[*model.Row], inputChannelMapLock *sync.Mutex, wg *sync.WaitGroup, lastQuery bool) {
 	defer wg.Done()
 	for {
@@ -172,46 +213,17 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 func handleClient(cid uint64, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context) {
 	defer wg.Done()
 	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
-	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
-	if err != nil {
-		log.Errorf("Failed to parse n_workers: %v", err)
-		panic(err)
-	}
-	ratingsConsumers, err := strconv.Atoi(os.Getenv("N_RATINGS_CONSUMERS"))
-	if err != nil {
-		log.Errorf("Failed to parse N_RATINGS_CONSUMERS: %v", err)
-		panic(err)
-	}
-
-	moviesMetadataSender, err := (*c.MiddlewareChan).WriteTo(c.MoviesMetadataName, []string{"clean_movies"}, "0", uint(n_workers))
-	if err != nil {
-		unwrap(err, "Failed to create write queue", log)
-	}
-
-	creditsSender, err := (*c.MiddlewareChan).WriteTo(c.CreditsName, []string{"clean_credits"}, "0", uint(n_workers))
-	if err != nil {
-		unwrap(err, "Failed to create write queue", log)
-	}
-	ratingsSender, err := (*c.MiddlewareChanByte).WriteTo(c.RatingsName, []string{"reduce_by_movieId"}, "0", uint(ratingsConsumers))
-	if err != nil {
-		unwrap(err, "Failed to create write queue", log)
-	}
-	allQuerysToEndpointSender, err := (*c.MiddlewareChan).WriteTo(c.AllQuerysToEndpointName, []string{c.AllQuerysToEndpointName}, "0", uint(1))
-	if err != nil {
-		unwrap(err, "Failed to create write queue", log)
-	}
+	moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender := createSenderQueues(c, log)
+	defer moviesMetadataSender.Close()
+	defer creditsSender.Close()
+	defer ratingsSender.Close()
 	defer allQuerysToEndpointSender.Close()
-
-	lastIdSent := uint64(0)
 
 OuterLoop:
 	for {
 		select {
 		case <-ctx.Done():
 			log.Infof("Context cancelled, exiting handleClient")
-			moviesMetadataSender.Close()
-			creditsSender.Close()
-			ratingsSender.Close()
 			return
 		case msgEnvelope, ok := <-channelsCid.input:
 			if !ok {
@@ -225,120 +237,15 @@ OuterLoop:
 			msgEnvelope.Ack(false)
 			switch t {
 			case common.FileName:
+				lastIdSent := uint64(0)
 				fileName := string(bytes)
-				var sender middleware.Sender[*model.Row]
-				var amount int
-				var expectedLen int
-				var create func([]string) *model.Row
-				switch fileName {
-				case c.MoviesMetadataName:
-					log.Infof("Received file: %s", fileName)
-					sender = moviesMetadataSender
-					amount = 10000
-					expectedLen = 24
-					create = Film
-				case c.CreditsName:
-					log.Infof("Received file: %s", fileName)
-					sender = creditsSender
-					amount = 10000
-					expectedLen = 3
-					create = Credit
-				case c.RatingsName:
-					log.Infof("Received file: %s", fileName)
-					sender = nil
-					amount = 100000
-					expectedLen = 3
-					create = Rating
-				default:
-					panic(fmt.Sprintf("Unknown file name: %s", fileName))
-				}
-
-				connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: make([]byte, 0), ctx: ctx, envelopesToAck: []middleware.Envelope[*common.PackageFile]{}}
-				reader := csv.NewReader(connReader)
-
-				d, err := reader.Read()
-				if err != nil && err.Error() == "read canceled by context" {
-					log.Infof("Context cancelled, exiting handleClient")
-					moviesMetadataSender.Close()
-					creditsSender.Close()
-					ratingsSender.Close()
+				lastReadNotIncluded := make([]byte, 0)
+				lastIdACK := uint64(0)
+				read := []string{}
+				shouldReturn := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
+					ratingsSender, cid, lastIdSent, lastReadNotIncluded, lastIdACK, read)
+				if shouldReturn {
 					return
-				}
-				err2 := connReader.ackAllEnvelopes()
-				if err2 != nil {
-					log.Errorf("Failed to ack envelopes: %v", err2)
-				}
-				log.Infof("Received header file: %v", d)
-				unwrap(err, "Failed to read CSV header", log)
-				line := 0
-				log.Infof("Starting CSV processing")
-				for {
-					line++
-					if line%amount == 0 {
-						log.Infof("Processed %d lines from %s", line, fileName)
-					}
-					data, err := reader.Read()
-					err2 := connReader.ackAllEnvelopes()
-					if err2 != nil {
-						log.Errorf("Failed to ack envelopes: %v", err2)
-					}
-					if err != nil {
-						if err.Error() == "read canceled by context" {
-							log.Infof("Context cancelled, exiting handleClient")
-							moviesMetadataSender.Close()
-							creditsSender.Close()
-							ratingsSender.Close()
-							return
-						}
-						if err.Error() == "EOF" {
-							log.Infof("Processed %d lines from %s", line, fileName)
-							log.Infof("End of file reached")
-							if fileName != c.RatingsName {
-								sender.SendEOF(cid)
-							} else {
-								err := ratingsSender.SendEOF(cid)
-								if err != nil {
-									log.Errorf("Error sending EOF for ratings: %v", err)
-								}
-							}
-							break
-						}
-						log.Errorf("Error reading CSV line: %v", err)
-						continue
-					}
-					if len(data) < expectedLen {
-						continue
-					}
-
-					if fileName != c.RatingsName {
-						row := create(data)
-						sender.Send(row, cid, lastIdSent)
-						lastIdSent++
-					} else {
-						movieId := data[1]
-						num, err := strconv.Atoi(movieId)
-						unwrap(err, "Failed to convert string to int", log)
-						digits := strings.Split(data[2], ".")
-						dec, err := strconv.Atoi(digits[0])
-						unwrap(err, "Failed to convert string to int", log)
-						unit, err := strconv.Atoi(digits[1])
-						unwrap(err, "Failed to convert string to int", log)
-						val := dec*10 + unit
-						rating := model.Rating{
-							Id:     uint32(num),
-							Rating: uint8(val),
-						}
-						routingKey := string(movieId[len(movieId)-1])
-						ratingsSender.SendRK(&rating, cid, lastIdSent, routingKey)
-						lastIdSent++
-					}
-
-				}
-				log.Infof("CSV %s processing completed, closing", fileName)
-				if fileName != c.RatingsName {
-					sender.Close()
-				} else {
-					ratingsSender.Close()
 				}
 
 			case common.AllFilesSent:
@@ -356,6 +263,193 @@ OuterLoop:
 	verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 
 	log.Infof("finish all querys verified")
+}
+
+func handleClientRecover(transactionLog transaction_log.TransactionLog, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context) {
+	defer wg.Done()
+	cid, fileName, counter, read, lastReadNotIncluded, lastIdACK := transactionLog.Recover()
+	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
+	moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender := createSenderQueues(c, log)
+	defer moviesMetadataSender.Close()
+	defer creditsSender.Close()
+	defer ratingsSender.Close()
+	defer allQuerysToEndpointSender.Close()
+
+	shouldReturn := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
+		ratingsSender, cid, counter+1, lastReadNotIncluded, lastIdACK, read)
+
+	if shouldReturn {
+		return
+	}
+
+OuterLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			log.Infof("Context cancelled, exiting handleClient")
+			return
+		case msgEnvelope, ok := <-channelsCid.input:
+			if !ok {
+				log.Infof("Channel closed: %v", channelsCid.input)
+				break OuterLoop
+			}
+			cid := msgEnvelope.Cid()
+			msg := msgEnvelope.Msg()
+			bytes := msg.Buf.Bytes
+			t := msg.PackageType
+			msgEnvelope.Ack(false)
+			switch t {
+			case common.FileName:
+				lastIdSent := uint64(0)
+				fileName := string(bytes)
+				lastReadNotIncluded = make([]byte, 0)
+				lastIdACK := uint64(0)
+				read := []string{}
+				shouldReturn := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
+					ratingsSender, cid, lastIdSent, lastReadNotIncluded, lastIdACK, read)
+				if shouldReturn {
+					return
+				}
+
+			case common.AllFilesSent:
+				log.Infof("Received ALL FILES SENT")
+				break OuterLoop
+			}
+		}
+	}
+	log.Infof("CSV processing completed")
+
+	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
+	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+	verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
+	verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
+	verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
+
+	log.Infof("finish all querys verified")
+}
+
+func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCoordinator, log *logger.ConsoleLogger,
+	moviesMetadataSender middleware.Sender[*model.Row], creditsSender middleware.Sender[*model.Row], channelsCid *ChannelsCid,
+	ratingsSender middleware.Sender[*model.Rating], cid uint64, lastIdSent uint64, lastReadNotIncluded []byte, lastIdACK uint64,
+	read []string) bool {
+
+	var sender middleware.Sender[*model.Row]
+	var amount int
+	var expectedLen int
+	var create func([]string) *model.Row
+	var createRating func([]string) (*model.Rating, string, error)
+	switch fileName {
+	case c.MoviesMetadataName:
+		log.Infof("Received file: %s", fileName)
+		sender = moviesMetadataSender
+		amount = 10000
+		expectedLen = 24
+		create = Film
+	case c.CreditsName:
+		log.Infof("Received file: %s", fileName)
+		sender = creditsSender
+		amount = 10000
+		expectedLen = 3
+		create = Credit
+	case c.RatingsName:
+		log.Infof("Received file: %s", fileName)
+		sender = nil
+		amount = 100000
+		expectedLen = 3
+		createRating = Rating
+	default:
+		panic(fmt.Sprintf("Unknown file name: %s", fileName))
+	}
+
+	if len(read) == expectedLen {
+		if fileName != c.RatingsName {
+			row := create(read)
+			sender.Send(row, cid, lastIdSent)
+			lastIdSent++
+		} else {
+			rating, routingKey, err := createRating(read)
+			if err != nil {
+				log.Errorf("Error creating rating from read %v: %v", read, err)
+			} else {
+				ratingsSender.SendRK(rating, cid, lastIdSent, routingKey)
+				lastIdSent++
+			}
+		}
+	}
+
+	connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: lastReadNotIncluded, ctx: ctx, envelopesToAck: []middleware.Envelope[*common.PackageFile]{}}
+	reader := csv.NewReader(connReader)
+
+	d, err := reader.Read()
+	if err != nil && err.Error() == "read canceled by context" {
+		log.Infof("Context cancelled, exiting handleClient")
+		moviesMetadataSender.Close()
+		creditsSender.Close()
+		ratingsSender.Close()
+		return true
+	}
+	err2 := connReader.ackAllEnvelopes()
+	if err2 != nil {
+		log.Errorf("Failed to ack envelopes: %v", err2)
+	}
+	log.Infof("Received header file: %v", d)
+	unwrap(err, "Failed to read CSV header", log)
+	line := 0
+	log.Infof("Starting CSV processing")
+	for {
+		line++
+		if line%amount == 0 {
+			log.Infof("Processed %d lines from %s", line, fileName)
+		}
+		data, err := reader.Read()
+		err2 := connReader.ackAllEnvelopes()
+		if err2 != nil {
+			log.Errorf("Failed to ack envelopes: %v", err2)
+		}
+		if err != nil {
+			if err.Error() == "read canceled by context" {
+				log.Infof("Context cancelled, exiting handleClient")
+				moviesMetadataSender.Close()
+				creditsSender.Close()
+				ratingsSender.Close()
+				return true
+			}
+			if err.Error() == "EOF" {
+				log.Infof("Processed %d lines from %s", line, fileName)
+				log.Infof("End of file reached")
+				if fileName != c.RatingsName {
+					sender.SendEOF(cid)
+				} else {
+					err := ratingsSender.SendEOF(cid)
+					if err != nil {
+						log.Errorf("Error sending EOF for ratings: %v", err)
+					}
+				}
+				break
+			}
+			log.Errorf("Error reading CSV line: %v", err)
+			continue
+		}
+		if len(data) < expectedLen {
+			continue
+		}
+
+		if fileName != c.RatingsName {
+			row := create(data)
+			sender.Send(row, cid, lastIdSent)
+			lastIdSent++
+		} else {
+			rating, routingKey, err := createRating(data)
+			if err != nil {
+				log.Errorf("Error creating rating from data %v: %v", data, err)
+				continue
+			}
+			ratingsSender.SendRK(rating, cid, lastIdSent, routingKey)
+			lastIdSent++
+		}
+
+	}
+	return false
 }
 
 type ConfigCoordinator struct {
@@ -383,10 +477,34 @@ type ConfigCoordinator struct {
 	ReceiverQ5                  middleware.Receiver[*model.Row]
 	ReceiverQueueTest           middleware.Receiver[*model.Row]
 	ReceiverAllQuerysToEndpoint middleware.Receiver[*model.Row]
+	dirPath                     string // Path to the directory where the coordinator is running
+	n_workers                   int    // Number of workers to process the files
+	ratingsConsumers            int    // Number of consumers for ratings
 }
 
 func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQConnector) *ConfigCoordinator {
 	config := ConfigCoordinator{}
+	//obtengo la ruta del directorio donde se ejecuta el coordinator
+	dirPath, err := os.Getwd()
+	if err != nil {
+		log.Errorf("Failed to get current working directory: %v", err)
+		panic(err)
+	}
+
+	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
+	if err != nil {
+		log.Errorf("Failed to parse n_workers: %v", err)
+		panic(err)
+	}
+	config.n_workers = n_workers
+	ratingsConsumers, err := strconv.Atoi(os.Getenv("N_RATINGS_CONSUMERS"))
+	if err != nil {
+		log.Errorf("Failed to parse N_RATINGS_CONSUMERS: %v", err)
+		panic(err)
+	}
+	config.ratingsConsumers = ratingsConsumers
+
+	config.dirPath = dirPath
 	middlewareChan := rabbitmq.NewMiddleware[*model.Row](connector, log)
 	middlewareChanPackageByte := rabbitmq.NewMiddleware[*common.PackageFile](connector, log)
 	middlewareChanByte := rabbitmq.NewMiddleware[*model.Rating](connector, log)
@@ -827,13 +945,28 @@ func Credit(data []string) *model.Row {
 	}
 }
 
-func Rating(data []string) *model.Row {
-	return &model.Row{
-		Strings: map[string]string{
-			"movieID": data[1],
-			"rating":  data[2],
-		},
+func Rating(data []string) (*model.Rating, string, error) {
+	movieId := data[1]
+	num, err := strconv.Atoi(movieId)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to convert movieId to int: %w", err)
 	}
+	digits := strings.Split(data[2], ".")
+	dec, err := strconv.Atoi(digits[0])
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to convert string to int: %w", err)
+	}
+	unit, err := strconv.Atoi(digits[1])
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to convert string to int: %w", err)
+	}
+	val := dec*10 + unit
+	rating := model.Rating{
+		Id:     uint32(num),
+		Rating: uint8(val),
+	}
+	routingKey := string(movieId[len(movieId)-1])
+	return &rating, routingKey, nil
 }
 
 func unwrap(err error, msg string, log *logger.ConsoleLogger) {
@@ -912,4 +1045,26 @@ func readFromReader(reader *csv.Reader, connReader *ConnReader) ([]string, error
 		return nil, err2
 	}
 	return data, nil
+}
+
+func createSenderQueues(c *ConfigCoordinator, log *logger.ConsoleLogger) (middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Rating], middleware.Sender[*model.Row]) {
+	moviesMetadataSender, err := (*c.MiddlewareChan).WriteTo(c.MoviesMetadataName, []string{"clean_movies"}, "0", uint(c.n_workers))
+	if err != nil {
+		unwrap(err, "Failed to create write queue", log)
+	}
+
+	creditsSender, err := (*c.MiddlewareChan).WriteTo(c.CreditsName, []string{"clean_credits"}, "0", uint(c.n_workers))
+	if err != nil {
+		unwrap(err, "Failed to create write queue", log)
+	}
+
+	ratingsSender, err := (*c.MiddlewareChanByte).WriteTo(c.RatingsName, []string{"reduce_by_movieId"}, "0", uint(c.ratingsConsumers))
+	if err != nil {
+		unwrap(err, "Failed to create write queue", log)
+	}
+	allQuerysToEndpointSender, err := (*c.MiddlewareChan).WriteTo(c.AllQuerysToEndpointName, []string{c.AllQuerysToEndpointName}, "0", uint(1))
+	if err != nil {
+		unwrap(err, "Failed to create write queue", log)
+	}
+	return moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender
 }
