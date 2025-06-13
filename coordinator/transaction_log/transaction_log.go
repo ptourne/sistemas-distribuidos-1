@@ -16,6 +16,8 @@ const (
 	ReceivedType_EOF    ReceivedType = 'E'
 )
 
+// var log = logger.NewConsoleLogger("coordinator_logger", logger.Info)
+
 type transactionLog struct {
 	logFileName          string // path to the log file
 	cid                  uint64
@@ -32,7 +34,7 @@ type TransactionLog interface {
 	Close() error
 }
 
-func RecoverFromLogs(cid uint64, dirPath string) ([]TransactionLog, error) {
+func RecoverFromLogs(dirPath string) ([]TransactionLog, error) {
 	cidsLogs, err := logFiles(logDirectory(dirPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read transaction logs files: %v", err)
@@ -93,8 +95,11 @@ func NewTransactionLogForCid(dirPath string, cid uint64) (TransactionLog, error)
 		panic(fmt.Errorf("failed to create log cid directory: %v", err))
 	}
 
+	logFileNamePath := path.Join(logCidDirectory, logFileName())
+
 	return &transactionLog{
-		cid: cid,
+		cid:         cid,
+		logFileName: logFileNamePath,
 	}, nil
 }
 
@@ -185,6 +190,10 @@ func SaveLogSafely(path string, fileName string, counter uint64, read []string, 
 		return fmt.Errorf("error escribiendo en archivo temporal: %w", errW)
 	}
 
+	// if fileName == "" {
+	// 	return fmt.Errorf("filename cannot be empty")
+	// } //testing
+
 	// Renombrar de forma atómica
 	if err := os.Rename(tempPath, path); err != nil {
 		return fmt.Errorf("error renombrando archivo: %w", err)
@@ -223,8 +232,7 @@ func logFileName() string {
 	return "log"
 }
 
-func logFiles(dirPath string) ([]os.DirEntry, error) {
-	path := logDirectory(dirPath)
+func logFiles(path string) ([]os.DirEntry, error) {
 	files, err := os.ReadDir(path)
 	if err != nil {
 		if os.IsNotExist(err) {
