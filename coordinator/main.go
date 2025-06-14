@@ -26,6 +26,14 @@ func main() {
 
 	name := os.Getenv("NAME")
 	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
+	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
+	if err != nil {
+		panic(err)
+	}
+	ratingsConsumers, err := strconv.Atoi(os.Getenv("N_RATINGS_CONSUMERS"))
+	if err != nil {
+		panic(err)
+	}
 
 	log := logger.NewConsoleLogger("coordinator", logger.Info)
 	ctxHeartbeat, cancelHearbeat := context.WithCancel(context.Background())
@@ -35,13 +43,8 @@ func main() {
 		log.Errorf("Failed to connect middleware: %v", err)
 		return
 	}
-	config := NewConfiguration(log, connector)
-	defer config.Close()
-
-	wg := sync.WaitGroup{}
 	ctx, cancelHearbeat := context.WithCancel(context.Background())
 	defer cancelHearbeat()
-
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -49,10 +52,29 @@ func main() {
 		log.Infof("Received SIGTERM. Shutting down gracefully...")
 		cancelHearbeat()
 	}()
+
+	dirPath, err := os.Getwd()
+	if err != nil {
+		log.Errorf("Failed to get current working directory: %v", err)
+		panic(err)
+	}
+
+	runCoordinator(ctx, log, connector, dirPath, n_workers, ratingsConsumers, nil)
+	cancelHearbeat()
+	log.Infof("EXITING COORDINATOR")
+}
+
+func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQConnector, dirPath string, n_workers int, ratingsConsumers int, wgM *sync.WaitGroup) {
+	if wgM != nil {
+		defer wgM.Done()
+	}
+	config := NewConfiguration(log, connector, dirPath, n_workers, ratingsConsumers)
+	defer config.Close()
+	wg := sync.WaitGroup{}
 	inputsChannelMap := map[uint64]*ChannelsCid{}
 	inputChannelMapLock := sync.Mutex{}
 
-	recoverFromLogs(config, inputsChannelMap, &inputChannelMapLock, ctx, &wg, log)
+	// recoverFromLogs(config, inputsChannelMap, &inputChannelMapLock, ctx, &wg, log)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -112,8 +134,6 @@ func main() {
 	for _, channelCid := range inputsChannelMap {
 		channelCid.Close()
 	}
-	cancelHearbeat()
-	log.Infof("EXITING COORDINATOR")
 }
 
 func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*ChannelsCid, inputChannelMapLock *sync.Mutex, ctx context.Context, wg *sync.WaitGroup, log *logger.ConsoleLogger) {
@@ -195,7 +215,7 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 func handleClient(cid uint64, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context) {
 	defer wg.Done()
 	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
-	moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender := createSenderQueues(c, log)
+	moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender, testSender := createSenderQueues(c, log)
 	defer moviesMetadataSender.Close()
 	defer creditsSender.Close()
 	defer ratingsSender.Close()
@@ -225,7 +245,7 @@ OuterLoop:
 				lastIdACK := uint64(0)
 				read := []string{}
 				shouldReturn := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
-					ratingsSender, cid, lastIdSent, lastReadNotIncluded, lastIdACK, read)
+					ratingsSender, cid, lastIdSent, lastReadNotIncluded, lastIdACK, read, testSender)
 				if shouldReturn {
 					return
 				}
@@ -251,14 +271,14 @@ func handleClientRecover(transactionLog transaction_log.TransactionLog, channels
 	defer wg.Done()
 	cid, fileName, counter, read, lastReadNotIncluded, lastIdACK := transactionLog.Recover()
 	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
-	moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender := createSenderQueues(c, log)
+	moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender, testSender := createSenderQueues(c, log)
 	defer moviesMetadataSender.Close()
 	defer creditsSender.Close()
 	defer ratingsSender.Close()
 	defer allQuerysToEndpointSender.Close()
 
 	shouldReturn := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
-		ratingsSender, cid, counter+1, lastReadNotIncluded, lastIdACK, read)
+		ratingsSender, cid, counter+1, lastReadNotIncluded, lastIdACK, read, testSender)
 
 	if shouldReturn {
 		return
@@ -288,7 +308,7 @@ OuterLoop:
 				lastIdACK := uint64(0)
 				read := []string{}
 				shouldReturn := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
-					ratingsSender, cid, lastIdSent, lastReadNotIncluded, lastIdACK, read)
+					ratingsSender, cid, lastIdSent, lastReadNotIncluded, lastIdACK, read, testSender)
 				if shouldReturn {
 					return
 				}
@@ -313,7 +333,7 @@ OuterLoop:
 func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCoordinator, log *logger.ConsoleLogger,
 	moviesMetadataSender middleware.Sender[*model.Row], creditsSender middleware.Sender[*model.Row], channelsCid *ChannelsCid,
 	ratingsSender middleware.Sender[*model.Rating], cid uint64, lastIdSent uint64, lastReadNotIncluded []byte, lastIdACK uint64,
-	read []string) bool {
+	read []string, testSender middleware.Sender[*model.Row]) bool {
 
 	var sender middleware.Sender[*model.Row]
 	var amount int
@@ -339,6 +359,13 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 		amount = 100000
 		expectedLen = 3
 		createRating = Rating
+	case c.TestName:
+		log.Infof("Received file: %s", fileName)
+		sender = testSender
+		amount = 1
+		expectedLen = 2
+		create = ObjectTest
+
 	default:
 		panic(fmt.Sprintf("Unknown file name: %s", fileName))
 	}
@@ -368,6 +395,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 		moviesMetadataSender.Close()
 		creditsSender.Close()
 		ratingsSender.Close()
+		testSender.Close()
 		return true
 	}
 	err2 := connReader.ackAllEnvelopes()
@@ -417,9 +445,10 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 		}
 
 		if fileName != c.RatingsName {
+			log.Debugf("Processing line %d: %v", line, data)
 			row := create(data)
 			sender.Send(row, cid, lastIdSent)
-			lastIdSent++
+			// lastIdSent++
 		} else {
 			rating, routingKey, err := createRating(data)
 			if err != nil {
@@ -427,8 +456,9 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 				continue
 			}
 			ratingsSender.SendRK(rating, cid, lastIdSent, routingKey)
-			lastIdSent++
+			// lastIdSent++
 		}
+		lastIdSent++
 
 	}
 	return false
@@ -444,6 +474,7 @@ type ConfigCoordinator struct {
 	MoviesMetadataName          string
 	CreditsName                 string
 	RatingsName                 string
+	TestName                    string
 	Q1Output                    string
 	Q2Output                    string
 	Q3Output                    string
@@ -464,26 +495,9 @@ type ConfigCoordinator struct {
 	ratingsConsumers            int    // Number of consumers for ratings
 }
 
-func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQConnector) *ConfigCoordinator {
+func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQConnector, dirPath string, n_workers int, ratingsConsumers int) *ConfigCoordinator {
 	config := ConfigCoordinator{}
-	//obtengo la ruta del directorio donde se ejecuta el coordinator
-	dirPath, err := os.Getwd()
-	if err != nil {
-		log.Errorf("Failed to get current working directory: %v", err)
-		panic(err)
-	}
-
-	n_workers, err := strconv.Atoi(os.Getenv("N_WORKERS"))
-	if err != nil {
-		log.Errorf("Failed to parse n_workers: %v", err)
-		panic(err)
-	}
 	config.n_workers = n_workers
-	ratingsConsumers, err := strconv.Atoi(os.Getenv("N_RATINGS_CONSUMERS"))
-	if err != nil {
-		log.Errorf("Failed to parse N_RATINGS_CONSUMERS: %v", err)
-		panic(err)
-	}
 	config.ratingsConsumers = ratingsConsumers
 
 	config.dirPath = dirPath
@@ -498,6 +512,7 @@ func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQCon
 	config.MoviesMetadataName = "movies_metadata"
 	config.CreditsName = "credits"
 	config.RatingsName = "ratings"
+	config.TestName = "test_csv"
 	config.Q1Output = "filter_release_date_l_2010_and_include_es"
 	config.Q2Output = "reduce_top_5_by_budget"
 	config.Q3Output = "reduce_top_bottom_avg_rating"
@@ -505,16 +520,12 @@ func NewConfiguration(log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQCon
 	config.Q5Output = "filter_avg_rate"
 	config.AllQuerysToEndpointName = "all_querys_to_endpoint"
 	config.CoordinatorsCant = 1
-	prefetch, err := strconv.Atoi(os.Getenv("PREFETCH"))
-	if err != nil {
-		log.Errorf("failed to parse PREFETCH: %v", err)
-		prefetch = 1
-	}
+	prefetch := 1000
 	log.Debugf("Coordinator: prefetch: %d", prefetch)
 	config.CoordinatorPrefetch = prefetch
 	config.ReceiverTest = "clean_movies"
 
-	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, "0", 1000, 1)
+	receiverFileByte, err := middlewareChanPackageByte.ConsumeFrom(config.ReadFileByteQueue, config.ReadFileByteQueue, "0", prefetch, 1)
 	if err != nil {
 		unwrap(err, "Failed to create read queue", log)
 	}
@@ -951,6 +962,15 @@ func Rating(data []string) (*model.Rating, string, error) {
 	return &rating, routingKey, nil
 }
 
+func ObjectTest(data []string) *model.Row {
+	return &model.Row{
+		Strings: map[string]string{
+			"id":   data[0],
+			"name": data[1],
+		},
+	}
+}
+
 func unwrap(err error, msg string, log *logger.ConsoleLogger) {
 	if err != nil {
 		log.Fatalf("%s: %s", msg, err)
@@ -1026,19 +1046,19 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 	}
 }
 
-func readFromReader(reader *csv.Reader, connReader *ConnReader) ([]string, error) {
-	data, err1 := reader.Read()
-	err2 := connReader.ackAllEnvelopes()
-	if err1 != nil {
-		return nil, err1
-	}
-	if err2 != nil {
-		return nil, err2
-	}
-	return data, nil
-}
+// func readFromReader(reader *csv.Reader, connReader *ConnReader) ([]string, error) {
+// 	data, err1 := reader.Read()
+// 	err2 := connReader.ackAllEnvelopes()
+// 	if err1 != nil {
+// 		return nil, err1
+// 	}
+// 	if err2 != nil {
+// 		return nil, err2
+// 	}
+// 	return data, nil
+// }
 
-func createSenderQueues(c *ConfigCoordinator, log *logger.ConsoleLogger) (middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Rating], middleware.Sender[*model.Row]) {
+func createSenderQueues(c *ConfigCoordinator, log *logger.ConsoleLogger) (middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Rating], middleware.Sender[*model.Row], middleware.Sender[*model.Row]) {
 	moviesMetadataSender, err := (*c.MiddlewareChan).WriteTo(c.MoviesMetadataName, []string{"clean_movies"}, "0", uint(c.n_workers))
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
@@ -1057,5 +1077,9 @@ func createSenderQueues(c *ConfigCoordinator, log *logger.ConsoleLogger) (middle
 	if err != nil {
 		unwrap(err, "Failed to create write queue", log)
 	}
-	return moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender
+	testSender, err := (*c.MiddlewareChan).WriteTo(c.TestName, []string{c.TestName}, "0", uint(1))
+	if err != nil {
+		unwrap(err, "Failed to create write queue", log)
+	}
+	return moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender, testSender
 }
