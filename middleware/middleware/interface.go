@@ -33,6 +33,7 @@ type Envelope[T codec.Serializable[T]] interface {
 	Cid() uint64
 	Type() TypeMsg
 	Id() uint64
+	ResendEOFIfRedelivered() error // If the message was redelivered, resend eof
 }
 
 type TypeMsg int

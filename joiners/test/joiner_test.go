@@ -482,7 +482,7 @@ func TestJoiner(t *testing.T) {
 			}()
 
 			for {
-				if _, exists := worker.ClientsFinishedMovies[cid]; exists {
+				if _, exists := worker.ClientsPruneMovies[cid]; exists {
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
@@ -558,8 +558,8 @@ func TestJoiner(t *testing.T) {
 			}()
 
 			for {
-				if _, exists := worker1.ClientsFinishedMovies[cid]; exists {
-					if _, exists := worker2.ClientsMoviesEOFs[cid]; exists {
+				if _, exists := worker1.ClientsPruneMovies[cid]; exists {
+					if _, exists := worker2.ClientsPruneMovies[cid]; exists {
 						break
 					}
 				}
@@ -642,8 +642,8 @@ func TestJoiner(t *testing.T) {
 			}()
 
 			for {
-				if _, exists := worker1.ClientsFinishedMovies[cid]; exists {
-					if _, exists := worker2.ClientsMoviesEOFs[cid]; exists {
+				if _, exists := worker1.ClientsPruneMovies[cid]; exists {
+					if _, exists := worker2.ClientsPruneMovies[cid]; exists {
 						break
 					}
 				}

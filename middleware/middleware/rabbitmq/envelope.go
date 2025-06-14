@@ -44,6 +44,10 @@ func (r *EnvelopeRabbitmq[T]) Id() uint64 {
 	return r.id
 }
 
+func (r *EnvelopeRabbitmq[T]) ResendEOFIfRedelivered() error {
+	return nil
+}
+
 func (r *EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	if r.tag == nil {
 		return fmt.Errorf("tag is not initialized or already acked")
@@ -92,6 +96,10 @@ func NewEOFEnvelope[T codec.Serializable[T]](
 	finishDoneIds map[string]*amqp.Delivery,
 ) middleware.Envelope[T] {
 	return newEOFEnvelope[T](cid, msgEof, finishDoneIds)
+}
+
+func (r *eofEnvelopeRabbitmq[T]) ResendEOFIfRedelivered() error {
+	return nil
 }
 
 func (r *eofEnvelopeRabbitmq[T]) Msg() T {
@@ -145,6 +153,7 @@ func newPrune2Envelope[T codec.Serializable[T]](
 	closeSender SenderChannel[*CloseNotification],
 	idWorker string,
 	msgEofNotLider *amqp.Delivery,
+	redelivered bool,
 ) middleware.Envelope[T] {
 	log2.Debugf("Creating prune2 envelope for cid: %d, idWorker: %s", cid, idWorker)
 	return &prune2EnvelopeRabbitmq[T]{
@@ -152,6 +161,7 @@ func newPrune2Envelope[T codec.Serializable[T]](
 		cid:            cid,
 		idWorker:       idWorker,
 		msgEofNotLider: msgEofNotLider,
+		redelivered:    redelivered,
 	}
 }
 
@@ -160,6 +170,15 @@ type prune2EnvelopeRabbitmq[T codec.Serializable[T]] struct {
 	closeSender    SenderChannel[*CloseNotification]
 	idWorker       string
 	msgEofNotLider *amqp.Delivery
+	redelivered    bool
+}
+
+func (r *prune2EnvelopeRabbitmq[T]) ResendEOFIfRedelivered() error {
+	if !r.redelivered {
+		return nil
+	}
+	log2.Infof("Resending EOF to peers for cid: %d", r.cid)
+	return r.closeSender.ResendEOFToPeers(r.cid)
 }
 
 func (r *prune2EnvelopeRabbitmq[T]) Msg() T {
