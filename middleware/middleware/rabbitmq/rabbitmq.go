@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -300,11 +301,15 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err = ch.Confirm(false); err != nil {
 		return SenderChannel[I]{}, fmt.Errorf("failed to enable publisher confirms: %v", err)
 	}
+	isCloseExchange := strings.Contains(readExchangeName, "close")
+	durable := !isCloseExchange
+	autoDeleted := isCloseExchange
+
 	err = ch.ExchangeDeclare(
 		readExchangeName, // name
 		t,                // type
-		true,             // durable
-		false,            // auto-deleted
+		durable,          // durable
+		autoDeleted,      // auto-deleted
 		false,            // internal
 		false,            // no-wait
 		nil,              // arguments
@@ -815,11 +820,15 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open a channel: %v", err)
 	}
+	isCloseQueue := groupName == ""
+	durable := !isCloseQueue
+	autoDeleted := isCloseQueue
+	exclusive := isCloseQueue
 	err = ch.ExchangeDeclare(
 		exchangeName, // name
 		t,            // type
-		true,         // durable
-		false,        // auto-deleted
+		durable,      // durable
+		autoDeleted,  // auto-deleted
 		false,        // internal
 		false,        // no-wait
 		nil,          // arguments
@@ -838,12 +847,12 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 	}
 	m.Log.Debugf("createQueue: Creating queue '%s' for exchange '%s'", queueName, exchangeName)
 	queue, err := ch.QueueDeclare(
-		queueName, // name
-		true,      // durable
-		false,     // delete when unused
-		false,     // exclusive
-		false,     // no-wait
-		nil,       // arguments
+		queueName,   // name
+		durable,     // durable
+		autoDeleted, // delete when unused
+		exclusive,   // exclusive
+		false,       // no-wait
+		nil,         // arguments
 	)
 
 	if err != nil {

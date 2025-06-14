@@ -78,21 +78,20 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 					}
 					continue
 				}
-				if id == "0" {
-					err = envelope.ResendIfRedelivered()
+				log.Infof("Movies: Received prune message for client %d", envelope.Cid())
+				oldPrune, exists := w.ClientsPruneMovies[envelope.Cid()]
+				w.ClientsPruneMovies[envelope.Cid()] = envelope
+				if id == "0" && !exists {
+					err = envelope.ResendEOFIfRedelivered()
 					if err != nil {
 						log.Warnf("Failed to resend eofcid message for movies: %v", err)
 					}
 				}
-				log.Infof("Movies: Received prune message for client %d", envelope.Cid())
-				oldPrune, exists := w.ClientsPruneMovies[envelope.Cid()]
-				w.ClientsPruneMovies[envelope.Cid()] = envelope
 				if exists {
-					err = oldPrune.Ack(false)
+					err = oldPrune.AckEofcid()
 					if err != nil {
-						log.Warnf("Failed to ack prune message for movies: %v", err)
+						log.Warnf("Failed to ack old prune message for movies: %v", err)
 					}
-					continue
 				}
 			} else if !ok {
 				log.Infof("Channel closed 0, exiting...")
@@ -182,10 +181,12 @@ func (w *Worker) processEOF(envelope middleware.Envelope[*model.Row], id string,
 		if id != "0" {
 			currentTask.FinishProcessingClient(envelope.Cid(), false)
 			err = eofInput.Ack(false)
+			log.Debugf("Acked EOF message for credits/ratings for client %d", envelope.Cid())
 			if err != nil {
 				log.Warnf("Failed to ack EOF message for credits/ratings: %v", err)
 			}
 		}
+
 		err = pruneMovies.Ack(false)
 		if err != nil {
 			log.Warnf("Failed to ack prune message for movies: %v", err)
@@ -203,13 +204,14 @@ func (w *Worker) processEOF(envelope middleware.Envelope[*model.Row], id string,
 		if err != nil {
 			log.Warnf("Failed to ack EOF message for movies: %v", err)
 		}
+		log.Debugf("Acked EOF message for movies for client %d", envelope.Cid())
 		err = eofInput.Ack(false)
 		if err != nil {
 			log.Warnf("Failed to ack EOF message for credits/ratings: %v", err)
 		}
+		log.Debugf("Acked EOF message for credits/ratings for client %d", envelope.Cid())
 		delete(w.ClientsFinishedMovies, envelope.Cid())
 		delete(w.ClientsFinishedInput, envelope.Cid())
-		// delete(w.ClientsPruneMovies, envelope.Cid())
 	}
 }
 

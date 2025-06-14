@@ -60,6 +60,10 @@ func (r *EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	return nil
 }
 
+func (r *EnvelopeRabbitmq[T]) AckEofcid() error {
+	return nil
+}
+
 func (r *EnvelopeRabbitmq[T]) Nack(multiple bool) error {
 	if r.tag == nil {
 		return fmt.Errorf("tag is not initialized or already acked")
@@ -144,6 +148,10 @@ func (r *eofEnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	return nil
 }
 
+func (r *eofEnvelopeRabbitmq[T]) AckEofcid() error {
+	return nil
+}
+
 func (r *eofEnvelopeRabbitmq[T]) Nack(multiple bool) error {
 	return fmt.Errorf("nack not implemented")
 }
@@ -210,6 +218,20 @@ func (r *prune2EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 		if err != nil {
 			return fmt.Errorf("failed to send message in close notification: %v", err)
 		}
+	}
+	if r.msgEofNotLider != nil {
+		log2.Infof("Acking EOF message for prune2 envelope for cid: %d", r.cid)
+		if err := r.msgEofNotLider.Ack(false); err != nil {
+			return fmt.Errorf("failed to ack EOF message: %v", err)
+		}
+	}
+	return nil
+}
+
+func (r *prune2EnvelopeRabbitmq[T]) AckEofcid() error {
+	log2.Infof("Acking eofcid envelope for cid: %d, with idW: %s", r.cid, r.idWorker)
+	if r.closeSender.ch == nil {
+		return fmt.Errorf("cannot Ack: closeSender channel is nil")
 	}
 	if r.msgEofNotLider != nil {
 		if err := r.msgEofNotLider.Ack(false); err != nil {
