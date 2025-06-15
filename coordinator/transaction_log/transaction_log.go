@@ -6,6 +6,7 @@ import (
 	"path"
 	"strconv"
 
+	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 )
 
@@ -16,7 +17,7 @@ const (
 	ReceivedType_EOF    ReceivedType = 'E'
 )
 
-// var log = logger.NewConsoleLogger("coordinator_logger", logger.Info)
+var log = logger.NewConsoleLogger("coordinator_logger", logger.Info)
 
 type transactionLog struct {
 	logFileName          string // path to the log file
@@ -225,7 +226,17 @@ func (t *transactionLog) Cid() uint64 {
 }
 
 func (t *transactionLog) Close() error {
-	return nil //TODO
+	//elimibo el archivo de log del cid
+	if err := os.Remove(t.logFileName); err != nil {
+		return fmt.Errorf("failed to remove transaction log file: %w", err)
+	}
+	//elimino el directorio del cid
+	logDir := path.Dir(t.logFileName)
+	if err := os.Remove(logDir); err != nil {
+		return fmt.Errorf("failed to remove transaction log directory: %w", err)
+	}
+	log.Infof("Transaction log closed and removed for cid: %d", t.cid)
+	return nil
 }
 
 func logDirectory(dirPath string) string {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,13 +59,14 @@ func main() {
 		log.Errorf("Failed to get current working directory: %v", err)
 		panic(err)
 	}
+	pathInsideCoordinatorDir := path.Join(dirPath, "coordinator-dir")
 
-	runCoordinator(ctx, log, connector, dirPath, n_workers, ratingsConsumers, nil)
+	runCoordinator(ctx, log, connector, pathInsideCoordinatorDir, n_workers, ratingsConsumers, nil, false)
 	cancelHearbeat()
 	log.Infof("EXITING COORDINATOR")
 }
 
-func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQConnector, dirPath string, n_workers int, ratingsConsumers int, wgM *sync.WaitGroup) {
+func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQConnector, dirPath string, n_workers int, ratingsConsumers int, wgM *sync.WaitGroup, testing bool) {
 	if wgM != nil {
 		defer wgM.Done()
 	}
@@ -74,7 +76,7 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 	inputsChannelMap := map[uint64]*ChannelsCid{}
 	inputChannelMapLock := sync.Mutex{}
 
-	// recoverFromLogs(config, inputsChannelMap, &inputChannelMapLock, ctx, &wg, log)
+	recoverFromLogs(config, inputsChannelMap, &inputChannelMapLock, ctx, &wg, log, testing)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -100,7 +102,7 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 				inputsChannelMap[cid] = channelsCid
 				inputChannelMapLock.Unlock()
 				wg.Add(1)
-				go handleClient(cid, channelsCid, config, &wg, ctx)
+				go handleClient(cid, channelsCid, config, &wg, ctx, testing)
 			}
 			switch envelope.Type() {
 			case middleware.EOF:
@@ -126,8 +128,8 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 	go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, false)
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, false)
-	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true)
+	// wg.Add(1)
+	// go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true)
 
 	wg.Wait()
 	log.Infof("All goroutines finished. Closing ChannelsCid")
@@ -136,7 +138,7 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 	}
 }
 
-func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*ChannelsCid, inputChannelMapLock *sync.Mutex, ctx context.Context, wg *sync.WaitGroup, log *logger.ConsoleLogger) {
+func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*ChannelsCid, inputChannelMapLock *sync.Mutex, ctx context.Context, wg *sync.WaitGroup, log *logger.ConsoleLogger, testing bool) {
 	log.Infof("Recovering from logs")
 	transactionLogs, err := transaction_log.RecoverFromLogs(c.dirPath)
 	if err != nil {
@@ -151,7 +153,7 @@ func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*Channels
 		inputsChannelMap[cid] = channelsCid
 		inputChannelMapLock.Unlock()
 		wg.Add(1)
-		go handleClientRecover(transactionLog, channelsCid, c, wg, ctx)
+		go handleClientRecover(transactionLog, channelsCid, c, wg, ctx, testing)
 	}
 	log.Infof("Recovery from logs completed")
 }
@@ -212,14 +214,21 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 	}
 }
 
-func handleClient(cid uint64, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context) {
+func handleClient(cid uint64, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context, testing bool) {
 	defer wg.Done()
 	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
+	log.Infof("STARTINGG cid: %d", cid)
 	moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender, testSender := createSenderQueues(c, log)
 	defer moviesMetadataSender.Close()
 	defer creditsSender.Close()
 	defer ratingsSender.Close()
 	defer allQuerysToEndpointSender.Close()
+
+	tlog, err := transaction_log.NewTransactionLogForCid(c.dirPath, cid)
+	if err != nil {
+		log.Errorf("Failed to create transaction log for cid %d: %v", cid, err)
+		return
+	}
 
 OuterLoop:
 	for {
@@ -236,7 +245,7 @@ OuterLoop:
 			msg := msgEnvelope.Msg()
 			bytes := msg.Buf.Bytes
 			t := msg.PackageType
-			msgEnvelope.Ack(false)
+			// msgEnvelope.Ack(false)
 			switch t {
 			case common.FileName:
 				lastIdSent := uint64(0)
@@ -245,7 +254,7 @@ OuterLoop:
 				lastIdACK := uint64(0)
 				read := []string{}
 				shouldReturn := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
-					ratingsSender, cid, lastIdSent, lastReadNotIncluded, lastIdACK, read, testSender)
+					ratingsSender, cid, lastIdSent, lastReadNotIncluded, lastIdACK, read, testSender, tlog, msgEnvelope)
 				if shouldReturn {
 					return
 				}
@@ -258,16 +267,20 @@ OuterLoop:
 	}
 	log.Infof("CSV processing completed")
 
-	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
-	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
-	verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
-	verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
-	verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
+	if !testing {
+		verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
+		verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+		verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
+		verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
+		// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
+	}
+
+	tlog.Close()
 
 	log.Infof("finish all querys verified")
 }
 
-func handleClientRecover(transactionLog transaction_log.TransactionLog, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context) {
+func handleClientRecover(transactionLog transaction_log.TransactionLog, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context, testing bool) {
 	defer wg.Done()
 	cid, fileName, counter, read, lastReadNotIncluded, lastIdACK := transactionLog.Recover()
 	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
@@ -277,8 +290,14 @@ func handleClientRecover(transactionLog transaction_log.TransactionLog, channels
 	defer ratingsSender.Close()
 	defer allQuerysToEndpointSender.Close()
 
+	tlog, err := transaction_log.NewTransactionLogForCid(c.dirPath, cid)
+	if err != nil {
+		log.Errorf("Failed to create transaction log for cid %d: %v", cid, err)
+		return
+	}
+
 	shouldReturn := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
-		ratingsSender, cid, counter+1, lastReadNotIncluded, lastIdACK, read, testSender)
+		ratingsSender, cid, counter+1, lastReadNotIncluded, lastIdACK, read, testSender, tlog, nil)
 
 	if shouldReturn {
 		return
@@ -299,7 +318,7 @@ OuterLoop:
 			msg := msgEnvelope.Msg()
 			bytes := msg.Buf.Bytes
 			t := msg.PackageType
-			msgEnvelope.Ack(false)
+			// msgEnvelope.Ack(false)
 			switch t {
 			case common.FileName:
 				lastIdSent := uint64(0)
@@ -308,7 +327,7 @@ OuterLoop:
 				lastIdACK := uint64(0)
 				read := []string{}
 				shouldReturn := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
-					ratingsSender, cid, lastIdSent, lastReadNotIncluded, lastIdACK, read, testSender)
+					ratingsSender, cid, lastIdSent, lastReadNotIncluded, lastIdACK, read, testSender, tlog, msgEnvelope)
 				if shouldReturn {
 					return
 				}
@@ -321,11 +340,15 @@ OuterLoop:
 	}
 	log.Infof("CSV processing completed")
 
-	verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
-	verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
-	verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
-	verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
-	verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
+	if !testing {
+		verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1)
+		verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
+		verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
+		verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
+		// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
+	}
+
+	tlog.Close()
 
 	log.Infof("finish all querys verified")
 }
@@ -333,7 +356,7 @@ OuterLoop:
 func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCoordinator, log *logger.ConsoleLogger,
 	moviesMetadataSender middleware.Sender[*model.Row], creditsSender middleware.Sender[*model.Row], channelsCid *ChannelsCid,
 	ratingsSender middleware.Sender[*model.Rating], cid uint64, lastIdSent uint64, lastReadNotIncluded []byte, lastIdACK uint64,
-	read []string, testSender middleware.Sender[*model.Row]) bool {
+	read []string, testSender middleware.Sender[*model.Row], tlog transaction_log.TransactionLog, msgEnvelope middleware.Envelope[*common.PackageFile]) bool {
 
 	var sender middleware.Sender[*model.Row]
 	var amount int
@@ -342,25 +365,25 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 	var createRating func([]string) (*model.Rating, string, error)
 	switch fileName {
 	case c.MoviesMetadataName:
-		log.Infof("Received file: %s", fileName)
+		log.Infof("Received file: %s %d", fileName, lastIdSent)
 		sender = moviesMetadataSender
 		amount = 10000
 		expectedLen = 24
 		create = Film
 	case c.CreditsName:
-		log.Infof("Received file: %s", fileName)
+		log.Infof("Received file: %s %d", fileName, lastIdSent)
 		sender = creditsSender
 		amount = 10000
 		expectedLen = 3
 		create = Credit
 	case c.RatingsName:
-		log.Infof("Received file: %s", fileName)
+		log.Infof("Received file: %s %d", fileName, lastIdSent)
 		sender = nil
 		amount = 100000
 		expectedLen = 3
 		createRating = Rating
 	case c.TestName:
-		log.Infof("Received file: %s", fileName)
+		log.Infof("Received file: %s %d", fileName, lastIdSent)
 		sender = testSender
 		amount = 1
 		expectedLen = 2
@@ -370,7 +393,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 		panic(fmt.Sprintf("Unknown file name: %s", fileName))
 	}
 
-	if len(read) == expectedLen {
+	if len(read) == expectedLen && lastIdSent > 0 {
 		if fileName != c.RatingsName {
 			row := create(read)
 			sender.Send(row, cid, lastIdSent)
@@ -388,30 +411,35 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 
 	connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: lastReadNotIncluded, ctx: ctx, envelopesToAck: []middleware.Envelope[*common.PackageFile]{}, lastIdACK: lastIdACK}
 	reader := csv.NewReader(connReader)
-
-	d, err := reader.Read()
-	if err != nil && err.Error() == "read canceled by context" {
-		log.Infof("Context cancelled, exiting handleClient")
-		moviesMetadataSender.Close()
-		creditsSender.Close()
-		ratingsSender.Close()
-		testSender.Close()
-		return true
+	if lastIdSent == 0 {
+		d, err := reader.Read()
+		if err != nil && err.Error() == "read canceled by context" {
+			log.Infof("Context cancelled, exiting handleClient")
+			moviesMetadataSender.Close()
+			creditsSender.Close()
+			ratingsSender.Close()
+			testSender.Close()
+			return true
+		}
+		lastIdACK = connReader.LastIdAck()
+		tlog.Update(fileName, lastIdSent, d, connReader.lastReadNotIncluded, lastIdACK)
+		msgEnvelope.Ack(false)
+		err2 := connReader.ackAllEnvelopes()
+		if err2 != nil {
+			log.Errorf("Failed to ack envelopes: %v", err2)
+		}
+		log.Infof("Received header file: %v", d)
+		unwrap(err, "Failed to read CSV header", log)
+		log.Infof("Starting CSV processing")
 	}
-	err2 := connReader.ackAllEnvelopes()
-	if err2 != nil {
-		log.Errorf("Failed to ack envelopes: %v", err2)
-	}
-	log.Infof("Received header file: %v", d)
-	unwrap(err, "Failed to read CSV header", log)
-	line := 0
-	log.Infof("Starting CSV processing")
 	for {
-		line++
-		if line%amount == 0 {
-			log.Infof("Processed %d lines from %s", line, fileName)
+		lastIdSent++
+		if lastIdSent%uint64(amount) == 0 {
+			log.Infof("Processed %d lines from %s", lastIdSent, fileName)
 		}
 		data, err := reader.Read()
+		lastIdACK = connReader.LastIdAck()
+		tlog.Update(fileName, uint64(lastIdSent), data, connReader.lastReadNotIncluded, lastIdACK)
 		err2 := connReader.ackAllEnvelopes()
 		if err2 != nil {
 			log.Errorf("Failed to ack envelopes: %v", err2)
@@ -425,7 +453,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 				return true
 			}
 			if err.Error() == "EOF" {
-				log.Infof("Processed %d lines from %s", line, fileName)
+				log.Infof("Processed %d lines from %s", lastIdSent, fileName)
 				log.Infof("End of file reached")
 				if fileName != c.RatingsName {
 					sender.SendEOF(cid)
@@ -445,10 +473,9 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 		}
 
 		if fileName != c.RatingsName {
-			log.Debugf("Processing line %d: %v", line, data)
+			log.Debugf("Processing line %d: %v", lastIdSent, data)
 			row := create(data)
 			sender.Send(row, cid, lastIdSent)
-			// lastIdSent++
 		} else {
 			rating, routingKey, err := createRating(data)
 			if err != nil {
@@ -456,9 +483,8 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 				continue
 			}
 			ratingsSender.SendRK(rating, cid, lastIdSent, routingKey)
-			// lastIdSent++
 		}
-		lastIdSent++
+		// lastIdSent++
 
 	}
 	return false
@@ -983,6 +1009,17 @@ type ConnReader struct {
 	ctx                 context.Context
 	envelopesToAck      []middleware.Envelope[*common.PackageFile]
 	lastIdACK           uint64
+	lastIdSent          uint64
+}
+
+func (c *ConnReader) LastIdAck() uint64 {
+	var lastIdACK uint64
+	if len(c.envelopesToAck) > 0 {
+		lastIdACK = c.envelopesToAck[len(c.envelopesToAck)-1].Id()
+	} else {
+		lastIdACK = c.lastIdSent
+	}
+	return lastIdACK
 }
 
 func (c *ConnReader) ackAllEnvelopes() error {
@@ -992,6 +1029,7 @@ func (c *ConnReader) ackAllEnvelopes() error {
 			return fmt.Errorf("failed to ack envelope: %v", err)
 		}
 	}
+	c.lastIdSent = c.LastIdAck()
 	c.envelopesToAck = []middleware.Envelope[*common.PackageFile]{}
 	return nil
 }
