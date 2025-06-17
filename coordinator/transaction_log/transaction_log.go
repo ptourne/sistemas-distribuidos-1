@@ -33,6 +33,7 @@ type TransactionLog interface {
 	Update(fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64) error
 	Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64)
 	Cid() uint64
+	Print() string
 	Close() error
 }
 
@@ -256,4 +257,8 @@ func logFiles(path string) ([]os.DirEntry, error) {
 		return nil, fmt.Errorf("failed to read transaction log directory: %v", err)
 	}
 	return files, nil
+}
+
+func (t *transactionLog) Print() string {
+	return fmt.Sprintf("TransactionLog with cid: %d\nfileName: %s\ncounter: %d\nread: %v\nlastReadNotIncluided: %v\nlastIdACK: %d", t.cid, t.fileName, t.counter, t.read, string(t.lastReadNotIncluided), t.lastIdACK)
 }

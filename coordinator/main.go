@@ -146,9 +146,6 @@ func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*Channels
 		log.Errorf("Failed to recover from logs: %v", err)
 		return
 	}
-	// log.Infof("Recovered %d transaction logs", len(transactionLogs))
-	// log.Infof("transactionLogs: %v", transactionLogs)
-	// panic("stop")
 
 	for _, transactionLog := range transactionLogs {
 		cid := transactionLog.Cid()
@@ -191,7 +188,6 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 			if lastQuery {
 				log.Infof("cid %d finished receiving", cid)
 				inputChannelMapLock.Lock()
-				//close(getFuc(channelsCid))
 				finished = true
 				delete(inputsChannelMap, envelope.Cid())
 				inputChannelMapLock.Unlock()
@@ -209,7 +205,6 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 
 		select {
 		case queue <- envelope:
-			// enviado con éxito
 		case <-ctx.Done():
 			log.Infof("Context cancelled before sending envelope: %s", channelString)
 			return
@@ -291,12 +286,12 @@ func handleClientRecover(transactionLog transaction_log.TransactionLog, channels
 	defer wg.Done()
 	cid, fileName, counter, read, lastReadNotIncluded, lastIdACK := transactionLog.Recover()
 	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
+	log.Infof("Recovered cid: %d\nfileName: %s\ncounter: %d\nread: %v\nlastReadNotIncluded: %v\nlastIdACK: %d", cid, fileName, counter, read, string(lastReadNotIncluded), lastIdACK)
 	moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender, testSender := createSenderQueues(c, log)
 	defer moviesMetadataSender.Close()
 	defer creditsSender.Close()
 	defer ratingsSender.Close()
 	defer allQuerysToEndpointSender.Close()
-
 	tlog, err := transaction_log.NewTransactionLogForCid(c.dirPath, cid)
 	if err != nil {
 		log.Errorf("Failed to create transaction log for cid %d: %v", cid, err)
@@ -325,7 +320,6 @@ OuterLoop:
 			msg := msgEnvelope.Msg()
 			bytes := msg.Buf.Bytes
 			t := msg.PackageType
-			// msgEnvelope.Ack(false)
 			switch t {
 			case common.FileName:
 				lastIdSent := uint64(0)
@@ -405,6 +399,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 	}
 
 	if len(read) == expectedLen && lastIdSent > 0 {
+		log.Infof("TO SEND READ: %v", read)
 		if fileName != c.RatingsName {
 			row := create(read)
 			sender.Send(row, cid, lastIdSent)
@@ -419,6 +414,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 			}
 		}
 	}
+
 	connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: lastReadNotIncluded, ctx: ctx, envelopesToAck: []middleware.Envelope[*common.PackageFile]{}, lastIdACK: lastIdACK, lastReadInsideReader: ringBuffer.NewRingBuffer(4096)}
 	reader := csv.NewReader(connReader)
 	bytesReadTotal := 0
@@ -471,6 +467,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 			}
 			bytesReadTotal = update(reader, bytesReadTotal, connReader, tlog, fileName, lastIdSent, []string{}, log)
 			log.Errorf("Error reading CSV line: %v", err)
+			// panic("stop") //todo
 			continue
 		}
 
@@ -506,7 +503,9 @@ func update(reader *csv.Reader, bytesReadTotal int, connReader *ConnReader, tlog
 	lastIdACK := connReader.LastIdAck()
 	// log.Infof("lastIdACK: %d", lastIdACK)
 	connReader.lastReadInsideReader.Consume(bytesRead)
-	lastReadNotIncluded := connReader.lastReadInsideReader.Peek(4096) //TODO agregar lastReadNotIncluded del reader.
+	lastReadNotIncluded := connReader.lastReadInsideReader.Peek(4096)
+	// log.Infof("lastReadNotIncluded!!!!: %v", string(connReader.lastReadNotIncluded))
+	lastReadNotIncluded = append(lastReadNotIncluded, connReader.lastReadNotIncluded...)
 	// log.Infof("lastReadNotIncluded: %v", string(lastReadNotIncluded))
 	tlog.Update(fileName, uint64(lastIdSent), data, lastReadNotIncluded, lastIdACK)
 	err2 := connReader.ackAllEnvelopes()
@@ -1094,7 +1093,6 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 				return 0, fmt.Errorf("failed to ack envelope: %v", err)
 			}
 		}
-
 		msg := msgEnvelope.Msg()
 		data := msg.Buf.Bytes
 		t := msg.PackageType
