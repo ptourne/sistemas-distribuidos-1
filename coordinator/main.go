@@ -436,6 +436,12 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 	}
 	for {
 		lastIdSent++
+		//imprimo lastReadNotIncluded y lastReadInsideReader
+		if lastIdSent == 5438 && fileName == c.CreditsName {
+			log.Infof("lastReadNotIncluded: %v", string(connReader.lastReadNotIncluded))
+			log.Infof("lastReadInsideReader: %v", string(connReader.lastReadInsideReader.Peek()))
+			panic("stop") //todo
+		}
 		if lastIdSent%uint64(amount) == 0 {
 			log.Infof("Processed %d lines from %s", lastIdSent, fileName)
 		}
@@ -503,7 +509,7 @@ func update(reader *csv.Reader, bytesReadTotal int, connReader *ConnReader, tlog
 	lastIdACK := connReader.LastIdAck()
 	// log.Infof("lastIdACK: %d", lastIdACK)
 	connReader.lastReadInsideReader.Consume(bytesRead)
-	lastReadNotIncluded := connReader.lastReadInsideReader.Peek(4096)
+	lastReadNotIncluded := connReader.lastReadInsideReader.Peek()
 	// log.Infof("lastReadNotIncluded!!!!: %v", string(connReader.lastReadNotIncluded))
 	lastReadNotIncluded = append(lastReadNotIncluded, connReader.lastReadNotIncluded...)
 	// log.Infof("lastReadNotIncluded: %v", string(lastReadNotIncluded))
@@ -1065,7 +1071,8 @@ func (c *ConnReader) ackAllEnvelopes() error {
 
 func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 	// log := logger.NewConsoleLogger("coordinator", logger.Info)
-	// log.Infof("LastReadInsideReader READ: %v", string(cr.lastReadInsideReader.Peek(4096)))
+	// log.Infof("LastReadInsideReader READ: %v", string(cr.lastReadInsideReader.Peek()))
+	// log.Infof("LastReadNotIncluded READ: %v", string(cr.lastReadNotIncluded))
 	capacity := cap(buff)
 	cantCopyFromLast := min(capacity, len(cr.lastReadNotIncluded))
 	copy(buff, cr.lastReadNotIncluded[:cantCopyFromLast])
@@ -1112,6 +1119,8 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 			err = fmt.Errorf("invalid message type: %v", t)
 		}
 		cr.envelopesToAck = append(cr.envelopesToAck, msgEnvelope)
+		// log.Infof("LastReadInsideReader READ AFTER: %v", string(cr.lastReadInsideReader.Peek()))
+		// log.Infof("LastReadNotIncluded READ AFTER: %v", string(cr.lastReadNotIncluded))
 		return n, err
 	}
 }

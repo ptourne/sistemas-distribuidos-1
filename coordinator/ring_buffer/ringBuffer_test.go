@@ -28,9 +28,9 @@ func TestRingBufferWrite(t *testing.T) {
 	// Test writing beyond capacity
 	data2 := []byte{4, 5, 6, 7}
 	n = rb.Write(data2)
-	assert.Equal(t, 2, n)
-	assert.Equal(t, 5, rb.size)
-	assert.Equal(t, []byte{1, 2, 3, 4, 5}, rb.buf)
+	assert.Equal(t, 4, n)
+	assert.Equal(t, 7, rb.size)
+	assert.Equal(t, []byte{1, 2, 3, 4, 5, 6, 7, 0, 0, 0}, rb.buf)
 }
 
 func TestRingBufferRead(t *testing.T) {
@@ -179,17 +179,17 @@ func TestRingBufferPeek(t *testing.T) {
 	rb.Write(data)
 
 	// Test peeking within available data
-	result := rb.Peek(3)
+	result := rb.Peek()
 	assert.Equal(t, 5, rb.size) // size should not change
-	assert.Equal(t, []byte{1, 2, 3}, result)
+	assert.Equal(t, []byte{1, 2, 3, 4, 5}, result)
 
 	// Peek again to verify buffer state hasn't changed
-	result2 := rb.Peek(3)
+	result2 := rb.Peek()
 	assert.Equal(t, 5, rb.size) // size should still not change
-	assert.Equal(t, []byte{1, 2, 3}, result2)
+	assert.Equal(t, []byte{1, 2, 3, 4, 5}, result2)
 
 	// Test peeking more than available
-	result3 := rb.Peek(7)
+	result3 := rb.Peek()
 	assert.Equal(t, 5, rb.size)
 	assert.Equal(t, []byte{1, 2, 3, 4, 5}, result3)
 
@@ -200,7 +200,7 @@ func TestRingBufferPeek(t *testing.T) {
 	assert.Equal(t, []byte{1, 2, 3, 4, 5}, rb.buf)
 
 	//peek again
-	result4 := rb.Peek(3)
+	result4 := rb.Peek()
 	assert.Equal(t, 2, rb.size)
 	assert.Equal(t, []byte{4, 5}, result4)
 }
@@ -220,7 +220,7 @@ func TestRingBufferPeekCircular(t *testing.T) {
 	rb.Write(data2)
 
 	// Peek all data
-	result := rb.Peek(3)
+	result := rb.Peek()
 	assert.Equal(t, 3, rb.size)
 	assert.Equal(t, []byte{3, 4, 5}, result)
 }
@@ -229,7 +229,94 @@ func TestRingBufferPeekEmpty(t *testing.T) {
 	rb := NewRingBuffer(5)
 
 	// Try to peek from empty buffer
-	result := rb.Peek(3)
+	result := rb.Peek()
 	assert.Equal(t, 0, rb.size)
 	assert.Equal(t, []byte{}, result)
+}
+
+func TestRingBufferResize(t *testing.T) {
+	rb := NewRingBuffer(4)
+
+	// Write data that exceeds initial capacity
+	data := []byte{1, 2, 3, 4, 5, 6}
+	n := rb.Write(data)
+	assert.Equal(t, 6, n)
+	assert.Equal(t, 6, rb.size)
+	assert.Equal(t, 8, rb.capacity) // Should have doubled capacity
+	assert.Equal(t, []byte{1, 2, 3, 4, 5, 6, 0, 0}, rb.buf)
+
+	//peek
+	result := rb.Peek()
+	assert.Equal(t, 6, rb.size)
+	assert.Equal(t, []byte{1, 2, 3, 4, 5, 6}, result)
+
+	// Verify we can read the data correctly
+	dst := make([]byte, 6)
+	n = rb.Read(dst)
+	assert.Equal(t, 6, n)
+	assert.Equal(t, []byte{1, 2, 3, 4, 5, 6}, dst)
+}
+
+func TestRingBufferMultipleResize(t *testing.T) {
+	rb := NewRingBuffer(2)
+
+	// Write data that requires multiple resizes
+	data := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9}
+	n := rb.Write(data)
+	assert.Equal(t, 9, n)
+	assert.Equal(t, 9, rb.size)
+	assert.Equal(t, 16, rb.capacity) // Should have resized multiple times
+	assert.Equal(t, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 0, 0, 0, 0, 0, 0}, rb.buf)
+}
+
+func TestRingBufferResizeWithWrappedData(t *testing.T) {
+	rb := NewRingBuffer(4)
+
+	// Fill buffer
+	rb.Write([]byte{1, 2, 3, 4})
+
+	// Read some data to create space
+	rb.Consume(2)
+
+	// Write data that will wrap around
+	rb.Write([]byte{5, 6})
+
+	//peek
+	result := rb.Peek()
+	assert.Equal(t, 4, rb.size)
+	assert.Equal(t, []byte{3, 4, 5, 6}, result)
+	assert.Equal(t, 4, rb.capacity)
+	assert.Equal(t, []byte{5, 6, 3, 4}, rb.buf)
+
+	// Now write data that will require resize
+	data := []byte{7, 8, 9, 10}
+	n := rb.Write(data)
+	assert.Equal(t, 4, n)
+	assert.Equal(t, 8, rb.capacity)
+	assert.Equal(t, 8, rb.size)
+
+	// Verify all data is preserved in correct order
+	dst := make([]byte, 8)
+	n = rb.Read(dst)
+	assert.Equal(t, 8, n)
+	assert.Equal(t, []byte{3, 4, 5, 6, 7, 8, 9, 10}, dst)
+}
+
+func TestRingBufferResizeAndPeek(t *testing.T) {
+	rb := NewRingBuffer(3)
+
+	// Write data that will require resize
+	data := []byte{1, 2, 3, 4, 5}
+	rb.Write(data)
+
+	// Peek should work correctly after resize
+	result := rb.Peek()
+	assert.Equal(t, 5, rb.size)
+	assert.Equal(t, []byte{1, 2, 3, 4, 5}, result)
+
+	// Verify we can still read after peeking
+	dst := make([]byte, 5)
+	n := rb.Read(dst)
+	assert.Equal(t, 5, n)
+	assert.Equal(t, []byte{1, 2, 3, 4, 5}, dst)
 }

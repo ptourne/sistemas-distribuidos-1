@@ -14,12 +14,34 @@ func NewRingBuffer(capacity int) *RingBuffer {
 	}
 }
 
+// resize doubles the capacity of the ring buffer
+func (r *RingBuffer) resize() {
+	newCapacity := r.capacity * 2
+	newBuf := make([]byte, newCapacity)
+
+	// Copy existing data to new buffer
+	if r.head < r.tail {
+		copy(newBuf, r.buf[r.head:r.tail])
+	} else {
+		copy(newBuf, r.buf[r.head:])
+		copy(newBuf[r.capacity-r.head:], r.buf[:r.tail])
+	}
+
+	r.buf = newBuf
+	r.head = 0
+	r.tail = r.size
+	r.capacity = newCapacity
+}
+
 // Write data into the ring buffer
 func (r *RingBuffer) Write(data []byte) int {
 	n := len(data)
-	if n > r.capacity-r.size {
-		n = r.capacity - r.size // solo lo que entra
+
+	// If we need more space, resize the buffer
+	for n > r.capacity-r.size {
+		r.resize()
 	}
+
 	for i := 0; i < n; i++ {
 		r.buf[r.tail] = data[i]
 		r.tail = (r.tail + 1) % r.capacity
@@ -53,14 +75,11 @@ func (r *RingBuffer) Consume(n int) int {
 }
 
 // Peek reads n bytes from the buffer without consuming them
-func (r *RingBuffer) Peek(n int) []byte {
-	if n > r.size {
-		n = r.size
-	}
+func (r *RingBuffer) Peek() []byte {
+	n := r.size
 	if n == 0 {
 		return []byte{}
 	}
-
 	result := make([]byte, n)
 	head := r.head
 	for i := 0; i < n; i++ {

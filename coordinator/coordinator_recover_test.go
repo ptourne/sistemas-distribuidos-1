@@ -251,6 +251,86 @@ func TestMapReducer(t *testing.T) {
 
 	})
 
+	t.Run("CoordinatorLogLargeLineRecovery", func(t *testing.T) {
+		init := test4container
+		assert.NoError(t, init.Err)
+		sender, receiver := startCoordinator(t, init)
+		defer sender.Close()
+		defer receiver.Close()
+		cid := uint64(1)
+
+		log := logger.NewConsoleLogger("coordinator", logger.Info)
+		tmpDir := t.TempDir()
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+
+		// Enviar un archivo CSV con una línea muy larga
+		fileName := "test_csv"
+		sendCoordinator(t, fileName, sender, common.FileName, cid, 1)
+
+		// Crear una línea que exceda el buffer interno de 4096 bytes
+		header := "id,name\n"
+		sendCoordinator(t, header, sender, common.FileData, cid, 2)
+
+		// Crear una línea con una descripción muy larga
+		longDescription := make([]byte, 2100) // Más grande que el buffer de 4096 bytes
+		for i := range longDescription {
+			longDescription[i] = 'x'
+		}
+		longLine := fmt.Sprintf("1,%s", string(longDescription))
+		sendCoordinator(t, longLine, sender, common.FileData, cid, 3)
+
+		longDescription = make([]byte, 2100) // Más grande que el buffer de 4096 bytes
+		for i := range longDescription {
+			longDescription[i] = 'y'
+		}
+		longLine = string(longDescription)
+		sendCoordinator(t, longLine, sender, common.FileData, cid, 4)
+
+		longDescription = make([]byte, 10) // Más grande que el buffer de 4096 bytes
+		for i := range longDescription {
+			longDescription[i] = 'k'
+		}
+		longLine = fmt.Sprintf("%s\n", string(longDescription))
+		sendCoordinator(t, longLine, sender, common.FileData, cid, 5)
+
+		// Enviar EOF
+		// eofData := "EOF"
+		// sendCoordinator(t, eofData, sender, common.FinishFile, cid, 4)
+		// sendCoordinator(t, eofData, sender, common.AllFilesSent, cid, 5)
+
+		// Verificar que se procesó correctamente
+		// log = logger.NewConsoleLogger("test", logger.Info)
+		// var rows []middleware.Envelope[*model.Row]
+		// for i := 0; i < 4; i++ {
+		// 	row, err := receiver.Next(ctx)
+		// 	assert.NoError(t, err)
+		// 	rows = append(rows, row)
+		// 	row.Ack(false)
+		// }
+
+		// Verificar el contenido
+		// r0 := rows[0].Msg()
+		// assert.Equal(t, "1", r0.Strings["id"])
+		// assert.Equal(t, "test", r0.Strings["name"])
+		// assert.Equal(t, string(longDescription), r0.Strings["description"])
+
+		// r1 := rows[1]
+		// assert.Equal(t, middleware.Prune, r1.Type())
+
+		// r2 := rows[2]
+		// assert.Equal(t, middleware.EOF, r2.Type())
+
+		// Detener el coordinador y verificar el log
+		time.Sleep(3 * time.Second)
+		ctxStop()
+		wg.Wait()
+
+		// Verificar que el log se limpió correctamente
+		// logFilePath := path.Join(tmpDir, "logs", "1", "log")
+		// _, err := os.Stat(logFilePath)
+		// assert.Error(t, err, "Expected log file to not exist, but it does exist")
+	})
+
 	// t.Run("CoordinatorLogCheckpoint", func(t *testing.T) {
 	// 	init := test1container
 	// 	assert.NoError(t, init.Err)
