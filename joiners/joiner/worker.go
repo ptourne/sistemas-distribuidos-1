@@ -2,13 +2,8 @@ package joiner
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
-	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
@@ -24,7 +19,7 @@ const MIDDLEWARE = "rabbitmq"
 type Worker struct {
 	Tasks                 task.JoinerTask[*model.Row, *model.Row]
 	ClientsFinishedMovies map[uint64]middleware.Envelope[*model.Row]
-	ClientsMoviesEOFs     map[uint64]middleware.Envelope[*model.Row]
+	ClientsPruneMovies    map[uint64]middleware.Envelope[*model.Row]
 	ClientsFinishedInput  map[uint64]middleware.Envelope[*model.Row]
 	ClientsFinished       map[uint64]bool
 }
@@ -56,13 +51,10 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 	currentTask := w.Tasks
 	id := currentTask.Id()
 
-	moviesEOFsChan, receiverMoviesEOFs, senderMoviesEOFs := w.setupMoviesEOFHandling(middlewareConnection, log, id)
-	go receiveMoviesEOFFromPeers(receiverMoviesEOFs, moviesEOFsChan, log)
-
 	for {
 		select {
 		case <-ctx.Done():
-			w.shutdown(middlewareConnection, receiverMoviesEOFs, senderMoviesEOFs, moviesEOFsChan, log)
+			w.shutdown(middlewareConnection, log)
 			return
 		case envelope, ok = <-inputChannels[0]:
 			if envelope != nil && envelope.Type() == middleware.EOF {
@@ -77,15 +69,30 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 					continue
 				}
 				w.ClientsFinishedMovies[envelope.Cid()] = envelope
-				senderMoviesEOFs.SendEOF(envelope.Cid())
 
 			} else if envelope != nil && envelope.Type() == middleware.Prune {
-				log.Infof("Movies: Received prune message for client %d", envelope.Cid())
-				err = envelope.Ack(false)
-				if err != nil {
-					log.Warnf("Failed to ack prune message for movies: %v", err)
+				if _, finished := w.ClientsFinished[envelope.Cid()]; finished {
+					err = envelope.Ack(false)
+					if err != nil {
+						log.Warnf("Failed to ack prune message for movies: %v", err)
+					}
+					continue
 				}
-				continue
+				log.Infof("Movies: Received prune message for client %d", envelope.Cid())
+				oldPrune, exists := w.ClientsPruneMovies[envelope.Cid()]
+				w.ClientsPruneMovies[envelope.Cid()] = envelope
+				if id == "0" && !exists {
+					err = envelope.ResendEOFIfRedelivered()
+					if err != nil {
+						log.Warnf("Failed to resend eofcid message for movies: %v", err)
+					}
+				}
+				if exists {
+					err = oldPrune.AckEofcid()
+					if err != nil {
+						log.Warnf("Failed to ack old prune message for movies: %v", err)
+					}
+				}
 			} else if !ok {
 				log.Infof("Channel closed 0, exiting...")
 				closed++
@@ -118,32 +125,6 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 				inputChannels[1] = nil
 				closed++
 			}
-		case envelope, ok = <-moviesEOFsChan:
-			if !ok {
-				log.Infof("Channel moviesEOFsChan closed")
-				continue
-			}
-			if ok && envelope != nil {
-				mustACK := true
-				if envelope.Type() == middleware.EOF {
-					_, exists := w.ClientsMoviesEOFs[envelope.Cid()]
-					_, finished := w.ClientsFinished[envelope.Cid()]
-					if !exists && !finished {
-						log.Infof("MoviesEOFs: EOF message received for %d", envelope.Cid())
-						w.ClientsMoviesEOFs[envelope.Cid()] = envelope
-						mustACK = false
-					}
-				}
-				if mustACK {
-					log.Infof("MoviesEOFs: Acking message type %s for %d", envelope.Type(), envelope.Cid())
-					err = envelope.Ack(false)
-					if err != nil {
-						log.Warnf("Failed to ack EOF message for moviesEOFs: %v", err)
-					}
-					continue
-				}
-
-			}
 		}
 
 		if closed == 2 {
@@ -153,7 +134,7 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 			continue
 		}
 
-		if envelope != nil && envelope.Type() == middleware.EOF {
+		if envelope != nil && envelope.Type() == middleware.EOF || envelope.Type() == middleware.Prune {
 			w.processEOF(envelope, id, log, currentTask)
 			continue
 
@@ -163,8 +144,6 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 			log.Warnf("Received nil message: %+v", envelope)
 			continue
 		}
-
-		//log.Infof("Received message: %v from %s", envelope.Msg(), envelope.Cid())
 
 		result := currentTask.ProcessAndSend(envelope)
 		if result != nil {
@@ -180,74 +159,11 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 	currentTask.Finish()
 }
 
-func (w *Worker) setupMoviesEOFHandling(conn middleware.Connection[*model.Row], log *logger.ConsoleLogger, id string) (chan middleware.Envelope[*model.Row], middleware.Receiver[*model.Row], middleware.Sender[*model.Row]) {
-	groupQueueName := w.Tasks.NameWithId()
-
-	prefetch := 100
-
-	peerCount := getWorkerCount(log)
-
-	joinerType := "credits"
-	if strings.Contains(w.Tasks.Name(), "ratings") {
-		joinerType = "ratings"
-	}
-
-	exchangeName := fmt.Sprintf("moviesEOFs_%s", joinerType)
-
-	receiver, err := conn.ConsumeFrom(exchangeName, groupQueueName, "0", prefetch, uint(1))
-	unwrap(err, "Failed to consume moviesEOFs", log)
-
-	moviesEOFsChan := make(chan middleware.Envelope[*model.Row])
-
-	var sender middleware.Sender[*model.Row]
-
-	if id == "0" {
-		subscribers := generateSubscribers(peerCount, joinerType)
-		sender, err = conn.WriteTo(exchangeName, subscribers, id, uint(1))
-		unwrap(err, "Failed to create moviesEOFs sender", log)
-	}
-
-	return moviesEOFsChan, receiver, sender
-}
-
-func getWorkerCount(log *logger.ConsoleLogger) int {
-	countStr := os.Getenv("WORKER_COUNT")
-	if countStr == "" {
-		log.Errorf("WORKER_COUNT not set, defaulting to 1")
-		countStr = "1"
-	}
-	peers, err := strconv.Atoi(countStr)
-	unwrap(err, "Invalid WORKER_COUNT", log)
-	return peers
-}
-
-func generateSubscribers(count int, joinerType string) []string {
-	prefix := "joiner"
-	subs := []string{}
-	for i := range count {
-		subs = append(subs, fmt.Sprintf("%s_%d_%s", prefix, i, joinerType))
-	}
-	return subs
-}
-
-func (w *Worker) shutdown(middlewareConnection middleware.Connection[*model.Row], receiverMoviesEOFs middleware.Receiver[*model.Row], senderMoviesEOFs middleware.Sender[*model.Row], moviesEOFsChan chan middleware.Envelope[*model.Row], log *logger.ConsoleLogger) {
+func (w *Worker) shutdown(middlewareConnection middleware.Connection[*model.Row], log *logger.ConsoleLogger) { //, receiverMoviesEOFs middleware.Receiver[*model.Row], senderMoviesEOFs middleware.Sender[*model.Row], moviesEOFsChan chan middleware.Envelope[*model.Row]
 	log.Infof("Received termination signal, shutting down gracefully...")
 	var err error
 	currentTask := w.Tasks
 	currentTask.Finish()
-	if receiverMoviesEOFs != nil {
-		err = receiverMoviesEOFs.Close()
-		if err != nil {
-			log.Errorf("Failed to close receiver channel: %v", err)
-		}
-	}
-	if senderMoviesEOFs != nil {
-		err = senderMoviesEOFs.Close()
-		if err != nil {
-			log.Errorf("Failed to close receiver channel: %v", err)
-		}
-	}
-	close(moviesEOFsChan)
 	err = middlewareConnection.Close()
 	if err != nil {
 		log.Errorf("Failed to close middleware connection: %v", err)
@@ -258,64 +174,44 @@ func (w *Worker) shutdown(middlewareConnection middleware.Connection[*model.Row]
 func (w *Worker) processEOF(envelope middleware.Envelope[*model.Row], id string, log *logger.ConsoleLogger, currentTask task.JoinerTask[*model.Row, *model.Row]) {
 	var err error
 	eofMovies, existsMovies := w.ClientsFinishedMovies[envelope.Cid()]
-	eofMovies2, existsMovies2 := w.ClientsMoviesEOFs[envelope.Cid()]
+	pruneMovies, existsPrune := w.ClientsPruneMovies[envelope.Cid()]
 	eofInput, existsInput := w.ClientsFinishedInput[envelope.Cid()]
-	if (existsMovies || existsMovies2) && existsInput {
+	if existsPrune && existsInput {
 		log.Infof("Client %d finished", envelope.Cid())
-		delete(w.ClientsFinishedMovies, envelope.Cid())
-		delete(w.ClientsFinishedInput, envelope.Cid())
+		if id != "0" {
+			currentTask.FinishProcessingClient(envelope.Cid(), false)
+			err = eofInput.Ack(false)
+			log.Debugf("Acked EOF message for credits/ratings for client %d", envelope.Cid())
+			if err != nil {
+				log.Warnf("Failed to ack EOF message for credits/ratings: %v", err)
+			}
+		}
+
+		err = pruneMovies.Ack(false)
+		if err != nil {
+			log.Warnf("Failed to ack prune message for movies: %v", err)
+		}
+		w.ClientsFinished[envelope.Cid()] = true
+		delete(w.ClientsPruneMovies, envelope.Cid())
+
+	}
+	if existsMovies && existsInput {
 		if id == "0" {
 			currentTask.FinishProcessingClient(envelope.Cid(), true)
-		} else {
-			currentTask.FinishProcessingClient(envelope.Cid(), false)
 		}
 		log.Infof("Finished processing client %d", envelope.Cid())
-		if existsMovies {
-			err = eofMovies.Ack(false)
-			if err != nil {
-				log.Warnf("Failed to ack EOF message for movies: %v", err)
-			}
+		err = eofMovies.Ack(false)
+		if err != nil {
+			log.Warnf("Failed to ack EOF message for movies: %v", err)
 		}
-		if existsMovies2 {
-			err = eofMovies2.Ack(false)
-			if err != nil {
-				log.Warnf("Failed to ack EOF message for moviesEOFs: %v", err)
-			}
-		}
+		log.Debugf("Acked EOF message for movies for client %d", envelope.Cid())
 		err = eofInput.Ack(false)
 		if err != nil {
 			log.Warnf("Failed to ack EOF message for credits/ratings: %v", err)
 		}
-		w.ClientsFinished[envelope.Cid()] = true
-	}
-}
-
-func receiveMoviesEOFFromPeers(receiverMoviesEOFs middleware.Receiver[*model.Row], moviesEOFsChan chan middleware.Envelope[*model.Row], log *logger.ConsoleLogger) {
-	for {
-		ctxReceive, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		envelope, err := receiverMoviesEOFs.Next(ctxReceive)
-		if err != nil {
-			if err.Error() == "read channel was closed" || err.Error() == "close channel was closed" {
-				log.Infof("Channel for moviesEOF closed from task Joniner")
-				break
-			}
-			continue
-		}
-		moviesEOFsChan <- envelope
-	}
-
-	close(moviesEOFsChan)
-}
-
-func unwrap(err error, msg string, log *logger.ConsoleLogger) {
-	if err != nil {
-		if strings.Contains(err.Error(), "channel/connection is not open") {
-			log.Warnf("%s: %s", msg, err)
-		} else {
-			log.Fatalf("%s: %s", msg, err)
-			panic(err)
-		}
+		log.Debugf("Acked EOF message for credits/ratings for client %d", envelope.Cid())
+		delete(w.ClientsFinishedMovies, envelope.Cid())
+		delete(w.ClientsFinishedInput, envelope.Cid())
 	}
 }
 
@@ -355,7 +251,7 @@ func NewCreditsWorker(subscribers []string, id string, workerLogger *logger.Cons
 	return Worker{
 		Tasks:                 joiner_credits,
 		ClientsFinishedMovies: make(map[uint64]middleware.Envelope[*model.Row]),
-		ClientsMoviesEOFs:     make(map[uint64]middleware.Envelope[*model.Row]),
+		ClientsPruneMovies:    make(map[uint64]middleware.Envelope[*model.Row]),
 		ClientsFinishedInput:  make(map[uint64]middleware.Envelope[*model.Row]),
 		ClientsFinished:       make(map[uint64]bool),
 	}
@@ -370,7 +266,7 @@ func NewRatingsWorker(subscribers []string, id string, workerLogger *logger.Cons
 	return Worker{
 		Tasks:                 joiner_ratings,
 		ClientsFinishedMovies: make(map[uint64]middleware.Envelope[*model.Row]),
-		ClientsMoviesEOFs:     make(map[uint64]middleware.Envelope[*model.Row]),
+		ClientsPruneMovies:    make(map[uint64]middleware.Envelope[*model.Row]),
 		ClientsFinishedInput:  make(map[uint64]middleware.Envelope[*model.Row]),
 		ClientsFinished:       make(map[uint64]bool),
 	}

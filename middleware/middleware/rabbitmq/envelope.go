@@ -44,6 +44,10 @@ func (r *EnvelopeRabbitmq[T]) Id() uint64 {
 	return r.id
 }
 
+func (r *EnvelopeRabbitmq[T]) ResendEOFIfRedelivered() error {
+	return nil
+}
+
 func (r *EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	if r.tag == nil {
 		return fmt.Errorf("tag is not initialized or already acked")
@@ -53,6 +57,10 @@ func (r *EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 		return fmt.Errorf("failed to ack message: %v", err)
 	}
 	r.tag = nil
+	return nil
+}
+
+func (r *EnvelopeRabbitmq[T]) AckEofcid() error {
 	return nil
 }
 
@@ -92,6 +100,10 @@ func NewEOFEnvelope[T codec.Serializable[T]](
 	finishDoneIds map[string]*amqp.Delivery,
 ) middleware.Envelope[T] {
 	return newEOFEnvelope[T](cid, msgEof, finishDoneIds)
+}
+
+func (r *eofEnvelopeRabbitmq[T]) ResendEOFIfRedelivered() error {
+	return nil
 }
 
 func (r *eofEnvelopeRabbitmq[T]) Msg() T {
@@ -136,6 +148,10 @@ func (r *eofEnvelopeRabbitmq[T]) Ack(multiple bool) error {
 	return nil
 }
 
+func (r *eofEnvelopeRabbitmq[T]) AckEofcid() error {
+	return nil
+}
+
 func (r *eofEnvelopeRabbitmq[T]) Nack(multiple bool) error {
 	return fmt.Errorf("nack not implemented")
 }
@@ -145,6 +161,7 @@ func newPrune2Envelope[T codec.Serializable[T]](
 	closeSender SenderChannel[*CloseNotification],
 	idWorker string,
 	msgEofNotLider *amqp.Delivery,
+	redelivered bool,
 ) middleware.Envelope[T] {
 	log2.Debugf("Creating prune2 envelope for cid: %d, idWorker: %s", cid, idWorker)
 	return &prune2EnvelopeRabbitmq[T]{
@@ -152,6 +169,7 @@ func newPrune2Envelope[T codec.Serializable[T]](
 		cid:            cid,
 		idWorker:       idWorker,
 		msgEofNotLider: msgEofNotLider,
+		redelivered:    redelivered,
 	}
 }
 
@@ -160,6 +178,15 @@ type prune2EnvelopeRabbitmq[T codec.Serializable[T]] struct {
 	closeSender    SenderChannel[*CloseNotification]
 	idWorker       string
 	msgEofNotLider *amqp.Delivery
+	redelivered    bool
+}
+
+func (r *prune2EnvelopeRabbitmq[T]) ResendEOFIfRedelivered() error {
+	if !r.redelivered {
+		return nil
+	}
+	log2.Infof("Resending EOF to peers for cid: %d", r.cid)
+	return r.closeSender.ResendEOFToPeers(r.cid)
 }
 
 func (r *prune2EnvelopeRabbitmq[T]) Msg() T {
@@ -191,6 +218,20 @@ func (r *prune2EnvelopeRabbitmq[T]) Ack(multiple bool) error {
 		if err != nil {
 			return fmt.Errorf("failed to send message in close notification: %v", err)
 		}
+	}
+	if r.msgEofNotLider != nil {
+		log2.Infof("Acking EOF message for prune2 envelope for cid: %d", r.cid)
+		if err := r.msgEofNotLider.Ack(false); err != nil {
+			return fmt.Errorf("failed to ack EOF message: %v", err)
+		}
+	}
+	return nil
+}
+
+func (r *prune2EnvelopeRabbitmq[T]) AckEofcid() error {
+	log2.Infof("Acking eofcid envelope for cid: %d, with idW: %s", r.cid, r.idWorker)
+	if r.closeSender.ch == nil {
+		return fmt.Errorf("cannot Ack: closeSender channel is nil")
 	}
 	if r.msgEofNotLider != nil {
 		if err := r.msgEofNotLider.Ack(false); err != nil {
