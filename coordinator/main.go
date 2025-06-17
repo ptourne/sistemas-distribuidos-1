@@ -129,8 +129,8 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 	go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, false)
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, false)
-	// wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true)
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ5, config.Q5Output, log, inputsChannelMap, GetQ5, &inputChannelMapLock, &wg, true)
 
 	wg.Wait()
 	log.Infof("All goroutines finished. Closing ChannelsCid")
@@ -146,6 +146,9 @@ func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*Channels
 		log.Errorf("Failed to recover from logs: %v", err)
 		return
 	}
+	// log.Infof("Recovered %d transaction logs", len(transactionLogs))
+	// log.Infof("transactionLogs: %v", transactionLogs)
+	// panic("stop")
 
 	for _, transactionLog := range transactionLogs {
 		cid := transactionLog.Cid()
@@ -246,7 +249,6 @@ OuterLoop:
 			msg := msgEnvelope.Msg()
 			bytes := msg.Buf.Bytes
 			t := msg.PackageType
-			// msgEnvelope.Ack(false)
 			switch t {
 			case common.FileName:
 				lastIdSent := uint64(0)
@@ -261,6 +263,10 @@ OuterLoop:
 				}
 
 			case common.AllFilesSent:
+				err := msgEnvelope.Ack(false)
+				if err != nil {
+					log.Errorf("Failed to ack envelope: %v", err)
+				}
 				log.Infof("Received ALL FILES SENT")
 				break OuterLoop
 			}
@@ -273,7 +279,7 @@ OuterLoop:
 		verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
 		verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
 		verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
-		// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
+		verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 	}
 
 	tlog.Close()
@@ -334,6 +340,10 @@ OuterLoop:
 				}
 
 			case common.AllFilesSent:
+				err := msgEnvelope.Ack(false)
+				if err != nil {
+					log.Errorf("Failed to ack envelope: %v", err)
+				}
 				log.Infof("Received ALL FILES SENT")
 				break OuterLoop
 			}
@@ -346,7 +356,7 @@ OuterLoop:
 		verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2)
 		verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3)
 		verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4)
-		// verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
+		verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 	}
 
 	tlog.Close()
@@ -424,10 +434,6 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 		}
 		bytesReadTotal = update(reader, bytesReadTotal, connReader, tlog, fileName, lastIdSent, d, log)
 		msgEnvelope.Ack(false)
-		err2 := connReader.ackAllEnvelopes()
-		if err2 != nil {
-			log.Errorf("Failed to ack envelopes: %v", err2)
-		}
 		log.Infof("Received header file: %v", d)
 		unwrap(err, "Failed to read CSV header", log)
 		log.Infof("Starting CSV processing")
@@ -456,6 +462,10 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 					if err != nil {
 						log.Errorf("Error sending EOF for ratings: %v", err)
 					}
+				}
+				err2 := connReader.ackAllEnvelopes()
+				if err2 != nil {
+					log.Errorf("Failed to ack envelopes: %v", err2)
 				}
 				break
 			}
@@ -487,17 +497,17 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 }
 
 func update(reader *csv.Reader, bytesReadTotal int, connReader *ConnReader, tlog transaction_log.TransactionLog, fileName string, lastIdSent uint64, data []string, log *logger.ConsoleLogger) int {
-	log.Infof("fileName: %s", fileName)
-	log.Infof("data: %v", data)
-	log.Infof("LastIdSent: %d", lastIdSent)
+	// log.Infof("fileName: %s", fileName)
+	// log.Infof("data: %v", data)
+	// log.Infof("LastIdSent: %d", lastIdSent)
 	bytesRead := int(reader.InputOffset()) - bytesReadTotal
-	log.Infof("bytesRead: %d", bytesRead)
+	// log.Infof("bytesRead: %d", bytesRead)
 	bytesReadTotal = int(reader.InputOffset())
 	lastIdACK := connReader.LastIdAck()
-	log.Infof("lastIdACK: %d", lastIdACK)
+	// log.Infof("lastIdACK: %d", lastIdACK)
 	connReader.lastReadInsideReader.Consume(bytesRead)
 	lastReadNotIncluded := connReader.lastReadInsideReader.Peek(4096) //TODO agregar lastReadNotIncluded del reader.
-	log.Infof("lastReadNotIncluded: %v", string(lastReadNotIncluded))
+	// log.Infof("lastReadNotIncluded: %v", string(lastReadNotIncluded))
 	tlog.Update(fileName, uint64(lastIdSent), data, lastReadNotIncluded, lastIdACK)
 	err2 := connReader.ackAllEnvelopes()
 	if err2 != nil {
@@ -1040,6 +1050,9 @@ func (c *ConnReader) LastIdAck() uint64 {
 }
 
 func (c *ConnReader) ackAllEnvelopes() error {
+	if c.lastIdSent == c.LastIdAck() {
+		return nil
+	}
 	for _, envelope := range c.envelopesToAck {
 		err := envelope.Ack(false)
 		if err != nil {
@@ -1052,8 +1065,8 @@ func (c *ConnReader) ackAllEnvelopes() error {
 }
 
 func (cr *ConnReader) Read(buff []byte) (n int, err error) {
-	log := logger.NewConsoleLogger("coordinator", logger.Info)
-	log.Infof("LastReadInsideReader READ: %v", string(cr.lastReadInsideReader.Peek(4096)))
+	// log := logger.NewConsoleLogger("coordinator", logger.Info)
+	// log.Infof("LastReadInsideReader READ: %v", string(cr.lastReadInsideReader.Peek(4096)))
 	capacity := cap(buff)
 	cantCopyFromLast := min(capacity, len(cr.lastReadNotIncluded))
 	copy(buff, cr.lastReadNotIncluded[:cantCopyFromLast])
