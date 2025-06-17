@@ -214,7 +214,7 @@ func ConnectorCustom(config Configuration) (*RabbitMQConnector, error) {
 }
 
 func (m *middlewareRabbitmq[T]) Close() error {
-	m.Log.Infof("CLOSING MIDDLEWARE")
+	m.Log.Debugf("CLOSING MIDDLEWARE")
 	if m.Conn != nil {
 		m.Conn.Close()
 		m.Conn = nil
@@ -223,7 +223,7 @@ func (m *middlewareRabbitmq[T]) Close() error {
 }
 
 func (r *receiverRabbitmq[T]) Close() error {
-	r.Log.Infof("CLOSING RECEIVER: '%s', '%s", r.input.exchangeName, r.input.queueName)
+	r.Log.Debugf("CLOSING RECEIVER: '%s', '%s", r.input.exchangeName, r.input.queueName)
 	r.input.Close()
 	r.closeReceiver.Close()
 	r.closeSender.Close()
@@ -231,7 +231,7 @@ func (r *receiverRabbitmq[T]) Close() error {
 }
 
 func (s *SenderRabbitmq[T]) Close() error {
-	s.Log.Infof("CLOSING SENDER: '%s'", s.exchangeName)
+	s.Log.Debugf("CLOSING SENDER: '%s'", s.exchangeName)
 	s.output.Close()
 	return nil
 }
@@ -248,7 +248,7 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 		return nil, err
 	}
 
-	m.Log.Infof("Creating close exchange '%s'", closeExchangeName(readExchangeName, queueName))
+	m.Log.Debugf("Creating close exchange '%s'", closeExchangeName(readExchangeName, queueName))
 
 	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "", "fanout", "", 100)
 	if err != nil {
@@ -326,7 +326,7 @@ func createConsumerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err != nil {
 		return ReceiverChannel[I]{}, nil
 	}
-	m.Log.Infof("PREFETCH %d with queuename: %s", prefetch, queueName)
+	m.Log.Debugf("PREFETCH %d with queuename: %s", prefetch, queueName)
 	inputCh.Qos(int(prefetch), 0, false)
 
 	msgs, err := inputCh.Consume(
@@ -350,13 +350,13 @@ func (m *middlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string,
 		for i := 0; i < int(consumerCount); i++ {
 			subscribersMap[sub] = append(subscribersMap[sub], fmt.Sprintf("%d", i))
 		}
-		m.Log.Infof("subscribersMap[%s] = %v", sub, subscribersMap[sub])
+		m.Log.Debugf("subscribersMap[%s] = %v", sub, subscribersMap[sub])
 	}
 	return m.writeToRK(outputName, subscribersMap, "direct", idWorker, consumerCount)
 }
 
 func (m *middlewareRabbitmq[T]) writeToRK(outputName string, subscribers map[string][]string, t string, idWorker string, consumerCount uint) (middleware.Sender[T], error) {
-	m.Log.Infof("Creating WriteTo exchange '%s'", outputName)
+	m.Log.Debugf("Creating WriteTo exchange '%s'", outputName)
 	output, err := CreateProducerRK[T, T](m, outputName, t)
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
@@ -816,7 +816,7 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 		return nil, nil, fmt.Errorf("failed to declare queue %v", err)
 	}
 
-	m.Log.Infof("ROUTING KEY: %s with quename %s", routingKey, queue.Name)
+	// m.Log.Debugf("ROUTING KEY: %s with quename %s", routingKey, queue.Name)
 	err = ch.QueueBind(
 		queue.Name,   // queue name
 		routingKey,   // routing key

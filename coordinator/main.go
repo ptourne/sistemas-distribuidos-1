@@ -18,6 +18,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/common/utils"
+	ringBuffer "github.com/ptourne/sistemas-distribuidos-1/coordinator/ring_buffer"
 	"github.com/ptourne/sistemas-distribuidos-1/coordinator/transaction_log"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
@@ -408,9 +409,9 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 			}
 		}
 	}
-
-	connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: lastReadNotIncluded, ctx: ctx, envelopesToAck: []middleware.Envelope[*common.PackageFile]{}, lastIdACK: lastIdACK}
+	connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: lastReadNotIncluded, ctx: ctx, envelopesToAck: []middleware.Envelope[*common.PackageFile]{}, lastIdACK: lastIdACK, lastReadInsideReader: ringBuffer.NewRingBuffer(4096)}
 	reader := csv.NewReader(connReader)
+	bytesReadTotal := 0
 	if lastIdSent == 0 {
 		d, err := reader.Read()
 		if err != nil && err.Error() == "read canceled by context" {
@@ -421,8 +422,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 			testSender.Close()
 			return true
 		}
-		lastIdACK = connReader.LastIdAck()
-		tlog.Update(fileName, lastIdSent, d, connReader.lastReadNotIncluded, lastIdACK)
+		bytesReadTotal = update(reader, bytesReadTotal, connReader, tlog, fileName, lastIdSent, d, log)
 		msgEnvelope.Ack(false)
 		err2 := connReader.ackAllEnvelopes()
 		if err2 != nil {
@@ -438,12 +438,6 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 			log.Infof("Processed %d lines from %s", lastIdSent, fileName)
 		}
 		data, err := reader.Read()
-		lastIdACK = connReader.LastIdAck()
-		tlog.Update(fileName, uint64(lastIdSent), data, connReader.lastReadNotIncluded, lastIdACK)
-		err2 := connReader.ackAllEnvelopes()
-		if err2 != nil {
-			log.Errorf("Failed to ack envelopes: %v", err2)
-		}
 		if err != nil {
 			if err.Error() == "read canceled by context" {
 				log.Infof("Context cancelled, exiting handleClient")
@@ -465,9 +459,12 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 				}
 				break
 			}
+			bytesReadTotal = update(reader, bytesReadTotal, connReader, tlog, fileName, lastIdSent, []string{}, log)
 			log.Errorf("Error reading CSV line: %v", err)
 			continue
 		}
+
+		bytesReadTotal = update(reader, bytesReadTotal, connReader, tlog, fileName, lastIdSent, data, log)
 		if len(data) < expectedLen {
 			continue
 		}
@@ -484,10 +481,29 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 			}
 			ratingsSender.SendRK(rating, cid, lastIdSent, routingKey)
 		}
-		// lastIdSent++
 
 	}
 	return false
+}
+
+func update(reader *csv.Reader, bytesReadTotal int, connReader *ConnReader, tlog transaction_log.TransactionLog, fileName string, lastIdSent uint64, data []string, log *logger.ConsoleLogger) int {
+	log.Infof("fileName: %s", fileName)
+	log.Infof("data: %v", data)
+	log.Infof("LastIdSent: %d", lastIdSent)
+	bytesRead := int(reader.InputOffset()) - bytesReadTotal
+	log.Infof("bytesRead: %d", bytesRead)
+	bytesReadTotal = int(reader.InputOffset())
+	lastIdACK := connReader.LastIdAck()
+	log.Infof("lastIdACK: %d", lastIdACK)
+	connReader.lastReadInsideReader.Consume(bytesRead)
+	lastReadNotIncluded := connReader.lastReadInsideReader.Peek(4096) //TODO agregar lastReadNotIncluded del reader.
+	log.Infof("lastReadNotIncluded: %v", string(lastReadNotIncluded))
+	tlog.Update(fileName, uint64(lastIdSent), data, lastReadNotIncluded, lastIdACK)
+	err2 := connReader.ackAllEnvelopes()
+	if err2 != nil {
+		log.Errorf("Failed to ack envelopes: %v", err2)
+	}
+	return bytesReadTotal
 }
 
 type ConfigCoordinator struct {
@@ -1004,12 +1020,13 @@ func unwrap(err error, msg string, log *logger.ConsoleLogger) {
 }
 
 type ConnReader struct {
-	ch                  chan middleware.Envelope[*common.PackageFile]
-	lastReadNotIncluded []byte
-	ctx                 context.Context
-	envelopesToAck      []middleware.Envelope[*common.PackageFile]
-	lastIdACK           uint64
-	lastIdSent          uint64
+	ch                   chan middleware.Envelope[*common.PackageFile]
+	lastReadNotIncluded  []byte
+	ctx                  context.Context
+	envelopesToAck       []middleware.Envelope[*common.PackageFile]
+	lastIdACK            uint64
+	lastIdSent           uint64
+	lastReadInsideReader *ringBuffer.RingBuffer
 }
 
 func (c *ConnReader) LastIdAck() uint64 {
@@ -1035,9 +1052,12 @@ func (c *ConnReader) ackAllEnvelopes() error {
 }
 
 func (cr *ConnReader) Read(buff []byte) (n int, err error) {
+	log := logger.NewConsoleLogger("coordinator", logger.Info)
+	log.Infof("LastReadInsideReader READ: %v", string(cr.lastReadInsideReader.Peek(4096)))
 	capacity := cap(buff)
 	cantCopyFromLast := min(capacity, len(cr.lastReadNotIncluded))
 	copy(buff, cr.lastReadNotIncluded[:cantCopyFromLast])
+	cr.lastReadInsideReader.Write(cr.lastReadNotIncluded[:cantCopyFromLast])
 	cr.lastReadNotIncluded = cr.lastReadNotIncluded[cantCopyFromLast:]
 	remainingCapacity := capacity - cantCopyFromLast
 	if remainingCapacity == 0 {
@@ -1069,6 +1089,7 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 		switch t {
 		case common.FileData:
 			copy(buff[cantCopyFromLast:], data[:cantCopyFromData])
+			cr.lastReadInsideReader.Write(data[:cantCopyFromData])
 			cr.lastReadNotIncluded = append(cr.lastReadNotIncluded, data[cantCopyFromData:]...)
 			n = cantCopyFromLast + cantCopyFromData
 			err = nil
