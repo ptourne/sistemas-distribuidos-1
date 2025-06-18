@@ -1083,45 +1083,49 @@ func (cr *ConnReader) Read(buff []byte) (n int, err error) {
 		return cantCopyFromLast, nil
 	}
 
-	select {
-	case <-cr.ctx.Done():
-		return 0, fmt.Errorf("read canceled by context")
-	case msgEnvelope, ok := <-cr.ch:
-		if !ok {
-			return 0, fmt.Errorf("channel closed")
-		}
-		if msgEnvelope == nil {
-			return 0, fmt.Errorf("invalid message es NIL")
-		}
-
-		if msgEnvelope.Id() < cr.lastIdACK {
-			err := msgEnvelope.Ack(false)
-			if err != nil {
-				return 0, fmt.Errorf("failed to ack envelope: %v", err)
+loop:
+	for {
+		select {
+		case <-cr.ctx.Done():
+			return 0, fmt.Errorf("read canceled by context")
+		case msgEnvelope, ok := <-cr.ch:
+			if !ok {
+				return 0, fmt.Errorf("channel closed")
 			}
+			if msgEnvelope == nil {
+				return 0, fmt.Errorf("invalid message es NIL")
+			}
+
+			if msgEnvelope.Id() < cr.lastIdACK {
+				err := msgEnvelope.Ack(false)
+				if err != nil {
+					return 0, fmt.Errorf("failed to ack envelope: %v", err)
+				}
+				continue loop
+			}
+			msg := msgEnvelope.Msg()
+			data := msg.Buf.Bytes
+			t := msg.PackageType
+			cantCopyFromData := min(remainingCapacity, len(data))
+			switch t {
+			case common.FileData:
+				copy(buff[cantCopyFromLast:], data[:cantCopyFromData])
+				cr.lastReadInsideReader.Write(data[:cantCopyFromData])
+				cr.lastReadNotIncluded = append(cr.lastReadNotIncluded, data[cantCopyFromData:]...)
+				n = cantCopyFromLast + cantCopyFromData
+				err = nil
+			case common.FinishFile:
+				n = 0
+				err = fmt.Errorf("EOF")
+			default:
+				n = 0
+				err = fmt.Errorf("invalid message type: %v", t)
+			}
+			cr.envelopesToAck = append(cr.envelopesToAck, msgEnvelope)
+			// log.Infof("LastReadInsideReader READ AFTER: %v", string(cr.lastReadInsideReader.Peek()))
+			// log.Infof("LastReadNotIncluded READ AFTER: %v", string(cr.lastReadNotIncluded))
+			return n, err
 		}
-		msg := msgEnvelope.Msg()
-		data := msg.Buf.Bytes
-		t := msg.PackageType
-		cantCopyFromData := min(remainingCapacity, len(data))
-		switch t {
-		case common.FileData:
-			copy(buff[cantCopyFromLast:], data[:cantCopyFromData])
-			cr.lastReadInsideReader.Write(data[:cantCopyFromData])
-			cr.lastReadNotIncluded = append(cr.lastReadNotIncluded, data[cantCopyFromData:]...)
-			n = cantCopyFromLast + cantCopyFromData
-			err = nil
-		case common.FinishFile:
-			n = 0
-			err = fmt.Errorf("EOF")
-		default:
-			n = 0
-			err = fmt.Errorf("invalid message type: %v", t)
-		}
-		cr.envelopesToAck = append(cr.envelopesToAck, msgEnvelope)
-		// log.Infof("LastReadInsideReader READ AFTER: %v", string(cr.lastReadInsideReader.Peek()))
-		// log.Infof("LastReadNotIncluded READ AFTER: %v", string(cr.lastReadNotIncluded))
-		return n, err
 	}
 }
 
