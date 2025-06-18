@@ -58,9 +58,9 @@ func TestMapReducer(t *testing.T) {
 	test2 := provider.AsyncDeployRabbit()
 	test3 := provider.AsyncDeployRabbit()
 	test4 := provider.AsyncDeployRabbit()
-	// test5 := provider.AsyncDeployRabbit()
-	// test6 := provider.AsyncDeployRabbit()
-	// test7 := provider.AsyncDeployRabbit()
+	test5 := provider.AsyncDeployRabbit()
+	test6 := provider.AsyncDeployRabbit()
+	test7 := provider.AsyncDeployRabbit()
 	// test8 := provider.AsyncDeployRabbit()
 
 	test1container := <-test1
@@ -71,12 +71,12 @@ func TestMapReducer(t *testing.T) {
 	defer test3container.Container.Teardown()
 	test4container := <-test4
 	defer test4container.Container.Teardown()
-	// test5container := <-test5
-	// defer test5container.Container.Teardown()
-	// test6container := <-test6
-	// defer test6container.Container.Teardown()
-	// test7container := <-test7
-	// defer test7container.Container.Teardown()
+	test5container := <-test5
+	defer test5container.Container.Teardown()
+	test6container := <-test6
+	defer test6container.Container.Teardown()
+	test7container := <-test7
+	defer test7container.Container.Teardown()
 	// test8container := <-test8
 	// defer test8container.Container.Teardown()
 
@@ -200,7 +200,7 @@ func TestMapReducer(t *testing.T) {
 	})
 
 	t.Run("CoordinatorLargeLine", func(t *testing.T) {
-		init := test4container
+		init := test3container
 		assert.NoError(t, init.Err)
 		sender, receiver := startCoordinator(t, init)
 		defer sender.Close()
@@ -282,7 +282,7 @@ func TestMapReducer(t *testing.T) {
 	})
 
 	t.Run("CoordinatorLogRecoveryFirstMsg", func(t *testing.T) {
-		init := test3container
+		init := test4container
 		assert.NoError(t, init.Err)
 		sender, receiver := startCoordinator(t, init)
 		defer sender.Close()
@@ -380,7 +380,7 @@ func TestMapReducer(t *testing.T) {
 	})
 
 	t.Run("CoordinatorLargeLineLogRecovery", func(t *testing.T) {
-		init := test4container
+		init := test5container
 		assert.NoError(t, init.Err)
 		sender, receiver := startCoordinator(t, init)
 		defer sender.Close()
@@ -498,6 +498,242 @@ func TestMapReducer(t *testing.T) {
 		assert.Error(t, err, "Expected log file to not exist, but it does exist")
 	})
 
+	t.Run("CoordinatorLogRecoveryEOFS", func(t *testing.T) {
+		init := test6container
+		assert.NoError(t, init.Err)
+		sender, receiver := startCoordinator(t, init)
+		defer sender.Close()
+		defer receiver.Close()
+		cid := uint64(1)
+
+		log := logger.NewConsoleLogger("coordinator", logger.Info)
+		tmpDir := t.TempDir()
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+
+		log.Infof("envio filename")
+		fileName := "test_csv"
+		sendCoordinator(t, fileName, sender, common.FileName, cid, 1)
+
+		log.Infof("envio header y primer paquete")
+		csvData := "id,name\n1,Alice\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 2)
+		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK := stopCoordinatorAndReadLog(t, ctxStop, wg, tmpDir, cid)
+		assert.Equal(t, fileName, gotFilename)
+		assert.Equal(t, uint64(1), gotCounter)
+		assert.Equal(t, []string{"1", "Alice"}, gotRead)
+		assert.Equal(t, []byte{}, gotLastReadNotIncluided)
+		assert.Equal(t, uint64(2), gotLastIdACK)
+
+		log = logger.NewConsoleLogger("test", logger.Info)
+
+		log.Infof("envio paquete final y eofs")
+		csvData = "\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 5)
+		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 6)
+		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 7)
+		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+
+		//verifico que lleguen los paquetes
+		var rows []middleware.Envelope[*model.Row]
+		for i := 0; i < 4; i++ {
+			log.Infof("i: %d", i)
+			row, err := receiver.Next(ctx)
+			log.Infof("row1: %v", row.Msg())
+			assert.NoError(t, err)
+			rows = append(rows, row)
+			row.Ack(false)
+		}
+
+		log.Infof("verifico que lleguen los paquetes")
+		r0 := rows[0].Msg()
+		assert.Equal(t, "1", r0.Strings["id"])
+		assert.Equal(t, "Alice", r0.Strings["name"])
+		assert.Equal(t, uint64(1), rows[0].Cid())
+		assert.Equal(t, uint64(1), rows[0].Id())
+
+		r1 := rows[1].Msg()
+		assert.Equal(t, "1", r1.Strings["id"])
+		assert.Equal(t, "Alice", r1.Strings["name"])
+		assert.Equal(t, uint64(1), rows[1].Cid())
+		assert.Equal(t, uint64(1), rows[1].Id())
+
+		r2 := rows[2]
+		assert.Equal(t, middleware.Prune, r2.Type())
+
+		r3 := rows[3]
+		assert.Equal(t, middleware.EOF, r3.Type())
+
+		log.Infof("verifico que el log se limpió correctamente")
+		time.Sleep(1 * time.Second)
+		logFilePath := path.Join(tmpDir, "logs", "1", "log")
+		_, err := os.Stat(logFilePath)
+		assert.Error(t, err, "Expected log file to not exist, but it does exist")
+		ctxStop()
+		wg.Wait()
+	})
+
+	t.Run("CoordinatorLogRecoveryEOFSeparated", func(t *testing.T) {
+		init := test7container
+		assert.NoError(t, init.Err)
+		sender, receiver := startCoordinator(t, init)
+		defer sender.Close()
+		defer receiver.Close()
+		cid := uint64(1)
+
+		log := logger.NewConsoleLogger("coordinator", logger.Info)
+		tmpDir := t.TempDir()
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+
+		log.Infof("envio filename")
+		fileName := "test_csv"
+		sendCoordinator(t, fileName, sender, common.FileName, cid, 1)
+
+		log.Infof("envio header y primer paquete")
+		csvData := "id,name\n1,Alice\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 2)
+		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK := stopCoordinatorAndReadLog(t, ctxStop, wg, tmpDir, cid)
+		assert.Equal(t, fileName, gotFilename)
+		assert.Equal(t, uint64(1), gotCounter)
+		assert.Equal(t, []string{"1", "Alice"}, gotRead)
+		assert.Equal(t, []byte{}, gotLastReadNotIncluided)
+		assert.Equal(t, uint64(2), gotLastIdACK)
+
+		log = logger.NewConsoleLogger("test", logger.Info)
+
+		log.Infof("envio paquete final y primer eof")
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+		csvData = "\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 5)
+		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 6)
+		stopCoordinatorAndReadLogError(t, ctxStop, wg, tmpDir, cid)
+
+		log.Infof("envio segundo eof")
+		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 7)
+		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+
+		//verifico que lleguen los paquetes
+		var rows []middleware.Envelope[*model.Row]
+		for i := 0; i < 4; i++ {
+			log.Infof("i: %d", i)
+			row, err := receiver.Next(ctx)
+			log.Infof("row1: %v", row.Msg())
+			assert.NoError(t, err)
+			rows = append(rows, row)
+			row.Ack(false)
+		}
+
+		log.Infof("verifico que lleguen los paquetes")
+		r0 := rows[0].Msg()
+		assert.Equal(t, "1", r0.Strings["id"])
+		assert.Equal(t, "Alice", r0.Strings["name"])
+		assert.Equal(t, uint64(1), rows[0].Cid())
+		assert.Equal(t, uint64(1), rows[0].Id())
+
+		r1 := rows[1].Msg()
+		assert.Equal(t, "1", r1.Strings["id"])
+		assert.Equal(t, "Alice", r1.Strings["name"])
+		assert.Equal(t, uint64(1), rows[1].Cid())
+		assert.Equal(t, uint64(1), rows[1].Id())
+
+		r2 := rows[2]
+		assert.Equal(t, middleware.Prune, r2.Type())
+
+		r3 := rows[3]
+		assert.Equal(t, middleware.EOF, r3.Type())
+
+		log.Infof("verifico que el log se limpió correctamente")
+		time.Sleep(1 * time.Second)
+		logFilePath := path.Join(tmpDir, "logs", "1", "log")
+		_, err := os.Stat(logFilePath)
+		assert.Error(t, err, "Expected log file to not exist, but it does exist")
+		ctxStop()
+		wg.Wait()
+	})
+
+	t.Run("CoordinatorLogRecoveryMsgError", func(t *testing.T) {
+		init := test4container
+		assert.NoError(t, init.Err)
+		sender, receiver := startCoordinator(t, init)
+		defer sender.Close()
+		defer receiver.Close()
+		cid := uint64(1)
+
+		log := logger.NewConsoleLogger("coordinator", logger.Info)
+		tmpDir := t.TempDir()
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+
+		log.Infof("envio filename")
+		fileName := "test_csv"
+		sendCoordinator(t, fileName, sender, common.FileName, cid, 1)
+
+		log.Infof("envio header")
+		csvData := "id,name\n1\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 2)
+		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK := stopCoordinatorAndReadLog(t, ctxStop, wg, tmpDir, cid)
+		assert.Equal(t, fileName, gotFilename)
+		assert.Equal(t, uint64(1), gotCounter)
+		assert.Equal(t, []string{}, gotRead)
+		assert.Equal(t, string(""), string(gotLastReadNotIncluided))
+		assert.Equal(t, uint64(2), gotLastIdACK)
+
+		log = logger.NewConsoleLogger("test", logger.Info)
+
+		log.Infof("envio primer paquete")
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+		csvData = "1,Alice"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 3)
+		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK = stopCoordinatorAndReadLog(t, ctxStop, wg, tmpDir, cid)
+		assert.Equal(t, fileName, gotFilename)
+		assert.Equal(t, uint64(1), gotCounter)
+		assert.Equal(t, []string{}, gotRead)
+		assert.Equal(t, "", string(gotLastReadNotIncluided))
+		assert.Equal(t, uint64(2), gotLastIdACK)
+
+		log.Infof("envio segundo paquete")
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+		csvData = "\n2\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 4)
+		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK = stopCoordinatorAndReadLog(t, ctxStop, wg, tmpDir, cid)
+		assert.Equal(t, fileName, gotFilename)
+		assert.Equal(t, uint64(3), gotCounter)
+		assert.Equal(t, []string{}, gotRead)
+		assert.Equal(t, "", string(gotLastReadNotIncluided))
+		assert.Equal(t, uint64(4), gotLastIdACK)
+
+		log.Infof("envio eofs")
+		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 6)
+		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 7)
+		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+
+		//verifico que lleguen los paquetes
+		var rows []middleware.Envelope[*model.Row]
+		for i := 0; i < 3; i++ {
+			row, err := receiver.Next(ctx)
+			log.Infof("row: %v", row.Msg())
+			assert.NoError(t, err)
+			rows = append(rows, row)
+			row.Ack(false)
+		}
+
+		log.Infof("verifico que lleguen los paquetes")
+		r0 := rows[0].Msg()
+		assert.Equal(t, r0.Strings["id"], "1")
+		assert.Equal(t, r0.Strings["name"], "Alice")
+		assert.Equal(t, uint64(1), rows[0].Cid())
+		assert.Equal(t, uint64(2), rows[0].Id())
+
+		r1 := rows[1]
+		assert.Equal(t, r1.Type(), middleware.Prune)
+
+		r2 := rows[2]
+		assert.Equal(t, r2.Type(), middleware.EOF)
+
+		log.Infof("verifico que el log se limpió correctamente")
+		time.Sleep(1 * time.Second)
+		ctxStop()
+		wg.Wait()
+	})
+
 }
 
 func stopCoordinatorAndReadLog(t *testing.T, ctxStop context.CancelFunc, wg *sync.WaitGroup, tmpDir string, cid uint64) (string, uint64, []string, []byte, uint64) {
@@ -513,6 +749,22 @@ func stopCoordinatorAndReadLog(t *testing.T, ctxStop context.CancelFunc, wg *syn
 	logFile.Close()
 	assert.NoError(t, err)
 	return gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK
+}
+
+func stopCoordinatorAndReadLogError(t *testing.T, ctxStop context.CancelFunc, wg *sync.WaitGroup, tmpDir string, cid uint64) {
+	time.Sleep(1 * time.Second)
+	ctxStop()
+	wg.Wait()
+
+	//verifico que exita la carpeta del cid
+	logDir := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid))
+	_, err := os.Stat(logDir)
+	assert.NoError(t, err)
+
+	//verifico que no exista el log
+	logFilePath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "log")
+	_, err = os.Stat(logFilePath)
+	assert.Error(t, err)
 }
 
 func sendCoordinator(t *testing.T, data string, sender middleware.Sender[*common.PackageFile], packageType common.TypePackage, cid uint64, id uint64) {

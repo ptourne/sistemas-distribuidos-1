@@ -34,7 +34,8 @@ type TransactionLog interface {
 	Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64)
 	Cid() uint64
 	Print() string
-	Close() error
+	CloseAll() error
+	CloseLog() error
 }
 
 func RecoverFromLogs(dirPath string) ([]TransactionLog, error) {
@@ -226,17 +227,36 @@ func (t *transactionLog) Cid() uint64 {
 	return t.cid
 }
 
-func (t *transactionLog) Close() error {
+func (t *transactionLog) CloseAll() error {
+	//elimibo el archivo de log del cid
+	if err := os.Remove(t.logFileName); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove transaction log file: %w", err)
+		}
+		// Si el archivo no existe, continuamos para intentar borrar el directorio
+	}
+
+	//elimino el directorio del cid (y todo su contenido)
+	logDir := path.Dir(t.logFileName)
+	if err := os.RemoveAll(logDir); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove transaction log directory: %w", err)
+		}
+		// Si el directorio no existe, no es un error
+	}
+	log.Infof("Transaction log closed and removed for cid: %d", t.cid)
+
+	return nil
+}
+
+func (t *transactionLog) CloseLog() error {
 	//elimibo el archivo de log del cid
 	if err := os.Remove(t.logFileName); err != nil {
 		return fmt.Errorf("failed to remove transaction log file: %w", err)
 	}
-	//elimino el directorio del cid
-	logDir := path.Dir(t.logFileName)
-	if err := os.Remove(logDir); err != nil {
-		return fmt.Errorf("failed to remove transaction log directory: %w", err)
-	}
-	log.Infof("Transaction log closed and removed for cid: %d", t.cid)
+
+	log.Infof("Transaction log closed for cid: %d", t.cid)
+
 	return nil
 }
 

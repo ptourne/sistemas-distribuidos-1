@@ -277,7 +277,7 @@ OuterLoop:
 		verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 	}
 
-	tlog.Close()
+	tlog.CloseAll()
 
 	log.Infof("finish all querys verified")
 }
@@ -339,7 +339,14 @@ OuterLoop:
 					log.Errorf("Failed to ack envelope: %v", err)
 				}
 				log.Infof("Received ALL FILES SENT")
+				tlog.CloseLog()
 				break OuterLoop
+
+			case common.FinishFile:
+				err := msgEnvelope.Ack(false)
+				if err != nil {
+					log.Errorf("Failed to ack envelope: %v", err)
+				}
 			}
 		}
 	}
@@ -353,7 +360,7 @@ OuterLoop:
 		verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5)
 	}
 
-	tlog.Close()
+	tlog.CloseAll()
 
 	log.Infof("finish all querys verified")
 }
@@ -465,6 +472,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 						log.Errorf("Error sending EOF for ratings: %v", err)
 					}
 				}
+				tlog.CloseLog()
 				err2 := connReader.ackAllEnvelopes()
 				if err2 != nil {
 					log.Errorf("Failed to ack envelopes: %v", err2)
