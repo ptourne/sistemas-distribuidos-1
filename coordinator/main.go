@@ -299,7 +299,7 @@ func handleClientRecover(transactionLog transaction_log.TransactionLog, channels
 	}
 
 	shouldReturn := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
-		ratingsSender, cid, counter+1, lastReadNotIncluded, lastIdACK, read, testSender, tlog, nil)
+		ratingsSender, cid, counter, lastReadNotIncluded, lastIdACK, read, testSender, tlog, nil)
 
 	if shouldReturn {
 		return
@@ -418,7 +418,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 	connReader := &ConnReader{ch: channelsCid.input, lastReadNotIncluded: lastReadNotIncluded, ctx: ctx, envelopesToAck: []middleware.Envelope[*common.PackageFile]{}, lastIdACK: lastIdACK, lastReadInsideReader: ringBuffer.NewRingBuffer(4096)}
 	reader := csv.NewReader(connReader)
 	bytesReadTotal := 0
-	if lastIdSent == 0 {
+	if lastIdSent == 0 && len(read) == 0 {
 		d, err := reader.Read()
 		if err != nil && err.Error() == "read canceled by context" {
 			log.Infof("Context cancelled, exiting handleClient")
@@ -437,11 +437,11 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 	for {
 		lastIdSent++
 		//imprimo lastReadNotIncluded y lastReadInsideReader
-		if lastIdSent == 5438 && fileName == c.CreditsName {
-			log.Infof("lastReadNotIncluded: %v", string(connReader.lastReadNotIncluded))
-			log.Infof("lastReadInsideReader: %v", string(connReader.lastReadInsideReader.Peek()))
-			panic("stop") //todo
-		}
+		// if lastIdSent == 33990 && fileName == c.CreditsName {
+		// 	log.Infof("lastReadNotIncluded: %v", string(connReader.lastReadNotIncluded))
+		// 	log.Infof("lastReadInsideReader: %v", string(connReader.lastReadInsideReader.Peek()))
+		// 	panic("stop") //todo
+		// }
 		if lastIdSent%uint64(amount) == 0 {
 			log.Infof("Processed %d lines from %s", lastIdSent, fileName)
 		}
