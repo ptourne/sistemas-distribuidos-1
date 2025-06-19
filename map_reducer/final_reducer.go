@@ -102,55 +102,13 @@ func (fr *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 				switch e.Type() {
 				case middleware.Normal:
 					fr.log.Infof("Final : %d | Saving final reduce batch", e.Cid())
-					clientBatch, ok := fr.ReduceBatches[e.Cid()]
-					if !ok {
-						acc := e.Msg()
-						fr.ReduceBatches[e.Cid()] = &acc
-					} else {
-						reduc := []A{*clientBatch, e.Msg()}
-						reduced := fr.MapReduce.Reduce(reduc)
-						fr.ReduceBatches[e.Cid()] = &reduced
-					}
+					fr.reduce(e.Cid(), e.Msg())
 					e.Ack(false)
 				case middleware.EOF:
-					fr.log.Infof("Final EOF: %d | Pruning final reduce batch", e.Cid())
-					clientBatch, ok := fr.ReduceBatches[e.Cid()]
-					if !ok {
-						fr.log.Infof("Final : %d | Final Reduce batch not found on Prune", e.Cid())
-						e.Ack(false)
-						break
-					}
-					if clientBatch == nil {
-						fr.log.Infof("Final : %d | Final Reduce batch is empty on Prune", e.Cid())
-						e.Ack(false)
-						break
-					}
-					fr.log.Debugf("Final : %d | clientBatch before: %v", e.Cid(), clientBatch)
-					output := fr.MapReduce.Output(*clientBatch)
-					for i, o := range output {
-						fr.log.Infof("Final : %d | Sending partial result to output: %v", e.Cid(), o)
-						err = fr.Sender.Send(o, e.Cid(), uint64(i))
-					}
+					err = fr.processEof(e.Cid())
 					if err != nil {
+						fr.log.Errorf("Final : %d | Error processing EOF: %s", e.Cid(), err)
 						e.Nack(false)
-						err = fmt.Errorf("error sending partial result: %w", err)
-						_ = err
-						return
-					}
-					err := fr.Sender.Prune(e.Cid())
-					if err != nil {
-						fr.log.Errorf("input : %d | Prune failed: %v", e.Cid(), err)
-						e.Nack(false)
-					}
-
-					delete(fr.ReduceBatches, e.Cid())
-
-					fr.log.Infof("Final : %d | Sending EOF after sending partial result", e.Cid())
-					err = fr.Sender.SendEOF(e.Cid())
-					if err != nil {
-						fr.log.Errorf("Final : %d | SendEOF failed: %s", e.Cid(), err)
-						e.Nack(false)
-						return
 					}
 					e.Ack(false)
 				case middleware.Prune:
@@ -164,115 +122,162 @@ func (fr *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 	return res
 }
 
-func (pr *FinalReducer[I, A, R]) Received(cid, id uint64, data []byte) error {
-	var nul I
+func (fr *FinalReducer[I, A, R]) processEof(cid uint64) error {
+	fr.log.Infof("Final EOF: %d | Pruning final reduce batch", cid)
+	clientBatch, ok := fr.ReduceBatches[cid]
+	if !ok {
+		fr.log.Infof("Final : %d | Final Reduce batch not found on Prune", cid)
+		return nil
+	}
+	if clientBatch == nil {
+		fr.log.Infof("Final : %d | Final Reduce batch is empty on Prune", cid)
+		return nil
+	}
+	fr.log.Debugf("Final : %d | clientBatch before: %v", cid, clientBatch)
+	output := fr.MapReduce.Output(*clientBatch)
+	for i, o := range output {
+		fr.log.Infof("Final : %d | Sending partial result to output: %v", cid, o)
+		err := fr.Sender.Send(o, cid, uint64(i))
+		if err != nil {
+			fr.log.Errorf("Final : %d | Error sending partial result: %s", cid, err)
+			return fmt.Errorf("error sending partial result: %w", err)
+		}
+	}
+	err := fr.Sender.Prune(cid)
+	if err != nil {
+		fr.log.Errorf("input : %d | Prune failed: %v", cid, err)
+		return fmt.Errorf("error pruning cid %d: %w", cid, err)
+	}
+
+	delete(fr.ReduceBatches, cid)
+
+	fr.log.Infof("Final : %d | Sending EOF after sending partial result", cid)
+	err = fr.Sender.SendEOF(cid)
+	if err != nil {
+		fr.log.Errorf("Final : %d | SendEOF failed: %s", cid, err)
+		return fmt.Errorf("error sending EOF: %w", err)
+	}
+	return nil
+}
+
+func (fr *FinalReducer[I, A, R]) reduce(cid uint64, msg A) {
+	clientBatch, ok := fr.ReduceBatches[cid]
+	if !ok {
+		acc := msg
+		fr.ReduceBatches[cid] = &acc
+	} else {
+		reduc := []A{*clientBatch, msg}
+		reduced := fr.MapReduce.Reduce(reduc)
+		fr.ReduceBatches[cid] = &reduced
+	}
+}
+
+func (fr *FinalReducer[I, A, R]) Received(cid, id uint64, data []byte) error {
+	var nul A
 	msg, err := nul.Decode(data)
 	if err != nil {
-		pr.log.Errorf("input : %d | Received error decoding message: %s", cid, err)
+		fr.log.Errorf("input : %d | Received error decoding message: %s", cid, err)
 		return fmt.Errorf("error decoding message: %w", err)
 	}
-	pr.log.Debugf("input : %d | Received message: %v", cid, msg)
-	return pr.reduce(cid, msg)
-}
-
-func (pr *FinalReducer[I, A, R]) ReceivedPrune(cid uint64) error {
-	pr.pendingPrune = &cid
+	fr.log.Debugf("input : %d | Received message: %v", cid, msg)
+	fr.reduce(cid, msg)
 	return nil
 }
 
-func (pr *FinalReducer[I, A, R]) ReceivedEOF(cid uint64) error {
-	pr.pendingEOF = &cid
+func (fr *FinalReducer[I, A, R]) ReceivedPrune(cid uint64) error {
+	fr.pendingPrune = &cid
 	return nil
 }
 
-func (pr *FinalReducer[I, A, R]) Acknowledged() error {
-	pr.pendingPrune = nil
-	pr.pendingEOF = nil
+func (fr *FinalReducer[I, A, R]) ReceivedEOF(cid uint64) error {
+	fr.pendingEOF = &cid
 	return nil
 }
 
-func (pr *FinalReducer[I, A, R]) Conclude() error {
-	pr.log.Debugf("input : Conclude | Finalizing FinalReducer")
-	if pr.pendingPrune != nil {
-		err := pr.processPrune(*pr.pendingPrune)
-		if err != nil {
-			return fmt.Errorf("error processing pending prune: %w", err)
-		}
-		pr.pendingPrune = nil
+func (fr *FinalReducer[I, A, R]) Acknowledged() error {
+	fr.pendingPrune = nil
+	fr.pendingEOF = nil
+	return nil
+}
+
+func (fr *FinalReducer[I, A, R]) Conclude() error {
+	fr.log.Debugf("input : Conclude | Finalizing FinalReducer")
+	if fr.pendingPrune != nil {
+		fr.pendingPrune = nil
 	}
-	if pr.pendingEOF != nil {
-		err := pr.Sender.SendEOF(*pr.pendingEOF)
+	if fr.pendingEOF != nil {
+		err := fr.processEof(*fr.pendingEOF)
 		if err != nil {
-			return fmt.Errorf("error sending pending EOF: %w", err)
+			return fmt.Errorf("error processing pending EOF: %w", err)
 		}
-		pr.pendingEOF = nil
+		fr.pendingEOF = nil
 	}
 	return nil
 }
 
-func (pr *FinalReducer[I, A, R]) FromCheckpoint(data []byte) error {
-	pr.log.Debugf("input : FromCheckpoint | Data: %s", data)
+func (fr *FinalReducer[I, A, R]) FromCheckpoint(data []byte) error {
+	fr.log.Debugf("input : FromCheckpoint | Data: %s", data)
 	if len(data) == 0 {
-		pr.log.Debugf("input : FromCheckpoint | No data to restore")
+		fr.log.Debugf("input : FromCheckpoint | No data to restore")
 		return nil
 	}
 
-	pr.ReduceBatches = make(map[uint64]*A)
+	fr.ReduceBatches = make(map[uint64]*A)
 	reader := bytes.NewReader(data)
 	for {
 		key, err := codec.Uint64Decode(reader)
 		if err != nil {
 			if err.Error() == "EOF" {
-				pr.log.Debugf("input : FromCheckpoint | Reached end of data")
+				fr.log.Debugf("input : FromCheckpoint | Reached end of data")
 				break
 			}
-			pr.log.Errorf("input : FromCheckpoint | Error decoding key: %s", err)
+			fr.log.Errorf("input : FromCheckpoint | Error decoding key: %s", err)
 			return fmt.Errorf("error decoding key: %w", err)
 		}
 		valueDataLen, err := codec.Uint64Decode(reader)
 		if err != nil {
-			pr.log.Errorf("input : FromCheckpoint | Error decoding value data len: %s", err)
+			fr.log.Errorf("input : FromCheckpoint | Error decoding value data len: %s", err)
 			return fmt.Errorf("error decoding key: %w", err)
 		}
 		valueData, err := codec.DoRead(valueDataLen, reader)
 		if err != nil {
-			pr.log.Errorf("input : FromCheckpoint | Error reading value data: %s", err)
+			fr.log.Errorf("input : FromCheckpoint | Error reading value data: %s", err)
 			return fmt.Errorf("error reading value data: %w", err)
 		}
 		var nul A
 		value, err := nul.Decode(valueData)
 		if err != nil {
-			pr.log.Errorf("input : FromCheckpoint | Error decoding value: %s", err)
+			fr.log.Errorf("input : FromCheckpoint | Error decoding value: %s", err)
 			return fmt.Errorf("error decoding value: %w", err)
 		}
-		pr.ReduceBatches[key] = &value
+		fr.ReduceBatches[key] = &value
 	}
-	pr.log.Debugf("input : FromCheckpoint | ReduceBatches restored: %v", pr.ReduceBatches)
+	fr.log.Debugf("input : FromCheckpoint | ReduceBatches restored: %v", fr.ReduceBatches)
 	return nil
 }
 
-func (pr *FinalReducer[I, A, R]) Dump() []byte {
-	pr.log.Debugf("input : Dump | Dumping ReduceBatches")
-	if len(pr.ReduceBatches) == 0 {
-		pr.log.Debugf("input : Dump | No data to dump")
+func (fr *FinalReducer[I, A, R]) Dump() []byte {
+	fr.log.Debugf("input : Dump | Dumping ReduceBatches")
+	if len(fr.ReduceBatches) == 0 {
+		fr.log.Debugf("input : Dump | No data to dump")
 		return nil
 	}
 
 	var buf bytes.Buffer
-	for key, value := range pr.ReduceBatches {
+	for key, value := range fr.ReduceBatches {
 		keyData, err := codec.Uint64Encode(key)
 		if err != nil {
-			pr.log.Errorf("input : Dump | Error encoding key: %s", err)
+			fr.log.Errorf("input : Dump | Error encoding key: %s", err)
 			continue
 		}
 		valueData, err := (*value).Encode()
 		if err != nil {
-			pr.log.Errorf("input : Dump | Error encoding value: %s", err)
+			fr.log.Errorf("input : Dump | Error encoding value: %s", err)
 			continue
 		}
 		valueDataLen, err := codec.Uint64Encode(uint64(len(valueData)))
 		if err != nil {
-			pr.log.Errorf("input : Dump | Error encoding value data length: %s", err)
+			fr.log.Errorf("input : Dump | Error encoding value data length: %s", err)
 			continue
 		}
 		buf.Write(keyData)
