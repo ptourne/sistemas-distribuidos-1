@@ -169,6 +169,8 @@ compose_coordinator() {
             - PREFETCH=1 # Potential optimization
             - NAME=coordinator
             - MONITOR_ADDRESSES=$monitor_addresses
+        volumes:
+            - ${PWD}/coordinator:/coordinator-dir
         depends_on:
             rabbitmq:
                 condition: service_healthy

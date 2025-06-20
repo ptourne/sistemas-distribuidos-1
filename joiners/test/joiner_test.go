@@ -304,38 +304,43 @@ func TestJoiner(t *testing.T) {
 
 			var wg sync.WaitGroup
 			wg.Add(5)
+			worker0 := workers[0]
+			worker1 := workers[1]
+			worker2 := workers[2]
+			worker3 := workers[3]
+			worker4 := workers[4]
 
 			go func() {
 				defer wg.Done()
 				joinerConnection := ConnectToRabbit(t, init, "4")
-				workers[4].Run(joinerConnection)
+				worker4.Run(joinerConnection)
 				joinerConnection.Close()
 			}()
 			go func() {
 				defer wg.Done()
 				joinerConnection := ConnectToRabbit(t, init, "1")
-				workers[1].Run(joinerConnection)
+				worker1.Run(joinerConnection)
 				joinerConnection.Close()
 			}()
 
 			go func() {
 				defer wg.Done()
 				joinerConnection := ConnectToRabbit(t, init, "2")
-				workers[2].Run(joinerConnection)
+				worker2.Run(joinerConnection)
 				joinerConnection.Close()
 			}()
 
 			go func() {
 				defer wg.Done()
 				joinerConnection := ConnectToRabbit(t, init, "3")
-				workers[3].Run(joinerConnection)
+				worker3.Run(joinerConnection)
 				joinerConnection.Close()
 			}()
 
 			go func() {
 				defer wg.Done()
 				joinerConnection := ConnectToRabbit(t, init, "0")
-				workers[0].Run(joinerConnection)
+				worker0.Run(joinerConnection)
 				joinerConnection.Close()
 			}()
 
@@ -477,7 +482,7 @@ func TestJoiner(t *testing.T) {
 			}()
 
 			for {
-				if _, exists := worker.ClientsFinishedMovies[cid]; exists {
+				if _, exists := worker.ClientsPruneMovies[cid]; exists {
 					break
 				}
 				time.Sleep(100 * time.Millisecond)
@@ -553,8 +558,8 @@ func TestJoiner(t *testing.T) {
 			}()
 
 			for {
-				if _, exists := worker1.ClientsFinishedMovies[cid]; exists {
-					if _, exists := worker2.ClientsMoviesEOFs[cid]; exists {
+				if _, exists := worker1.ClientsPruneMovies[cid]; exists {
+					if _, exists := worker2.ClientsPruneMovies[cid]; exists {
 						break
 					}
 				}
@@ -637,8 +642,8 @@ func TestJoiner(t *testing.T) {
 			}()
 
 			for {
-				if _, exists := worker1.ClientsFinishedMovies[cid]; exists {
-					if _, exists := worker2.ClientsMoviesEOFs[cid]; exists {
+				if _, exists := worker1.ClientsPruneMovies[cid]; exists {
+					if _, exists := worker2.ClientsPruneMovies[cid]; exists {
 						break
 					}
 				}
@@ -1084,38 +1089,43 @@ func TestJoiner(t *testing.T) {
 
 			var wg sync.WaitGroup
 			wg.Add(5)
+			worker0 := workers[0]
+			worker1 := workers[1]
+			worker2 := workers[2]
+			worker3 := workers[3]
+			worker4 := workers[4]
 
 			go func() {
 				defer wg.Done()
 				joinerConnection := ConnectToRabbit(t, init, "4")
-				workers[4].Run(joinerConnection)
+				worker4.Run(joinerConnection)
 				joinerConnection.Close()
 			}()
 			go func() {
 				defer wg.Done()
 				joinerConnection := ConnectToRabbit(t, init, "1")
-				workers[1].Run(joinerConnection)
+				worker1.Run(joinerConnection)
 				joinerConnection.Close()
 			}()
 
 			go func() {
 				defer wg.Done()
 				joinerConnection := ConnectToRabbit(t, init, "2")
-				workers[2].Run(joinerConnection)
+				worker2.Run(joinerConnection)
 				joinerConnection.Close()
 			}()
 
 			go func() {
 				defer wg.Done()
 				joinerConnection := ConnectToRabbit(t, init, "3")
-				workers[3].Run(joinerConnection)
+				worker3.Run(joinerConnection)
 				joinerConnection.Close()
 			}()
 
 			go func() {
 				defer wg.Done()
 				joinerConnection := ConnectToRabbit(t, init, "0")
-				workers[0].Run(joinerConnection)
+				worker0.Run(joinerConnection)
 				joinerConnection.Close()
 			}()
 
