@@ -27,7 +27,8 @@ type Endpoint struct {
 		conn   net.Conn
 		output chan middleware.Envelope[*model.Row]
 	}
-	wg sync.WaitGroup
+	wg           sync.WaitGroup
+	cidGenerator IDGenerator
 }
 
 func NewEndpoint() (*Endpoint, error) {
@@ -46,12 +47,14 @@ func NewEndpoint() (*Endpoint, error) {
 			conn   net.Conn
 			output chan middleware.Envelope[*model.Row]
 		}),
-		wg: sync.WaitGroup{},
+		wg:           sync.WaitGroup{},
+		cidGenerator: NewEndpointIDGenerator(),
 	}
 	return endpoint, nil
 }
 
 func (e *Endpoint) Run() error {
+	defer e.cidGenerator.Close()
 	connector, err := rabbitmq.Connector()
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
@@ -100,7 +103,7 @@ func (e *Endpoint) Run() error {
 			outputCid := structCid.output
 			if !exists {
 				log.Errorf("Cid not found: %v", cid)
-				break
+				continue
 			}
 			switch envelope.Type() {
 			case middleware.EOF:
@@ -130,7 +133,7 @@ func (e *Endpoint) Run() error {
 			log.Errorf("accept_connections, error: %v", err)
 			continue
 		}
-		cid := GenerateRandomID()
+		cid := e.cidGenerator.GenerateID()
 		log.Infof("Accepted connection with id: %d", cid)
 		e.wg.Add(1)
 		go e.handleClient(conn, ip, middlewareChanByte, cid)
@@ -240,6 +243,7 @@ func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareCh
 	defer fileBytesSender.Close()
 
 	log.Infof("Receiving files")
+
 	id_last_send := uint64(0)
 OuterLoop:
 	for {

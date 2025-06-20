@@ -1,19 +1,69 @@
 package main
 
-// const idLength = 32
+import (
+	"os"
+	"path"
 
-var i uint64 = 1
+	"github.com/ptourne/sistemas-distribuidos-1/endpoint/transaction_log"
+)
 
-func GenerateRandomID() uint64 {
-	// numBytes := (idLength * 3) / 4
+type IDGenerator interface {
+	GenerateID() uint64
+	Close() error
+}
 
-	// randomBytes := make([]byte, numBytes)
-	// rand.Read(randomBytes)
+type EndpointIDGenerator struct {
+	dirPath        string
+	id             uint64
+	transactionLog transaction_log.TransactionLogInterface
+}
 
-	// hexEncoded := hex.EncodeToString(randomBytes)
+func NewEndpointIDGenerator() IDGenerator {
+	dirPath, err := os.Getwd()
+	if err != nil {
+		log.Errorf("Failed to get current working directory: %v", err)
+		panic(err)
+	}
+	fullPath := path.Join(dirPath, "endpoint-dir-ids")
 
-	// return hexEncoded[:idLength]
-	id := i
-	i++
+	tlog, err := transaction_log.RecoverFromLogs(fullPath)
+
+	if err != nil {
+		log.Infof("No existing transaction log: %v", err)
+		tlog, err = transaction_log.NewTransactionLog(fullPath)
+		if err != nil {
+			log.Errorf("Failed to create transaction log: %v", err)
+			panic(err)
+		}
+	}
+
+	log.Infof("CID = %d", tlog.Counter())
+
+	return &EndpointIDGenerator{
+		dirPath:        fullPath,
+		id:             tlog.Counter(),
+		transactionLog: tlog,
+	}
+}
+
+func (e *EndpointIDGenerator) GenerateID() uint64 {
+	id := e.id
+	e.id++
+
+	err := e.transactionLog.Update(
+		e.id,
+		id,
+	)
+	if err != nil {
+		log.Errorf("Failed to update transaction log with ID %d: %v", id, err)
+	}
+
 	return id
+}
+
+func (e *EndpointIDGenerator) Close() error {
+	if err := e.transactionLog.Close(); err != nil {
+		return err
+	}
+	return nil
 }

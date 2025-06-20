@@ -39,8 +39,13 @@ func main() {
 	go HandleSignals(client, &wg, finishChan)
 	go utils.SendHeartbeat(name, monitor_addrs, log, ctxHeartbeat)
 	err = client.Run()
-	if err != nil && client.Running {
-		log.Errorf("error sending files: %v", err)
+	for err != nil && client.Running {
+		time.Sleep(1000 * time.Millisecond)
+		err = client.Reconnect(SERVER_PORT)
+		if err == nil {
+			log.Infof("reconnected successfully")
+			err = client.Run()
+		}
 	}
 	if client.Running {
 		finishChan <- true
