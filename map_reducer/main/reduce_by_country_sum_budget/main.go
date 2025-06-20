@@ -20,6 +20,7 @@ var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_country_sum_budget_%s",
 func main() {
 	name := os.Getenv("NAME")
 	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
+	logDir := os.Getenv("LOG_DIR")
 	connector, err := rabbitmq.Connector()
 	if err != nil {
 		log.Errorf("failed to create connector: %s", err)
@@ -47,6 +48,7 @@ func main() {
 		id,
 		uint(count),
 		uint(count_output),
+		logDir,
 	)
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)

@@ -26,6 +26,7 @@ func NewMapReducerSum(
 	id string,
 	workersCount uint,
 	workerOutputCount uint,
+	dirPath string,
 ) (*MapReducerSum, error) {
 	return map_reducer.NewMapReducer(
 		connector,
@@ -37,6 +38,7 @@ func NewMapReducerSum(
 		id,
 		workersCount,
 		workerOutputCount,
+		dirPath,
 	)
 }
 

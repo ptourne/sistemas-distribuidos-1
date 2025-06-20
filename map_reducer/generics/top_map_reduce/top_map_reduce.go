@@ -33,6 +33,7 @@ func NewTopMapReducer(
 	id string,
 	workersCount uint,
 	workerOutputCount uint,
+	dirPath string,
 ) (*TopMapReducer, error) {
 	return map_reducer.NewMapReducer(
 		connector,
@@ -44,6 +45,7 @@ func NewTopMapReducer(
 		id,
 		workersCount,
 		workerOutputCount,
+		dirPath,
 	)
 }
 

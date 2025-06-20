@@ -460,6 +460,7 @@ func TestTransactionLog(t *testing.T) {
 type mockParent struct {
 	ReceivedMessages map[uint64][]ReceivedMessage `json:"received_messages"`
 	EofMessages      map[uint64]bool              `json:"eof_messages"`
+	PrunedClients    map[uint64]bool              `json:"pruned_clients"`
 	AckCount         int                          `json:"ack_count"`
 	CheckpointData   []byte                       `json:"checkpoint_data"`
 }
@@ -473,6 +474,7 @@ func newMockParent() *mockParent {
 	return &mockParent{
 		ReceivedMessages: make(map[uint64][]ReceivedMessage),
 		EofMessages:      make(map[uint64]bool),
+		PrunedClients:    make(map[uint64]bool),
 		AckCount:         0,
 		CheckpointData:   nil,
 	}
@@ -488,6 +490,11 @@ func (p *mockParent) Received(cid, id uint64, data []byte) error {
 
 func (p *mockParent) ReceivedEOF(cid uint64) error {
 	p.EofMessages[cid] = true
+	return nil
+}
+
+func (p *mockParent) ReceivedPrune(cid uint64) error {
+	p.PrunedClients[cid] = true
 	return nil
 }
 

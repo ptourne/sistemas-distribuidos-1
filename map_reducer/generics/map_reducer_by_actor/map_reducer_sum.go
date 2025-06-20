@@ -26,6 +26,7 @@ func NewMapReducerByActor(
 	id string,
 	workersCount uint,
 	workerCountOutput uint,
+	dirPath string,
 ) (*MapReducerSum, error) {
 	return map_reducer.NewMapReducer[In, *Acc, Res](
 		connector,
@@ -37,6 +38,7 @@ func NewMapReducerByActor(
 		id,
 		workersCount,
 		workerCountOutput,
+		dirPath,
 	)
 }
 

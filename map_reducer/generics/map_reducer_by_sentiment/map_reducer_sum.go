@@ -27,6 +27,7 @@ func NewMapReducerBySentiment(
 	id string,
 	count uint,
 	workerCountOutput uint,
+	dirPath string,
 ) (*MapReducerSum, error) {
 	return map_reducer.NewMapReducer[In, *Acc, Res](
 		connector,
@@ -38,6 +39,7 @@ func NewMapReducerBySentiment(
 		id,
 		count,
 		workerCountOutput,
+		dirPath,
 	)
 }
 

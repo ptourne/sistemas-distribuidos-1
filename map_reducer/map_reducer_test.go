@@ -121,6 +121,7 @@ func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, sh
 
 	reducerHandles = make([]chan struct{}, shardCount)
 	mapReducerCtx, stopMapReducer := context.WithCancel(context.Background())
+	dirPath := t.TempDir()
 	for i := 0; i < int(shardCount); i++ {
 		reducerConnector, err := rabbitmq.ConnectorCustom(init.Config)
 		assert.NoError(t, err)
@@ -135,6 +136,7 @@ func setupReducerPipelineRK(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, sh
 			id,
 			shardCount,
 			shardCountOutput,
+			dirPath,
 		)
 		assert.NoError(t, err)
 		assert.NotNil(t, mapReducer)
