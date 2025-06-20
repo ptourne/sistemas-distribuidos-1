@@ -54,7 +54,7 @@ func NewEndpoint() (*Endpoint, error) {
 }
 
 func (e *Endpoint) Run() error {
-	defer e.cidGenerator.Close()
+	// defer e.cidGenerator.Close()
 	connector, err := rabbitmq.Connector()
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
