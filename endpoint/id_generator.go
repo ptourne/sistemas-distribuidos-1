@@ -9,6 +9,7 @@ import (
 
 type IDGenerator interface {
 	GenerateID() uint64
+	CurrentID() uint64
 	Close() error
 }
 
@@ -44,6 +45,10 @@ func NewEndpointIDGenerator() IDGenerator {
 		id:             tlog.Counter(),
 		transactionLog: tlog,
 	}
+}
+
+func (e *EndpointIDGenerator) CurrentID() uint64 {
+	return e.id
 }
 
 func (e *EndpointIDGenerator) GenerateID() uint64 {

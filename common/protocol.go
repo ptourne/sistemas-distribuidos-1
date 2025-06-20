@@ -16,6 +16,7 @@ const (
 	FinishFile
 	FileData
 	AllFilesSent
+	IgnoreClient
 )
 
 func WriteFull(writer io.Writer, buf []byte, n int) error {

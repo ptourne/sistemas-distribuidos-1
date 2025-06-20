@@ -72,6 +72,27 @@ func (e *Endpoint) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	fileBytes := "file_bytes"
+	fileBytesSender, err := middlewareChanByte.WriteTo(fileBytes, []string{"file_bytes"}, "0", 1)
+	if err != nil {
+		return fmt.Errorf("failed to create write queue %s: %v", fileBytes, err)
+	}
+	defer fileBytesSender.Close()
+
+	cid := e.cidGenerator.CurrentID()
+	if cid > uint64(0) {
+		log.Infof("Sending IgnoreClient to previous cids")
+
+		for i := 0; i < int(cid); i++ {
+			msg := &common.PackageFile{
+				PackageType: common.IgnoreClient,
+				Buf:         model.FileChunk{Bytes: []byte("IgnoreClient")},
+			}
+			log.Infof("Sending IgnoreClient for cid %d", i)
+			fileBytesSender.Send(msg, uint64(i), uint64(0))
+		}
+	}
+
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
@@ -102,7 +123,11 @@ func (e *Endpoint) Run() error {
 			e.lockClientsConn.Unlock()
 			outputCid := structCid.output
 			if !exists {
-				log.Errorf("Cid not found: %v", cid)
+				// log.Errorf("Cid not found: %v", cid)
+				err = envelope.Ack(false)
+				if err != nil {
+					log.Errorf("failed to ack message in endpoint %s", err)
+				}
 				continue
 			}
 			switch envelope.Type() {
