@@ -35,7 +35,7 @@ func RecoverFromLogs(dirPath string) (TransactionLogInterface, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open transaction log: %v", err)
 	}
-	_, counter, lastIdACK, errF := ReadLogFile(logFile)
+	counter, lastIdACK, errF := ReadLogFile(logFile)
 	if err := logFile.Close(); err != nil {
 		return nil, fmt.Errorf("failed to close transaction log file: %v", err)
 	}
@@ -75,14 +75,7 @@ func NewTransactionLog(dirPath string) (TransactionLogInterface, error) {
 	}, nil
 }
 
-func WriteLogFile(file *os.File, filename string, counter uint64, lastIdACK uint64) error {
-	encodeString, err := codec.StringEncode(filename)
-	if err != nil {
-		return fmt.Errorf("failed to encode filename: %w", err)
-	}
-	if err := codec.DoWrite(encodeString, file); err != nil {
-		return fmt.Errorf("failed to write filename to log file: %w", err)
-	}
+func WriteLogFile(file *os.File, counter uint64, lastIdACK uint64) error {
 	encodeCounter, err := codec.Uint64Encode(counter)
 	if err != nil {
 		return fmt.Errorf("failed to encode counter: %w", err)
@@ -103,23 +96,19 @@ func WriteLogFile(file *os.File, filename string, counter uint64, lastIdACK uint
 	return nil
 }
 
-func ReadLogFile(file *os.File) (filename string, counter uint64, lastIdACK uint64, err error) {
-	filename, err = codec.StringDecode(file)
-	if err != nil {
-		return "", 0, 0, fmt.Errorf("failed to read filename from log file: %w", err)
-	}
+func ReadLogFile(file *os.File) (counter uint64, lastIdACK uint64, err error) {
 	counter, err = codec.Uint64Decode(file)
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("failed to read filename from log file: %w", err)
+		return 0, 0, fmt.Errorf("failed to read filename from log file: %w", err)
 	}
 	lastIdACK, err = codec.Uint64Decode(file)
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("failed to read filename from log file: %w", err)
+		return 0, 0, fmt.Errorf("failed to read filename from log file: %w", err)
 	}
-	return filename, counter, lastIdACK, nil
+	return counter, lastIdACK, nil
 }
 
-func SaveLogSafely(path string, fileName string, counter uint64, lastIdACK uint64) error {
+func SaveLogSafely(path string, counter uint64, lastIdACK uint64) error {
 	tempPath := path + ".tmp"
 
 	file, err := os.Create(tempPath)
@@ -127,7 +116,7 @@ func SaveLogSafely(path string, fileName string, counter uint64, lastIdACK uint6
 		return fmt.Errorf("error creando archivo temporal: %w", err)
 	}
 
-	errW := WriteLogFile(file, fileName, counter, lastIdACK)
+	errW := WriteLogFile(file, counter, lastIdACK)
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("error cerrando archivo: %w", err)
 	}
@@ -149,7 +138,7 @@ func (t *TransactionLog) Update(counter uint64, lastIdACK uint64) error {
 	t.counter = counter
 	t.lastIdACK = lastIdACK
 
-	err := SaveLogSafely(t.fileName, t.fileName, t.counter, t.lastIdACK)
+	err := SaveLogSafely(t.fileName, t.counter, t.lastIdACK)
 	if err != nil {
 		return fmt.Errorf("failed to save transaction log safely: %w", err)
 	}
