@@ -1,20 +1,24 @@
 package transaction_log
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path"
 	"strconv"
+	"strings"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
+	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 )
 
-type ReceivedType rune
+type QueryType uint8
 
 const (
-	ReceivedType_Normal ReceivedType = 'N'
-	ReceivedType_EOF    ReceivedType = 'E'
+	QUERY_BEGIN QueryType = iota
+	QUERY_ROW
+	QUERY_END
 )
 
 var log = logger.NewConsoleLogger("coordinator_logger", logger.Info)
@@ -27,6 +31,7 @@ type transactionLog struct {
 	read                 []string
 	lastReadNotIncluided []byte
 	lastIdACK            uint64
+	queryFileName        string
 }
 
 type TransactionLog interface {
@@ -36,6 +41,10 @@ type TransactionLog interface {
 	Print() string
 	CloseAll() error
 	CloseLog() error
+	ReadLastQueryRows() (uint8, []*model.Row, bool, error)
+	WriteBeginQuery(numberQuery uint8) error
+	WriteRowQuery(row *model.Row) error
+	WriteEndQuery() error
 }
 
 func RecoverFromLogs(dirPath string) ([]TransactionLog, error) {
@@ -100,10 +109,12 @@ func NewTransactionLogForCid(dirPath string, cid uint64) (TransactionLog, error)
 	}
 
 	logFileNamePath := path.Join(logCidDirectory, logFileName())
+	queryFileNamePath := path.Join(logCidDirectory, "querys")
 
 	return &transactionLog{
-		cid:         cid,
-		logFileName: logFileNamePath,
+		cid:           cid,
+		logFileName:   logFileNamePath,
+		queryFileName: queryFileNamePath,
 	}, nil
 }
 
@@ -126,7 +137,6 @@ func WriteLogFile(file *os.File, filename string, counter uint64, read []string,
 	if err != nil {
 		return fmt.Errorf("failed to encode read: %w", err)
 	}
-
 	if err := codec.DoWrite(encodeCsv, file); err != nil {
 		return fmt.Errorf("failed to write read to log file: %w", err)
 	}
@@ -228,7 +238,7 @@ func (t *transactionLog) Cid() uint64 {
 }
 
 func (t *transactionLog) CloseAll() error {
-	//elimibo el archivo de log del cid
+	//elimino el archivo de log del cid
 	if err := os.Remove(t.logFileName); err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove transaction log file: %w", err)
@@ -281,4 +291,195 @@ func logFiles(path string) ([]os.DirEntry, error) {
 
 func (t *transactionLog) Print() string {
 	return fmt.Sprintf("TransactionLog with cid: %d\nfileName: %s\ncounter: %d\nread: %v\nlastReadNotIncluided: %v\nlastIdACK: %d", t.cid, t.fileName, t.counter, t.read, string(t.lastReadNotIncluided), t.lastIdACK)
+}
+
+func (t *transactionLog) WriteBeginQuery(numberQuery uint8) error {
+	f, err := os.OpenFile(t.queryFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open query file: %w", err)
+	}
+	defer f.Close()
+	return t.writeBeginQuery(f, numberQuery)
+}
+
+func (t *transactionLog) WriteRowQuery(row *model.Row) error {
+	f, err := os.OpenFile(t.queryFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open query file: %w", err)
+	}
+	defer f.Close()
+	return t.writeRowQuery(f, row)
+}
+
+func (t *transactionLog) WriteEndQuery() error {
+	f, err := os.OpenFile(t.queryFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open query file: %w", err)
+	}
+	defer f.Close()
+	return t.writeEndQuery(f)
+}
+
+func (t *transactionLog) writeBeginQuery(file *os.File, numberQuery uint8) error {
+	queryTypeEncode, err := codec.Uint8Encode(uint8(QUERY_BEGIN))
+	if err != nil {
+		return fmt.Errorf("failed to encode string: %w", err)
+	}
+	numberQueryEncode, err := codec.Uint8Encode(numberQuery)
+	if err != nil {
+		return fmt.Errorf("failed to encode number query: %w", err)
+	}
+	buffer := make([]byte, len(queryTypeEncode)+len(numberQueryEncode)+1)
+	copy(buffer, queryTypeEncode)
+	copy(buffer[len(queryTypeEncode):], numberQueryEncode)
+	buffer[len(queryTypeEncode)+len(numberQueryEncode)] = '\n'
+	return codec.DoWrite(buffer, file)
+}
+
+func (t *transactionLog) writeRowQuery(file *os.File, row *model.Row) error {
+	queryTypeEncode, err := codec.Uint8Encode(uint8(QUERY_ROW))
+	if err != nil {
+		return fmt.Errorf("failed to encode string: %w", err)
+	}
+	encodeRow, err := row.Encode()
+	if err != nil {
+		return fmt.Errorf("failed to encode row: %w", err)
+	}
+	buffer := make([]byte, len(queryTypeEncode)+len(encodeRow)+1)
+	copy(buffer, queryTypeEncode)
+	copy(buffer[len(queryTypeEncode):], encodeRow)
+	buffer[len(queryTypeEncode)+len(encodeRow)] = '\n'
+	return codec.DoWrite(buffer, file)
+}
+
+func (t *transactionLog) writeEndQuery(file *os.File) error {
+	buffer := make([]byte, 1+1)
+	queryTypeEncode, err := codec.Uint8Encode(uint8(QUERY_END))
+	if err != nil {
+		return fmt.Errorf("failed to encode string: %w", err)
+	}
+	copy(buffer, queryTypeEncode)
+	buffer[len(queryTypeEncode)] = '\n'
+	return codec.DoWrite(buffer, file)
+}
+
+func (t *transactionLog) ReadLastQueryRows() (uint8, []*model.Row, bool, error) {
+	f, err := os.Open(t.queryFileName)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil, false, fmt.Errorf("failed to open query file: %w", err)
+		}
+		return 0, nil, false, fmt.Errorf("failed to open query file: %w", err)
+	}
+	defer f.Close()
+
+	// Leer todas las líneas del archivo
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	if len(lines) == 0 {
+		return 0, nil, false, fmt.Errorf("no lines found in query file")
+	}
+
+	// Leer desde la última línea hacia la primera
+	lastQueryNumber := uint8(0)
+	lastRows := []*model.Row{}
+	foundBegin := false
+	queryEnded := false
+
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := lines[i]
+		reader := strings.NewReader(line)
+		//decodifico primer byte
+		queryType, err := codec.Uint8Decode(reader)
+		if err != nil {
+			log.Errorf("failed to decode query type: %v", err)
+			continue
+		}
+
+		if queryType == uint8(QUERY_BEGIN) {
+			log.Infof("found begin: %s", line)
+			// Encontramos el BEGIN, extraer el número y terminar
+			n, err := codec.Uint8Decode(reader)
+			if err != nil {
+				log.Errorf("failed to parse BEGIN line: %v", err)
+				continue
+			}
+			lastQueryNumber = n
+			foundBegin = true
+			break
+		} else if queryType == uint8(QUERY_ROW) {
+			log.Infof("found row: %s", line)
+			row, err := model.RowDecode(reader)
+			if err != nil {
+				log.Errorf("failed to decode row: %v", err)
+				continue
+			}
+			// Insertar al inicio para mantener el orden original
+			lastRows = append([]*model.Row{row}, lastRows...)
+		} else if queryType == uint8(QUERY_END) {
+			queryEnded = true
+			continue
+		} else {
+			// Línea corrupta, ignorar
+			continue
+		}
+	}
+
+	// Si no encontramos BEGIN, no hay bloque válido
+	if !foundBegin {
+		return 0, nil, false, fmt.Errorf("no found begin")
+	}
+
+	// Escribir solo el último bloque BEGIN/ROW/END (o BEGIN/ROW si no hay END) en el archivo temporal
+	err = updateQueriesLog(t, lastQueryNumber, lastRows, queryEnded)
+	if err != nil {
+		return lastQueryNumber, lastRows, queryEnded, fmt.Errorf("failed to update queries log: %w", err)
+	}
+
+	return lastQueryNumber, lastRows, queryEnded, nil
+}
+
+func updateQueriesLog(t *transactionLog, lastQueryNumber uint8, lastRows []*model.Row, queryEnded bool) error {
+	tempPath := t.queryFileName + ".tmp"
+	tempFile, err := os.Create(tempPath)
+	if err != nil {
+		return fmt.Errorf("failed to create temp query file: %w", err)
+	}
+	defer tempFile.Close()
+
+	if lastQueryNumber > 0 {
+		log.Infof("writing begin query: %d", lastQueryNumber)
+		if err := t.writeBeginQuery(tempFile, lastQueryNumber); err != nil {
+			return fmt.Errorf("failed to write BEGIN to temp query file: %w", err)
+		}
+	}
+	if len(lastRows) > 0 {
+		log.Infof("writing rows: %d", len(lastRows))
+		for _, row := range lastRows {
+			// Escribir QUERY_ROW
+			if err := t.writeRowQuery(tempFile, row); err != nil {
+				return fmt.Errorf("failed to write row to temp query file: %w", err)
+			}
+		}
+	}
+
+	if queryEnded {
+		log.Infof("writing end query")
+		if err := t.writeEndQuery(tempFile); err != nil {
+			return fmt.Errorf("failed to write END to temp query file: %w", err)
+		}
+	}
+
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp query file: %w", err)
+	}
+	if err := os.Rename(tempPath, t.queryFileName); err != nil {
+		return fmt.Errorf("failed to rename temp query file: %w", err)
+	}
+
+	return nil
 }

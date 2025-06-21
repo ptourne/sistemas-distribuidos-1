@@ -91,3 +91,97 @@ func (r *Row) Decode(data []byte) (*Row, error) {
 		Floats:   floats,
 	}, nil
 }
+
+// func reader de decode
+func RowDecode(r io.Reader) (*Row, error) {
+	rowType, err := codec.Uint8Decode(r)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding type: %w", err)
+	}
+	numerics, err := codec.MapDecode(r, codec.Uint64Decode)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding numerics: %w", err)
+	}
+	strings, err := codec.MapDecode(r, codec.StringDecode)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding strings: %w", err)
+	}
+	arrays, err := codec.MapDecode(r, func(r io.Reader) ([]string, error) {
+		return codec.ArrayDecode(r, codec.StringDecode)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error decoding arrays: %w", err)
+	}
+	floats, err := codec.MapDecode(r, codec.Float64Decode)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding floats: %w", err)
+	}
+	return &Row{
+		Type:     TypeRow(rowType),
+		Numerics: numerics,
+		Strings:  strings,
+		Arrays:   arrays,
+		Floats:   floats,
+	}, nil
+}
+
+func EqualsRows(row1, row2 *Row) bool {
+	if row1 == nil && row2 == nil {
+		return true
+	}
+	if row1 == nil || row2 == nil {
+		return false
+	}
+
+	// Comparar Type
+	if row1.Type != row2.Type {
+		return false
+	}
+
+	// Comparar Numerics
+	if len(row1.Numerics) != len(row2.Numerics) {
+		return false
+	}
+	for key, value := range row1.Numerics {
+		if row2.Numerics[key] != value {
+			return false
+		}
+	}
+
+	// Comparar Strings
+	if len(row1.Strings) != len(row2.Strings) {
+		return false
+	}
+	for key, value := range row1.Strings {
+		if row2.Strings[key] != value {
+			return false
+		}
+	}
+
+	// Comparar Arrays
+	if len(row1.Arrays) != len(row2.Arrays) {
+		return false
+	}
+	for key, value := range row1.Arrays {
+		if len(row2.Arrays[key]) != len(value) {
+			return false
+		}
+		for i, item := range value {
+			if row2.Arrays[key][i] != item {
+				return false
+			}
+		}
+	}
+
+	// Comparar Floats
+	if len(row1.Floats) != len(row2.Floats) {
+		return false
+	}
+	for key, value := range row1.Floats {
+		if row2.Floats[key] != value {
+			return false
+		}
+	}
+
+	return true
+}
