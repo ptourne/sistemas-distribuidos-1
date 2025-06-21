@@ -177,12 +177,25 @@ func (e *Endpoint) handleClient(conn net.Conn, ip string, middlewareChanByte mid
 	e.clientsConn[cid] = structCid
 	e.lockClientsConn.Unlock()
 	err := e.ReceiveFilesFromClient(conn, ip, middlewareChanByte, cid)
-	if err != nil {
-		log.Errorf("error recibiendo archivos: %v", err)
+	if err == nil {
+		err = e.ReceiveAndSendQuerysResults(conn, ip, structCid.output, cid)
 	}
-	err = e.ReceiveAndSendQuerysResults(conn, ip, structCid.output, cid)
-	if err != nil {
-		log.Errorf("error recibiendo o enviando querys: %v", err)
+	if err != nil && (err.Error() == "failed to receive message from client" || err.Error() == "failed to send message to client") {
+		fileBytes := "file_bytes"
+		fileBytesSender, err := middlewareChanByte.WriteTo(fileBytes, []string{"file_bytes"}, "0", 1)
+		if err != nil {
+			return
+		}
+		defer fileBytesSender.Close()
+		msg := &common.PackageFile{
+			PackageType: common.IgnoreClient,
+			Buf:         model.FileChunk{Bytes: []byte("IgnoreClient")},
+		}
+		log.Infof("Sending IgnoreClient for cid %d", cid)
+		err = fileBytesSender.Send(msg, cid, uint64(0))
+		if err != nil {
+			log.Errorf("Error sending IgnoreClient for cid %d: %v", cid, err)
+		}
 	}
 	e.lockClientsConn.Lock()
 	log.Infof("Closing connection with id: %d", cid)
@@ -219,6 +232,7 @@ OuterLoop:
 			err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), model.FinishQuerys)
 			if err != nil {
 				log.Errorf("Failed to send message: %v", err)
+				return fmt.Errorf("failed to send message to client")
 			}
 			err = envelope.Ack(false)
 			if err != nil {
@@ -249,7 +263,8 @@ OuterLoop:
 		err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), receivedMovie.Type)
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)
-			continue
+			return fmt.Errorf("failed to send message to client")
+
 		}
 		err = envelope.Ack(false)
 		if err != nil {
@@ -277,7 +292,7 @@ OuterLoop:
 		_, err := io.ReadFull(conn, sizeBuf)
 		if err != nil {
 			log.Infof("Error leyendo tamaño: %v", err)
-			break
+			return fmt.Errorf("failed to receive message from client")
 		}
 
 		packetSize := binary.BigEndian.Uint32(sizeBuf[0:4])
@@ -286,7 +301,7 @@ OuterLoop:
 		_, err = io.ReadFull(conn, dataBuf)
 		if err != nil {
 			log.Errorf("Error leyendo datos del paquete: %v", err)
-			break
+			return fmt.Errorf("failed to receive message from client")
 		}
 		data := string(dataBuf)
 
@@ -335,7 +350,7 @@ OuterLoop:
 		err = common.SendAck(conn)
 		if err != nil {
 			log.Errorf("Error enviando ACK: %v", err)
-			break OuterLoop
+			return fmt.Errorf("failed to send message to client")
 		}
 	}
 	return nil
