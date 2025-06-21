@@ -119,10 +119,10 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 				clientsFinished[cid] = true
 			}
 			if envelope.Msg().PackageType == common.IgnoreClient {
-				log.Infof("Received IGNORE for cid %d", cid)
 				ignoreCtx, ok := ignoreCtxs[cid]
 				_, finished := clientsFinished[cid]
 				if ok {
+					log.Infof("Received IGNORE MSG for cid %d", cid)
 					ignoreCtx.cancel()
 					delete(ignoreCtxs, cid)
 				}
@@ -344,14 +344,19 @@ func handleClientRecover(transactionLog transaction_log.TransactionLog, channels
 	shouldReturn, shouldBreak := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
 		ratingsSender, cid, counter, lastReadNotIncluded, lastIdACK, read, testSender, tlog, nil)
 
-	if shouldReturn || shouldBreak {
+	if shouldReturn {
 		return
 	}
 
 	ignoreResults := false
+	hasProcessedData := false
 
 OuterLoop:
 	for {
+		if shouldBreak {
+			ignoreResults = true
+			break OuterLoop
+		}
 		select {
 		case <-ctx.Done():
 			log.Infof("Context cancelled, exiting handleClient")
@@ -367,6 +372,7 @@ OuterLoop:
 			t := msg.PackageType
 			switch t {
 			case common.FileName:
+				hasProcessedData = true
 				lastIdSent := uint64(0)
 				fileName := string(bytes)
 				lastReadNotIncluded = make([]byte, 0)
@@ -384,6 +390,7 @@ OuterLoop:
 				}
 
 			case common.AllFilesSent:
+				hasProcessedData = true
 				err := msgEnvelope.Ack(false)
 				if err != nil {
 					log.Errorf("Failed to ack envelope: %v", err)
@@ -392,7 +399,22 @@ OuterLoop:
 				tlog.CloseLog()
 				break OuterLoop
 
+			case common.IgnoreClient:
+				err := msgEnvelope.Ack(false)
+				if err != nil {
+					log.Errorf("Failed to ack envelope: %v", err)
+				}
+				if hasProcessedData {
+					log.Infof("Client %d ignored mid-execution", cid)
+					ignoreResults = true
+					break OuterLoop
+				} else {
+					log.Infof("Client %d ignored, skipping verification", cid)
+					return
+				}
+
 			case common.FinishFile:
+				hasProcessedData = true
 				err := msgEnvelope.Ack(false)
 				if err != nil {
 					log.Errorf("Failed to ack envelope: %v", err)
@@ -455,7 +477,10 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 		panic(fmt.Sprintf("Unknown file name: %s", fileName))
 	}
 
+	hasFinished := true
+
 	if len(read) == expectedLen && lastIdSent > 0 {
+		hasFinished = false
 		log.Infof("TO SEND READ: %v", read)
 		if fileName != c.RatingsName {
 			row := create(read)
@@ -490,6 +515,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 		log.Infof("Received header file: %v", d)
 		unwrap(err, "Failed to read CSV header", log)
 		log.Infof("Starting CSV processing")
+		hasFinished = false
 	}
 	for {
 		lastIdSent++
@@ -535,8 +561,13 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 					if fileName == c.CreditsName {
 						ratingsSender.SendEOF(cid)
 					}
-					return false, true
+					if hasFinished {
+						return true, false
+					} else {
+						return false, true
+					}
 				}
+				hasFinished = false
 				break
 			}
 			bytesReadTotal = update(reader, bytesReadTotal, connReader, tlog, fileName, lastIdSent, []string{}, log)
@@ -550,6 +581,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 			continue
 		}
 
+		hasFinished = false
 		if fileName != c.RatingsName {
 			log.Debugf("Processing line %d: %v", lastIdSent, data)
 			row := create(data)
@@ -1191,7 +1223,7 @@ loop:
 				return 0, fmt.Errorf("invalid message es NIL")
 			}
 
-			if msgEnvelope.Id() < cr.lastIdACK {
+			if msgEnvelope.Id() < cr.lastIdACK && (msgEnvelope.Msg() == nil || (msgEnvelope.Msg() != nil && msgEnvelope.Msg().PackageType != common.IgnoreClient)) {
 				err := msgEnvelope.Ack(false)
 				if err != nil {
 					return 0, fmt.Errorf("failed to ack envelope: %v", err)

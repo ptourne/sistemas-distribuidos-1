@@ -121,7 +121,6 @@ func (e *Endpoint) Run() error {
 			e.lockClientsConn.Lock()
 			structCid, exists := e.clientsConn[cid]
 			e.lockClientsConn.Unlock()
-			outputCid := structCid.output
 			if !exists {
 				// log.Errorf("Cid not found: %v", cid)
 				err = envelope.Ack(false)
@@ -130,6 +129,7 @@ func (e *Endpoint) Run() error {
 				}
 				continue
 			}
+			outputCid := structCid.output
 			switch envelope.Type() {
 			case middleware.EOF:
 				log.Infof("cid %d finished receiving", cid)
@@ -202,6 +202,21 @@ func (e *Endpoint) handleClient(conn net.Conn, ip string, middlewareChanByte mid
 	conn.Close()
 	delete(e.clientsConn, cid)
 	e.lockClientsConn.Unlock()
+	for {
+		select {
+		case envelope := <-structCid.output:
+			if envelope.Cid() != cid {
+				log.Errorf("Received message from wrong cid: %d", envelope.Cid())
+				continue
+			}
+			err = envelope.Ack(false)
+			if err != nil {
+				log.Errorf("failed to ack message in endpoint %s", err)
+			}
+		default:
+			return
+		}
+	}
 }
 
 func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
@@ -232,6 +247,10 @@ OuterLoop:
 			err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), model.FinishQuerys)
 			if err != nil {
 				log.Errorf("Failed to send message: %v", err)
+				err = envelope.Ack(false)
+				if err != nil {
+					return fmt.Errorf("failed to ack message in endpoint %s", err)
+				}
 				return fmt.Errorf("failed to send message to client")
 			}
 			err = envelope.Ack(false)
@@ -263,6 +282,10 @@ OuterLoop:
 		err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), receivedMovie.Type)
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)
+			err = envelope.Ack(false)
+			if err != nil {
+				return fmt.Errorf("failed to ack message in endpoint %s", err)
+			}
 			return fmt.Errorf("failed to send message to client")
 
 		}
