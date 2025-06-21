@@ -82,7 +82,8 @@ func TestTransactionLog(t *testing.T) {
 		assert.Len(t, logs, 1)
 
 		recoveredLog := logs[0]
-		cidR, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR := recoveredLog.Recover()
+		cidR, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, err := recoveredLog.Recover()
+		assert.NoError(t, err)
 		assert.Equal(t, cid, cidR)
 		assert.Equal(t, fileName, filenameR)
 		assert.Equal(t, counter, counterR)

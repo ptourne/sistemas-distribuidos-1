@@ -32,11 +32,15 @@ type transactionLog struct {
 	lastReadNotIncluided []byte
 	lastIdACK            uint64
 	queryFileName        string
+	isQueryPhase         bool
+	lastQueryNumber      uint8
+	lastQueryRows        []*model.Row
+	lastQueryEnded       bool
 }
 
 type TransactionLog interface {
 	Update(fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64) error
-	Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64)
+	Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64, err error)
 	Cid() uint64
 	Print() string
 	CloseAll() error
@@ -45,6 +49,7 @@ type TransactionLog interface {
 	WriteBeginQuery(numberQuery uint8) error
 	WriteRowQuery(row *model.Row) error
 	WriteEndQuery() error
+	RecoverQueryPhase() (uint8, []*model.Row, bool, error)
 }
 
 func RecoverFromLogs(dirPath string) ([]TransactionLog, error) {
@@ -70,33 +75,47 @@ func RecoverFromLogs(dirPath string) ([]TransactionLog, error) {
 		if len(logFilePath) == 0 {
 			continue
 		}
-		logFileName := path.Join(logDirectory(dirPath), cid, logFileName())
-		logFile, err := os.Open(logFileName)
+		verifyQueryPhase, err := verifyQueryPhase(logFilePath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open transaction log file for cid %s: %v", cid, err)
+			return nil, fmt.Errorf("failed to verify query phase for cid %s: %v", cid, err)
 		}
-		fileName, counter, read, lastReadNotIncluided, lastIdACK, errF := ReadLogFile(logFile)
-		if err := logFile.Close(); err != nil {
-			return nil, fmt.Errorf("failed to close transaction log file for cid %s: %v", cid, err)
-		}
-		if errF != nil {
-			return nil, fmt.Errorf("failed to read transaction log file for cid %s: %v", cid, errF)
-		}
-
+		var transactionLog = &transactionLog{}
+		transactionLog.isQueryPhase = verifyQueryPhase
+		transactionLog.queryFileName = path.Join(logDirectory(dirPath), cid, queryFileName())
+		transactionLog.logFileName = path.Join(logDirectory(dirPath), cid, logFileName())
 		cidU, err := strconv.ParseUint(cid, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("cid not uint64")
 		}
+		transactionLog.cid = cidU
 
-		transactionLog := &transactionLog{
-			logFileName:          logFileName,
-			cid:                  cidU,
-			fileName:             fileName,
-			counter:              counter,
-			lastReadNotIncluided: lastReadNotIncluided,
-			read:                 read,
-			lastIdACK:            lastIdACK,
+		if verifyQueryPhase {
+			lastQueryNumber, lastQueryRows, lastQueryEnded, err := transactionLog.ReadLastQueryRows()
+			if err != nil {
+				return nil, fmt.Errorf("failed to read last query rows for cid %s: %v", cid, err)
+			}
+			transactionLog.lastQueryNumber = lastQueryNumber
+			transactionLog.lastQueryRows = lastQueryRows
+			transactionLog.lastQueryEnded = lastQueryEnded
+		} else {
+			logFile, err := os.Open(transactionLog.logFileName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to open transaction log file for cid %s: %v", cid, err)
+			}
+			fileName, counter, read, lastReadNotIncluided, lastIdACK, errF := ReadLogFile(logFile)
+			if err := logFile.Close(); err != nil {
+				return nil, fmt.Errorf("failed to close transaction log file for cid %s: %v", cid, err)
+			}
+			if errF != nil {
+				return nil, fmt.Errorf("failed to read transaction log file for cid %s: %v", cid, errF)
+			}
+			transactionLog.fileName = fileName
+			transactionLog.counter = counter
+			transactionLog.read = read
+			transactionLog.lastReadNotIncluided = lastReadNotIncluided
+			transactionLog.lastIdACK = lastIdACK
 		}
+
 		transactionLogs = append(transactionLogs, transactionLog)
 	}
 	return transactionLogs, nil
@@ -116,6 +135,23 @@ func NewTransactionLogForCid(dirPath string, cid uint64) (TransactionLog, error)
 		logFileName:   logFileNamePath,
 		queryFileName: queryFileNamePath,
 	}, nil
+}
+
+func verifyQueryPhase(logFilePath []os.DirEntry) (bool, error) {
+	//verifico si hay un archivo con el nombre "querys"
+	for _, file := range logFilePath {
+		if file.Name() == "querys" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (t *transactionLog) RecoverQueryPhase() (uint8, []*model.Row, bool, error) {
+	if !t.isQueryPhase {
+		return 0, nil, false, fmt.Errorf("not in query phase")
+	}
+	return t.lastQueryNumber, t.lastQueryRows, t.lastQueryEnded, nil
 }
 
 func WriteLogFile(file *os.File, filename string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64) error {
@@ -217,6 +253,9 @@ func SaveLogSafely(path string, fileName string, counter uint64, read []string, 
 }
 
 func (t *transactionLog) Update(fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64) error {
+	if t.isQueryPhase {
+		return fmt.Errorf("in query phase")
+	}
 	t.fileName = fileName
 	t.counter = counter
 	t.read = read
@@ -230,8 +269,11 @@ func (t *transactionLog) Update(fileName string, counter uint64, read []string, 
 	return nil
 }
 
-func (t *transactionLog) Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64) {
-	return t.cid, t.fileName, t.counter, t.read, t.lastReadNotIncluided, t.lastIdACK
+func (t *transactionLog) Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64, err error) {
+	if t.isQueryPhase {
+		return 0, "", 0, nil, nil, 0, fmt.Errorf("in query phase")
+	}
+	return t.cid, t.fileName, t.counter, t.read, t.lastReadNotIncluided, t.lastIdACK, nil
 }
 func (t *transactionLog) Cid() uint64 {
 	return t.cid
@@ -244,6 +286,12 @@ func (t *transactionLog) CloseAll() error {
 			return fmt.Errorf("failed to remove transaction log file: %w", err)
 		}
 		// Si el archivo no existe, continuamos para intentar borrar el directorio
+	}
+
+	if err := os.Remove(t.queryFileName); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove query file: %w", err)
+		}
 	}
 
 	//elimino el directorio del cid (y todo su contenido)
@@ -276,6 +324,10 @@ func logDirectory(dirPath string) string {
 
 func logFileName() string {
 	return "log"
+}
+
+func queryFileName() string {
+	return "querys"
 }
 
 func logFiles(path string) ([]os.DirEntry, error) {

@@ -284,8 +284,13 @@ OuterLoop:
 
 func handleClientRecover(transactionLog transaction_log.TransactionLog, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context, testing bool) {
 	defer wg.Done()
-	cid, fileName, counter, read, lastReadNotIncluded, lastIdACK := transactionLog.Recover()
-	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
+	log := logger.NewConsoleLogger("coordinator", logger.Info)
+	cid, fileName, counter, read, lastReadNotIncluded, lastIdACK, err := transactionLog.Recover()
+	if err != nil {
+		log.Errorf("Failed to recover from logs: %v", err)
+		return
+	}
+	log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
 	log.Infof("Recovered cid: %d\nfileName: %s\ncounter: %d\nread: %v\nlastReadNotIncluded: %v\nlastIdACK: %d", cid, fileName, counter, read, string(lastReadNotIncluded), lastIdACK)
 	moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender, testSender := createSenderQueues(c, log)
 	defer moviesMetadataSender.Close()
