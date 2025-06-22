@@ -50,6 +50,43 @@ func startCoordinator(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (middlew
 	return sender, receiver
 }
 
+func startCoordinatorQuery(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (middleware.Sender[*common.PackageFile], middleware.Receiver[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row]) {
+	senderConnector, err := rabbitmq.ConnectorCustom(init.Config)
+	assert.NoError(t, err)
+
+	middlewareSenderLogger := logger.NewConsoleLogger("midd_send", logger.Info)
+	fileBytes := "file_bytes"
+	middlewareChanByte := rabbitmq.NewMiddleware[*common.PackageFile](senderConnector, middlewareSenderLogger)
+	sender, err := middlewareChanByte.WriteTo(fileBytes, []string{"file_bytes"}, "0", 1)
+	assert.NoError(t, err)
+	receiverConnector, err := rabbitmq.ConnectorCustom(init.Config)
+	assert.NoError(t, err)
+	middlewareReceiverLogger := logger.NewConsoleLogger("midd_rec", logger.Info)
+
+	middlewareChanRow := rabbitmq.NewMiddleware[*model.Row](receiverConnector, middlewareReceiverLogger)
+	test_csv := "test_csv"
+	prefetch := 100
+	receiver, err := middlewareChanRow.ConsumeFrom(test_csv, test_csv, "0", prefetch, 1)
+	assert.NoError(t, err)
+
+	//hago senders de colas de q1, q2, q3, q4, q5
+	q1Sender, err := middlewareChanRow.WriteTo("filter_release_date_l_2010_and_include_es", []string{"q1"}, "0", 1)
+	assert.NoError(t, err)
+	q2Sender, err := middlewareChanRow.WriteTo("reduce_top_5_by_budget", []string{"q2"}, "0", 1)
+	assert.NoError(t, err)
+	q3Sender, err := middlewareChanRow.WriteTo("reduce_top_bottom_avg_rating", []string{"q3"}, "0", 1)
+	assert.NoError(t, err)
+	q4Sender, err := middlewareChanRow.WriteTo("reduce_top_10_by_actor", []string{"q4"}, "0", 1)
+	assert.NoError(t, err)
+	q5Sender, err := middlewareChanRow.WriteTo("filter_avg_rate", []string{"q5"}, "0", 1)
+	assert.NoError(t, err)
+
+	allQuerysToEndpointSender, err := middlewareChanRow.WriteTo("all_querys_to_endpoint", []string{"all_querys_to_endpoint"}, "0", 1)
+	assert.NoError(t, err)
+
+	return sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointSender
+}
+
 func TestMapReducer(t *testing.T) {
 	skipCI(t)
 	provider := rabbitmq.NewContainerProvider(baseConfig)
@@ -90,7 +127,7 @@ func TestMapReducer(t *testing.T) {
 
 		log := logger.NewConsoleLogger("coordinator", logger.Info)
 		tmpDir := t.TempDir()
-		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		// 1. Enviar un string CSV
 		fileName := "test_csv"
@@ -146,7 +183,7 @@ func TestMapReducer(t *testing.T) {
 
 		log := logger.NewConsoleLogger("coordinator", logger.Info)
 		tmpDir := t.TempDir()
-		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		// Send data from multiple clients
 		clients := []uint64{1, 2, 3}
@@ -209,7 +246,7 @@ func TestMapReducer(t *testing.T) {
 
 		log := logger.NewConsoleLogger("coordinator", logger.Info)
 		tmpDir := t.TempDir()
-		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		// Enviar un archivo CSV con una línea muy larga
 		fileName := "test_csv"
@@ -291,7 +328,7 @@ func TestMapReducer(t *testing.T) {
 
 		log := logger.NewConsoleLogger("coordinator", logger.Info)
 		tmpDir := t.TempDir()
-		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		log.Infof("envio filename")
 		fileName := "test_csv"
@@ -310,7 +347,7 @@ func TestMapReducer(t *testing.T) {
 		log = logger.NewConsoleLogger("test", logger.Info)
 
 		log.Infof("envio primer paquete")
-		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir, false)
 		csvData = "1,Alice"
 		sendCoordinator(t, csvData, sender, common.FileData, cid, 3)
 		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK = stopCoordinatorAndReadLog(t, ctxStop, wg, tmpDir, cid)
@@ -321,7 +358,7 @@ func TestMapReducer(t *testing.T) {
 		assert.Equal(t, gotLastIdACK, uint64(2))
 
 		log.Infof("envio segundo paquete")
-		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir, false)
 		csvData = "\n2,Don"
 		sendCoordinator(t, csvData, sender, common.FileData, cid, 4)
 		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK = stopCoordinatorAndReadLog(t, ctxStop, wg, tmpDir, cid)
@@ -336,7 +373,7 @@ func TestMapReducer(t *testing.T) {
 		sendCoordinator(t, csvData, sender, common.FileData, cid, 5)
 		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 6)
 		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 7)
-		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		//verifico que lleguen los paquetes
 		var rows []middleware.Envelope[*model.Row]
@@ -389,7 +426,7 @@ func TestMapReducer(t *testing.T) {
 
 		log := logger.NewConsoleLogger("coordinator", logger.Info)
 		tmpDir := t.TempDir()
-		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		log2 := logger.NewConsoleLogger("test", logger.Info)
 
@@ -419,7 +456,7 @@ func TestMapReducer(t *testing.T) {
 		assert.Equal(t, uint64(2), gotLastIdACK)
 
 		log2.Infof("envio segundo paquete")
-		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir, false)
 		longDescription2 := make([]byte, 2100)
 		for i := range longDescription2 {
 			longDescription2[i] = 'y'
@@ -435,7 +472,7 @@ func TestMapReducer(t *testing.T) {
 		assert.Equal(t, uint64(2), gotLastIdACK)
 
 		log2.Infof("envio tercer paquete")
-		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir, false)
 		longDescription3 := make([]byte, 10)
 		for i := range longDescription3 {
 			longDescription3[i] = 'k'
@@ -457,7 +494,7 @@ func TestMapReducer(t *testing.T) {
 
 		// Enviar EOF
 		log2.Infof("envio EOF")
-		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 		eofData := "EOF"
 		sendCoordinator(t, eofData, sender, common.FinishFile, cid, 6)
 		sendCoordinator(t, eofData, sender, common.AllFilesSent, cid, 7)
@@ -508,7 +545,7 @@ func TestMapReducer(t *testing.T) {
 
 		log := logger.NewConsoleLogger("coordinator", logger.Info)
 		tmpDir := t.TempDir()
-		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		log.Infof("envio filename")
 		fileName := "test_csv"
@@ -531,7 +568,7 @@ func TestMapReducer(t *testing.T) {
 		sendCoordinator(t, csvData, sender, common.FileData, cid, 5)
 		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 6)
 		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 7)
-		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		//verifico que lleguen los paquetes
 		var rows []middleware.Envelope[*model.Row]
@@ -582,7 +619,7 @@ func TestMapReducer(t *testing.T) {
 
 		log := logger.NewConsoleLogger("coordinator", logger.Info)
 		tmpDir := t.TempDir()
-		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		log.Infof("envio filename")
 		fileName := "test_csv"
@@ -601,7 +638,7 @@ func TestMapReducer(t *testing.T) {
 		log = logger.NewConsoleLogger("test", logger.Info)
 
 		log.Infof("envio paquete final y primer eof")
-		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir, false)
 		csvData = "\n"
 		sendCoordinator(t, csvData, sender, common.FileData, cid, 5)
 		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 6)
@@ -609,7 +646,7 @@ func TestMapReducer(t *testing.T) {
 
 		log.Infof("envio segundo eof")
 		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 7)
-		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		//verifico que lleguen los paquetes
 		var rows []middleware.Envelope[*model.Row]
@@ -660,7 +697,7 @@ func TestMapReducer(t *testing.T) {
 
 		log := logger.NewConsoleLogger("coordinator", logger.Info)
 		tmpDir := t.TempDir()
-		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		log.Infof("envio filename")
 		fileName := "test_csv"
@@ -679,7 +716,7 @@ func TestMapReducer(t *testing.T) {
 		log = logger.NewConsoleLogger("test", logger.Info)
 
 		log.Infof("envio primer paquete")
-		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir, false)
 		csvData = "1,Alice"
 		sendCoordinator(t, csvData, sender, common.FileData, cid, 3)
 		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK = stopCoordinatorAndReadLog(t, ctxStop, wg, tmpDir, cid)
@@ -690,7 +727,7 @@ func TestMapReducer(t *testing.T) {
 		assert.Equal(t, uint64(2), gotLastIdACK)
 
 		log.Infof("envio segundo paquete")
-		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir, false)
 		csvData = "\n2\n"
 		sendCoordinator(t, csvData, sender, common.FileData, cid, 4)
 		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK = stopCoordinatorAndReadLog(t, ctxStop, wg, tmpDir, cid)
@@ -703,7 +740,7 @@ func TestMapReducer(t *testing.T) {
 		log.Infof("envio eofs")
 		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 6)
 		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 7)
-		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, false)
 
 		//verifico que lleguen los paquetes
 		var rows []middleware.Envelope[*model.Row]
@@ -732,6 +769,81 @@ func TestMapReducer(t *testing.T) {
 		time.Sleep(1 * time.Second)
 		ctxStop()
 		wg.Wait()
+	})
+
+	t.Run("CoordinatorLogRecoveryQueryPhaseQ1", func(t *testing.T) {
+		init := test1container
+		assert.NoError(t, init.Err)
+		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointSender := startCoordinatorQuery(t, init)
+		defer sender.Close()
+		defer receiver.Close()
+		defer q1Sender.Close()
+		defer q2Sender.Close()
+		defer q3Sender.Close()
+		defer q4Sender.Close()
+		defer q5Sender.Close()
+		defer allQuerysToEndpointSender.Close()
+		cid := uint64(1)
+
+		log := logger.NewConsoleLogger("coordinator", logger.Info)
+		tmpDir := t.TempDir()
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, true)
+
+		// Send file data and process it
+		fileName := "test_csv"
+		sendCoordinator(t, fileName, sender, common.FileName, cid, 1)
+		csvData := "id,name\n1,Alice\n2,Bob\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 2)
+		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 3)
+		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 4)
+
+		time.Sleep(1 * time.Second)
+		rowQ1 := model.Row{
+			Strings: map[string]string{"title": "Alice"},
+			Arrays:  map[string][]string{"genres": {"Action", "Adventure", "Sci-Fi"}},
+		}
+		sendQ(t, q1Sender, cid, 1, &rowQ1)
+		sendQEOF(t, q1Sender, cid)
+
+		qNumber, rows, ended := stopCoordinatorAndReadLogQuery(t, ctxStop, wg, tmpDir, cid)
+
+		assert.Equal(t, uint8(1), qNumber)
+		assert.True(t, model.EqualsRows(&rowQ1, rows[1][0]))
+		assert.True(t, ended)
+
+		// Process the data to get to query phase
+		// ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
+		// var rows []middleware.Envelope[*model.Row]
+		// for i := 0; i < 4; i++ {
+		// 	row, err := receiver.Next(ctx)
+		// 	assert.NoError(t, err)
+		// 	rows = append(rows, row)
+		// 	row.Ack(false)
+		// }
+
+		// // Stop coordinator during query phase (Q1)
+		// time.Sleep(1 * time.Second)
+		// ctxStop()
+		// wg.Wait()
+
+		// // Verify query phase log exists
+		// queryLogPath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "querys")
+		// _, err := os.Stat(queryLogPath)
+		// assert.NoError(t, err, "Query log file should exist")
+
+		// // Restart coordinator and verify recovery
+		// log = logger.NewConsoleLogger("test", logger.Info)
+		// ctx, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+
+		// // Verify that the coordinator recovers from query phase
+		// // The coordinator should continue processing queries
+		// time.Sleep(2 * time.Second)
+		// ctxStop()
+		// wg.Wait()
+
+		// // Verify that the log was cleaned up after completion
+		// _, err = os.Stat(queryLogPath)
+		// assert.Error(t, err, "Query log file should be cleaned up after completion")
 	})
 
 }
@@ -778,12 +890,37 @@ func sendCoordinator(t *testing.T, data string, sender middleware.Sender[*common
 	assert.NoError(t, err)
 }
 
-func coordinatorRun(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, log *logger.ConsoleLogger, tmpDir string) (context.Context, context.CancelFunc, *sync.WaitGroup) {
+func coordinatorRun(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, log *logger.ConsoleLogger, tmpDir string, queriesPhaseIncluded bool) (context.Context, context.CancelFunc, *sync.WaitGroup) {
 	cConnector, err := rabbitmq.ConnectorCustom(init.Config)
 	assert.NoError(t, err)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	ctx, ctxStop := context.WithCancel(context.Background())
-	go runCoordinator(ctx, log, cConnector, tmpDir, 1, 1, &wg, true)
+	go runCoordinator(ctx, log, cConnector, tmpDir, 1, 1, &wg, queriesPhaseIncluded)
 	return ctx, ctxStop, &wg
+}
+
+func sendQ(t *testing.T, sender middleware.Sender[*model.Row], cid uint64, id uint64, row *model.Row) {
+	err := sender.Send(row, cid, id)
+	assert.NoError(t, err)
+}
+
+func sendQEOF(t *testing.T, sender middleware.Sender[*model.Row], cid uint64) {
+	err := sender.SendEOF(cid)
+	assert.NoError(t, err)
+}
+
+func stopCoordinatorAndReadLogQuery(t *testing.T, ctxStop context.CancelFunc, wg *sync.WaitGroup, tmpDir string, cid uint64) (uint8, map[uint8][]*model.Row, bool) {
+	time.Sleep(1 * time.Second)
+	ctxStop()
+	wg.Wait()
+
+	//leo el log
+	logFilePath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "querys")
+	logFile, err := os.Open(logFilePath)
+	assert.NoError(t, err)
+	qNumber, rows, ended, err := transaction_log.ReadQueriesRows(logFile)
+	logFile.Close()
+	assert.NoError(t, err)
+	return qNumber, rows, ended
 }

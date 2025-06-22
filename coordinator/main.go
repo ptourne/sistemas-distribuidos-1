@@ -67,7 +67,7 @@ func main() {
 	log.Infof("EXITING COORDINATOR")
 }
 
-func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQConnector, dirPath string, n_workers int, ratingsConsumers int, wgM *sync.WaitGroup, testing bool) {
+func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *rabbitmq.RabbitMQConnector, dirPath string, n_workers int, ratingsConsumers int, wgM *sync.WaitGroup, queriesPhaseIncluded bool) {
 	if wgM != nil {
 		defer wgM.Done()
 	}
@@ -77,7 +77,7 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 	inputsChannelMap := map[uint64]*ChannelsCid{}
 	inputChannelMapLock := sync.Mutex{}
 
-	recoverFromLogs(config, inputsChannelMap, &inputChannelMapLock, ctx, &wg, log, testing)
+	recoverFromLogs(config, inputsChannelMap, &inputChannelMapLock, ctx, &wg, log, queriesPhaseIncluded)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -103,7 +103,7 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 				inputsChannelMap[cid] = channelsCid
 				inputChannelMapLock.Unlock()
 				wg.Add(1)
-				go handleClient(cid, channelsCid, config, &wg, ctx, testing)
+				go handleClient(cid, channelsCid, config, &wg, ctx, queriesPhaseIncluded)
 			}
 			switch envelope.Type() {
 			case middleware.EOF:
@@ -139,7 +139,7 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 	}
 }
 
-func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*ChannelsCid, inputChannelMapLock *sync.Mutex, ctx context.Context, wg *sync.WaitGroup, log *logger.ConsoleLogger, testing bool) {
+func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*ChannelsCid, inputChannelMapLock *sync.Mutex, ctx context.Context, wg *sync.WaitGroup, log *logger.ConsoleLogger, queriesPhaseIncluded bool) {
 	log.Infof("Recovering from logs")
 	transactionLogs, err := transaction_log.RecoverFromLogs(c.dirPath)
 	if err != nil {
@@ -154,7 +154,11 @@ func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*Channels
 		inputsChannelMap[cid] = channelsCid
 		inputChannelMapLock.Unlock()
 		wg.Add(1)
-		go handleClientRecover(transactionLog, channelsCid, c, wg, ctx, testing)
+		if transactionLog.IsQueryPhase() {
+			go handleClientRecoverQueryPhase(transactionLog, channelsCid, c, wg, ctx, queriesPhaseIncluded)
+		} else {
+			go handleClientRecover(transactionLog, channelsCid, c, wg, ctx, queriesPhaseIncluded)
+		}
 	}
 	log.Infof("Recovery from logs completed")
 }
@@ -213,7 +217,7 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 	}
 }
 
-func handleClient(cid uint64, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context, testing bool) {
+func handleClient(cid uint64, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context, queriesPhaseIncluded bool) {
 	defer wg.Done()
 	var log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
 	log.Infof("STARTINGG cid: %d", cid)
@@ -271,12 +275,53 @@ OuterLoop:
 
 	queriesRows := []*model.Row{}
 
-	if !testing {
-		verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1, queriesRows)
-		verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2, queriesRows)
-		verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, queriesRows)
-		verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, queriesRows)
-		verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5, queriesRows)
+	if queriesPhaseIncluded {
+		log.Infof("Verifying querys")
+		err = verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1, tlog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
+		err = verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2, tlog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
+		err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, tlog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
+		err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, tlog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
+		err = verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5, tlog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
 	}
 
 	tlog.CloseAll()
@@ -284,7 +329,7 @@ OuterLoop:
 	log.Infof("finish all querys verified")
 }
 
-func handleClientRecover(transactionLog transaction_log.TransactionLog, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context, testing bool) {
+func handleClientRecover(transactionLog transaction_log.TransactionLog, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context, queriesPhaseIncluded bool) {
 	defer wg.Done()
 	log := logger.NewConsoleLogger("coordinator", logger.Info)
 	cid, fileName, counter, read, lastReadNotIncluded, lastIdACK, err := transactionLog.Recover()
@@ -360,12 +405,52 @@ OuterLoop:
 	log.Infof("CSV processing completed")
 
 	queriesRows := []*model.Row{}
-	if !testing {
-		verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1, queriesRows)
-		verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2, queriesRows)
-		verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, queriesRows)
-		verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, queriesRows)
-		verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5, queriesRows)
+	if queriesPhaseIncluded {
+		err = verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1, transactionLog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
+		err = verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2, transactionLog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
+		err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
+		err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
+		err = verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5, transactionLog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
 	}
 
 	tlog.CloseAll()
@@ -396,19 +481,59 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 	}
 
 	if queryNumber < 2 {
-		verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1, queriesRows)
+		err := verifyingQ1(log, allQuerysToEndpointSender, cid, channelsCid.q1, transactionLog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q1: %v", err)
+			return
+		}
 	}
 	if queryNumber < 3 {
-		verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2, queriesRows)
+		err := verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2, transactionLog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
 	}
 	if queryNumber < 4 {
-		verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, queriesRows)
+		err := verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
 	}
 	if queryNumber < 5 {
-		verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, queriesRows)
+		err := verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
 	}
 	if queryNumber < 6 {
-		verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5, queriesRows)
+		err := verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5, transactionLog, queriesRows, ctx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
 	}
 
 	transactionLog.CloseAll()
@@ -797,7 +922,7 @@ func (c *ChannelsCid) Close() {
 	})
 }
 
-func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row], rowsAlreadyReceived []*model.Row) {
+func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row], transactionLog transaction_log.TransactionLog, rowsAlreadyReceived []*model.Row, ctx context.Context) error {
 	expectedOutputQ1 := []*model.Row{
 		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
 		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
@@ -824,10 +949,10 @@ func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q1", expectedOutputQ1, removeQ1, false, rowsAlreadyReceived)
+	return verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q1", expectedOutputQ1, removeQ1, false, transactionLog, rowsAlreadyReceived, ctx)
 }
 
-func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row], rowsAlreadyReceived []*model.Row) {
+func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row], transactionLog transaction_log.TransactionLog, rowsAlreadyReceived []*model.Row, ctx context.Context) error {
 	expectedOutputQ2 := []*model.Row{
 		{Numerics: map[string]uint64{"budget_sum": 120153886644}, Strings: map[string]string{"country": "US"}},
 		{Numerics: map[string]uint64{"budget_sum": 2256831838}, Strings: map[string]string{"country": "FR"}},
@@ -835,10 +960,10 @@ func verifyingQ2(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Numerics: map[string]uint64{"budget_sum": 1169682797}, Strings: map[string]string{"country": "IN"}},
 		{Numerics: map[string]uint64{"budget_sum": 832585873}, Strings: map[string]string{"country": "JP"}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q2", expectedOutputQ2, removeQ2, false, rowsAlreadyReceived)
+	return verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q2", expectedOutputQ2, removeQ2, false, transactionLog, rowsAlreadyReceived, ctx)
 }
 
-func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row], rowsAlreadyReceived []*model.Row) {
+func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row], transactionLog transaction_log.TransactionLog, rowsAlreadyReceived []*model.Row, ctx context.Context) error {
 	//expectedOutputQ3 := []*model.Row{
 	// 	{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
 	// 	{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
@@ -853,10 +978,10 @@ func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Floats: map[string]float64{"avg_rating": 0.5}, Strings: map[string]string{"title": "Ana and the Others", "movieID": "48596"}},
 	}
 
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3_200k, removeQ3, false, rowsAlreadyReceived)
+	return verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3_200k, removeQ3, false, transactionLog, rowsAlreadyReceived, ctx)
 }
 
-func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, qReceiver chan middleware.Envelope[*model.Row], rowsAlreadyReceived []*model.Row) {
+func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, qReceiver chan middleware.Envelope[*model.Row], transactionLog transaction_log.TransactionLog, rowsAlreadyReceived []*model.Row, ctx context.Context) error {
 	expectedOutputQ4 := []*model.Row{
 		{Numerics: map[string]uint64{"count": 17}, Strings: map[string]string{"actor": "Ricardo Darín"}},
 		{Numerics: map[string]uint64{"count": 7}, Strings: map[string]string{"actor": "Alejandro Awada"}},
@@ -869,18 +994,18 @@ func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rafael Spregelburd"}},
 		{Numerics: map[string]uint64{"count": 6}, Strings: map[string]string{"actor": "Rodrigo de la Serna"}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Q4", expectedOutputQ4, removeQ4, false, rowsAlreadyReceived)
+	return verifyingQuery(log, allQuerysToEndpointSender, cid, qReceiver, "Q4", expectedOutputQ4, removeQ4, false, transactionLog, rowsAlreadyReceived, ctx)
 }
 
-func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row], rowsAlreadyReceived []*model.Row) {
+func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row], transactionLog transaction_log.TransactionLog, rowsAlreadyReceived []*model.Row, ctx context.Context) error {
 	expectedOutputQ5 := []*model.Row{
 		{Strings: map[string]string{"sentiment": "NEGATIVE"}, Floats: map[string]float64{"avg_rate": 5453.397595}},
 		{Strings: map[string]string{"sentiment": "POSITIVE"}, Floats: map[string]float64{"avg_rate": 5668.650541}},
 	}
-	verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q5", expectedOutputQ5, removeQ5, true, rowsAlreadyReceived)
+	return verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q5", expectedOutputQ5, removeQ5, true, transactionLog, rowsAlreadyReceived, ctx)
 }
 
-func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, qReceiver chan middleware.Envelope[*model.Row], queryNumber string, expectedOutput []*model.Row, remove func([]*model.Row, *model.Row, *logger.ConsoleLogger, uint64) []*model.Row, lastQuery bool, rowsAlreadyReceived []*model.Row) {
+func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, qReceiver chan middleware.Envelope[*model.Row], queryNumber string, expectedOutput []*model.Row, remove func([]*model.Row, *model.Row, *logger.ConsoleLogger, uint64) []*model.Row, lastQuery bool, transactionLog transaction_log.TransactionLog, rowsAlreadyReceived []*model.Row, ctx context.Context) error {
 	lastIdSent := uint64(0)
 	log.Infof("Verifying %s", queryNumber)
 	err := allQuerysToEndpointSender.Send(model.RowQueryName(queryNumber), cid, lastIdSent)
@@ -891,63 +1016,78 @@ func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middlew
 	for _, row := range rowsAlreadyReceived {
 		err = allQuerysToEndpointSender.Send(model.RowQuery(*row), cid, lastIdSent)
 		lastIdSent++
+		expectedOutput = remove(expectedOutput, row, log, cid)
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)
 		}
 	}
 OuterLoop:
 	for {
-		envelope, ok := <-qReceiver
-		// log.Infof("Received envelope id %v", envelope.Id())
-		if !ok {
-			log.Infof("Channel closed: %v", qReceiver)
-			return
-		}
-		if envelope.Cid() != cid {
-			log.Errorf("Received message from wrong cid: %d", envelope.Cid())
-			continue
-		}
-		switch envelope.Type() {
-		case middleware.EOF:
-			log.Infof("Client %d | Query %s | No more rows , EOF arrived", cid, queryNumber)
-			if lastQuery {
-				allQuerysToEndpointSender.SendEOF(cid)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled")
+		case envelope, ok := <-qReceiver:
+			if !ok {
+				return fmt.Errorf("channel closed")
 			}
-			err = envelope.Ack(false)
-			unwrap(err, "Failed to ack message", log)
-			break OuterLoop
-		case middleware.Prune:
-			log.Infof("Prune arrived for cid: %d in %s", envelope.Cid(), queryNumber)
-			// err = envelope.Ack(false)
-			// unwrap(err, "Failed to ack message", log)
-			// continue
-			err := allQuerysToEndpointSender.Prune(cid)
+			if envelope.Cid() != cid {
+				log.Errorf("Received message from wrong cid: %d", envelope.Cid())
+				continue
+			}
+			if lastIdSent == 1 {
+				queryNum := queryNumber[1] - '0' // Convert character to numeric value
+				log.Infof("Writing begin query for %d", queryNum)
+				transactionLog.WriteBeginQuery(uint8(queryNum))
+			}
+			switch envelope.Type() {
+			case middleware.EOF:
+				log.Infof("Client %d | Query %s | No more rows , EOF arrived", cid, queryNumber)
+				if lastQuery {
+					allQuerysToEndpointSender.SendEOF(cid)
+				}
+				err = transactionLog.WriteEndQuery()
+				if err != nil {
+					log.Errorf("Failed to write end query in log message: %v", err)
+				}
+				err = envelope.Ack(false)
+				unwrap(err, "Failed to ack message", log)
+				break OuterLoop
+			case middleware.Prune:
+				log.Infof("Prune arrived for cid: %d in %s", envelope.Cid(), queryNumber)
+				err := allQuerysToEndpointSender.Prune(cid)
+				if err != nil {
+					log.Errorf("cid %d | Prune failed in: %s with err:%s", cid, err, queryNumber)
+					envelope.Nack(true)
+				}
+				err = envelope.Ack(false)
+				unwrap(err, "Failed to ack message", log)
+				continue
+			}
+			receivedRow := envelope.Msg()
+			err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedRow), cid, lastIdSent)
 			if err != nil {
-				log.Errorf("cid %d | Prune failed in: %s with err:%s", cid, err, queryNumber)
-				envelope.Nack(true)
+				log.Errorf("Failed to send message: %v", err)
+				continue
 			}
+			err = transactionLog.WriteRowQuery(receivedRow)
+			if err != nil {
+				log.Errorf("Failed to write row query in log message: %v", err)
+				continue
+			}
+			lastIdSent++
+			log.Infof("Received row debug: %v", receivedRow)
+			expectedOutput = remove(expectedOutput, receivedRow, log, cid)
 			err = envelope.Ack(false)
 			unwrap(err, "Failed to ack message", log)
-			continue
 		}
-		receivedRow := envelope.Msg()
-		err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedRow), cid, lastIdSent)
-		lastIdSent++
-		if err != nil {
-			log.Errorf("Failed to send message: %v", err)
-			continue
+		if len(expectedOutput) > 0 {
+			log.Errorf("Client %d | Query %s | Not all expected rows received 🛑. Missing %v", cid, queryNumber, expectedOutput)
 		}
-		log.Debugf("Received row debug: %v", receivedRow)
-		expectedOutput = remove(expectedOutput, receivedRow, log, cid)
-		err = envelope.Ack(false)
-		unwrap(err, "Failed to ack message", log)
+		if len(expectedOutput) == 0 {
+			log.Infof("CLIENT %d | QUERY %s | ALL EXPECTED ROWS RECEIVED 🟢", cid, queryNumber)
+		}
 	}
-	if len(expectedOutput) > 0 {
-		log.Errorf("Client %d | Query %s | Not all expected rows received 🛑. Missing %v", cid, queryNumber, expectedOutput)
-	}
-	if len(expectedOutput) == 0 {
-		log.Infof("CLIENT %d | QUERY %s | ALL EXPECTED ROWS RECEIVED 🟢", cid, queryNumber)
-	}
+	return nil
 }
 
 func removeQ1(slice []*model.Row, movie *model.Row, log *logger.ConsoleLogger, cid uint64) []*model.Row {

@@ -360,3 +360,294 @@ func TestTransactionLogQueries(t *testing.T) {
 	})
 
 }
+
+func TestReadQueriesRows(t *testing.T) {
+	t.Run("Test single complete query", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cid := uint64(1)
+
+		tl, err := NewTransactionLogForCid(tempDir, cid)
+		require.NoError(t, err)
+
+		// Escribir una query completa
+		err = tl.WriteBeginQuery(1)
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}})
+		assert.NoError(t, err)
+		err = tl.WriteEndQuery()
+		assert.NoError(t, err)
+
+		// Abrir el archivo y leer todas las queries
+		file, err := os.Open(tl.(*transactionLog).queryFileName)
+		assert.NoError(t, err)
+		defer file.Close()
+
+		currentQueryNumber, queryRowsMap, queryEnded, err := ReadQueriesRows(file)
+		assert.NoError(t, err)
+		assert.Equal(t, uint8(1), currentQueryNumber)
+		assert.Len(t, queryRowsMap, 1)
+		assert.True(t, queryEnded)
+
+		// Verificar que la query 1 tiene las rows correctas
+		rows, exists := queryRowsMap[1]
+		assert.True(t, exists)
+		assert.Len(t, rows, 2)
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows[1]))
+	})
+
+	t.Run("Test multiple complete queries", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cid := uint64(1)
+
+		tl, err := NewTransactionLogForCid(tempDir, cid)
+		require.NoError(t, err)
+
+		// Primera query
+		err = tl.WriteBeginQuery(1)
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		assert.NoError(t, err)
+		err = tl.WriteEndQuery()
+		assert.NoError(t, err)
+
+		// Segunda query
+		err = tl.WriteBeginQuery(2)
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}})
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"c": 3}})
+		assert.NoError(t, err)
+		err = tl.WriteEndQuery()
+		assert.NoError(t, err)
+
+		// Tercera query
+		err = tl.WriteBeginQuery(3)
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"d": 4}})
+		assert.NoError(t, err)
+		err = tl.WriteEndQuery()
+		assert.NoError(t, err)
+
+		// Abrir el archivo y leer todas las queries
+		file, err := os.Open(tl.(*transactionLog).queryFileName)
+		assert.NoError(t, err)
+		defer file.Close()
+
+		currentQueryNumber, queryRowsMap, queryEnded, err := ReadQueriesRows(file)
+		assert.NoError(t, err)
+		assert.Equal(t, uint8(3), currentQueryNumber) // Última query procesada
+		assert.Len(t, queryRowsMap, 3)
+		assert.True(t, queryEnded)
+
+		// Verificar query 1
+		rows1, exists := queryRowsMap[1]
+		assert.True(t, exists)
+		assert.Len(t, rows1, 1)
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows1[0]))
+
+		// Verificar query 2
+		rows2, exists := queryRowsMap[2]
+		assert.True(t, exists)
+		assert.Len(t, rows2, 2)
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows2[0]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"c": 3}}, rows2[1]))
+
+		// Verificar query 3
+		rows3, exists := queryRowsMap[3]
+		assert.True(t, exists)
+		assert.Len(t, rows3, 1)
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"d": 4}}, rows3[0]))
+	})
+
+	t.Run("Test incomplete query at end", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cid := uint64(1)
+
+		tl, err := NewTransactionLogForCid(tempDir, cid)
+		require.NoError(t, err)
+
+		// Query completa
+		err = tl.WriteBeginQuery(1)
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		assert.NoError(t, err)
+		err = tl.WriteEndQuery()
+		assert.NoError(t, err)
+
+		// Query incompleta
+		err = tl.WriteBeginQuery(2)
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}})
+		assert.NoError(t, err)
+		// Sin END
+
+		// Abrir el archivo y leer todas las queries
+		file, err := os.Open(tl.(*transactionLog).queryFileName)
+		assert.NoError(t, err)
+		defer file.Close()
+
+		currentQueryNumber, queryRowsMap, queryEnded, err := ReadQueriesRows(file)
+		assert.NoError(t, err)
+		assert.Equal(t, uint8(2), currentQueryNumber)
+		assert.Len(t, queryRowsMap, 2)
+		assert.False(t, queryEnded) // La última query no terminó
+
+		// Verificar query 1
+		rows1, exists := queryRowsMap[1]
+		assert.True(t, exists)
+		assert.Len(t, rows1, 1)
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows1[0]))
+
+		// Verificar query 2
+		rows2, exists := queryRowsMap[2]
+		assert.True(t, exists)
+		assert.Len(t, rows2, 1)
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows2[0]))
+	})
+
+	t.Run("Test empty file", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cid := uint64(1)
+
+		tl, err := NewTransactionLogForCid(tempDir, cid)
+		require.NoError(t, err)
+
+		// Crear archivo vacío
+		file, err := os.Create(tl.(*transactionLog).queryFileName)
+		assert.NoError(t, err)
+		file.Close()
+
+		// Intentar leer archivo vacío
+		file, err = os.Open(tl.(*transactionLog).queryFileName)
+		assert.NoError(t, err)
+		defer file.Close()
+
+		_, _, _, err = ReadQueriesRows(file)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no lines found in query file")
+	})
+
+	t.Run("Test query without rows", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cid := uint64(1)
+
+		tl, err := NewTransactionLogForCid(tempDir, cid)
+		require.NoError(t, err)
+
+		// Query sin rows
+		err = tl.WriteBeginQuery(1)
+		assert.NoError(t, err)
+		err = tl.WriteEndQuery()
+		assert.NoError(t, err)
+
+		// Abrir el archivo y leer
+		file, err := os.Open(tl.(*transactionLog).queryFileName)
+		assert.NoError(t, err)
+		defer file.Close()
+
+		currentQueryNumber, queryRowsMap, queryEnded, err := ReadQueriesRows(file)
+		assert.NoError(t, err)
+		assert.Equal(t, uint8(1), currentQueryNumber)
+		assert.Len(t, queryRowsMap, 1)
+		assert.True(t, queryEnded)
+
+		// Verificar que la query 1 existe pero sin rows
+		rows, exists := queryRowsMap[1]
+		assert.True(t, exists)
+		assert.Empty(t, rows)
+	})
+
+	t.Run("Test complex rows with all fields", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cid := uint64(1)
+
+		tl, err := NewTransactionLogForCid(tempDir, cid)
+		require.NoError(t, err)
+
+		complexRow1 := &model.Row{
+			Type:     model.QueryRow,
+			Numerics: map[string]uint64{"id": 123, "count": 456},
+			Strings:  map[string]string{"name": "test1", "type": "movie"},
+			Arrays:   map[string][]string{"genres": {"action", "drama"}},
+			Floats:   map[string]float64{"rating": 4.5, "score": 8.7},
+		}
+
+		complexRow2 := &model.Row{
+			Type:     model.QueryRow,
+			Numerics: map[string]uint64{"id": 789, "count": 101},
+			Strings:  map[string]string{"name": "test2", "type": "series"},
+			Arrays:   map[string][]string{"genres": {"comedy", "romance"}},
+			Floats:   map[string]float64{"rating": 3.8, "score": 7.2},
+		}
+
+		err = tl.WriteBeginQuery(1)
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(complexRow1)
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(complexRow2)
+		assert.NoError(t, err)
+		err = tl.WriteEndQuery()
+		assert.NoError(t, err)
+
+		// Abrir el archivo y leer
+		file, err := os.Open(tl.(*transactionLog).queryFileName)
+		assert.NoError(t, err)
+		defer file.Close()
+
+		currentQueryNumber, queryRowsMap, queryEnded, err := ReadQueriesRows(file)
+		assert.NoError(t, err)
+		assert.Equal(t, uint8(1), currentQueryNumber)
+		assert.Len(t, queryRowsMap, 1)
+		assert.True(t, queryEnded)
+
+		// Verificar que las rows complejas se leyeron correctamente
+		rows, exists := queryRowsMap[1]
+		assert.True(t, exists)
+		assert.Len(t, rows, 2)
+		assert.True(t, model.EqualsRows(complexRow1, rows[0]))
+		assert.True(t, model.EqualsRows(complexRow2, rows[1]))
+	})
+
+	t.Run("Test corrupted lines are ignored", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cid := uint64(1)
+
+		tl, err := NewTransactionLogForCid(tempDir, cid)
+		require.NoError(t, err)
+
+		// Escribir query válida
+		err = tl.WriteBeginQuery(1)
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		assert.NoError(t, err)
+		err = tl.WriteEndQuery()
+		assert.NoError(t, err)
+
+		// Agregar líneas corruptas manualmente
+		file, err := os.OpenFile(tl.(*transactionLog).queryFileName, os.O_APPEND|os.O_WRONLY, 0644)
+		assert.NoError(t, err)
+		file.WriteString("corrupted line 1\n")
+		file.WriteString("another corrupted line\n")
+		file.Close()
+
+		// Leer el archivo
+		file, err = os.Open(tl.(*transactionLog).queryFileName)
+		assert.NoError(t, err)
+		defer file.Close()
+
+		currentQueryNumber, queryRowsMap, queryEnded, err := ReadQueriesRows(file)
+		assert.NoError(t, err)
+		assert.Equal(t, uint8(1), currentQueryNumber)
+		assert.Len(t, queryRowsMap, 1)
+		assert.True(t, queryEnded)
+
+		// Verificar que la query válida se leyó correctamente
+		rows, exists := queryRowsMap[1]
+		assert.True(t, exists)
+		assert.Len(t, rows, 1)
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0]))
+	})
+}

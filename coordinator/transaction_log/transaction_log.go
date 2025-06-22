@@ -50,6 +50,7 @@ type TransactionLog interface {
 	WriteRowQuery(row *model.Row) error
 	WriteEndQuery() error
 	RecoverQueryPhase() (uint8, []*model.Row, bool, error)
+	IsQueryPhase() bool
 }
 
 func RecoverFromLogs(dirPath string) ([]TransactionLog, error) {
@@ -145,6 +146,10 @@ func verifyQueryPhase(logFilePath []os.DirEntry) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func (t *transactionLog) IsQueryPhase() bool {
+	return t.isQueryPhase
 }
 
 func (t *transactionLog) RecoverQueryPhase() (uint8, []*model.Row, bool, error) {
@@ -534,4 +539,73 @@ func updateQueriesLog(t *transactionLog, lastQueryNumber uint8, lastRows []*mode
 	}
 
 	return nil
+}
+
+func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[uint8][]*model.Row, queryEnded bool, err error) {
+	// Leer todas las líneas del archivo
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	if len(lines) == 0 {
+		return 0, nil, false, fmt.Errorf("no lines found in query file")
+	}
+
+	// Leer desde la primera línea hacia la última
+	queryRowsMap = make(map[uint8][]*model.Row)
+	currentQueryNumber = uint8(0)
+	queryEnded = false
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		reader := strings.NewReader(line)
+
+		// Decodificar primer byte
+		queryType, err := codec.Uint8Decode(reader)
+		if err != nil {
+			log.Errorf("failed to decode query type: %v", err)
+			continue
+		}
+
+		if queryType == uint8(QUERY_BEGIN) {
+			log.Infof("found begin: %s", line)
+			// Encontramos el BEGIN, extraer el número
+			n, err := codec.Uint8Decode(reader)
+			if err != nil {
+				log.Errorf("failed to parse BEGIN line: %v", err)
+				continue
+			}
+			currentQueryNumber = n
+			queryEnded = false
+			// Inicializar el slice para esta query si no existe
+			if _, exists := queryRowsMap[currentQueryNumber]; !exists {
+				queryRowsMap[currentQueryNumber] = []*model.Row{}
+			}
+		} else if queryType == uint8(QUERY_ROW) {
+			log.Infof("found row: %s", line)
+			row, err := model.RowDecode(reader)
+			if err != nil {
+				log.Errorf("failed to decode row: %v", err)
+				continue
+			}
+			// Agregar la row a la query actual
+			if currentQueryNumber > 0 {
+				queryRowsMap[currentQueryNumber] = append(queryRowsMap[currentQueryNumber], row)
+			}
+		} else if queryType == uint8(QUERY_END) {
+			queryEnded = true
+		} else {
+			// Línea corrupta, ignorar
+			continue
+		}
+	}
+
+	// Si no encontramos ninguna query válida
+	if len(queryRowsMap) == 0 {
+		return 0, nil, false, fmt.Errorf("no valid queries found")
+	}
+
+	return currentQueryNumber, queryRowsMap, queryEnded, nil
 }
