@@ -902,10 +902,9 @@ func TestMapReducer(t *testing.T) {
 		sender, err := senderMiddleware.WriteTo("input", []string{"map_reducer"}, "1", shardCount)
 		assert.NoError(t, err)
 
-		mapReducerCtx, stopMapReducer := context.WithCancel(context.Background())
 		dirPath := t.TempDir()
-		handler := newMapReducer(mapReducerCtx, t, init, 0, sumMapReducer{}, shardCount, shardCountOutput, dirPath, maxLogSize)
-		reducerHandle := handler
+		mapReducerCtx, stopMapReducer := context.WithCancel(context.Background())
+		reducerHandle := newMapReducer(mapReducerCtx, t, init, 0, sumMapReducer{}, shardCount, shardCountOutput, dirPath, maxLogSize)
 
 		receiverConnector, err := rabbitmq.ConnectorCustom(init.Config)
 		assert.NoError(t, err)
@@ -927,9 +926,14 @@ func TestMapReducer(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(logDir), "Log directory should contain one log file")
 
-		err = sender.Send(&num{val: 1}, cid, 0)
-		assert.NoError(t, err)
-		time.Sleep(100 * time.Millisecond) // wait for the message to be processed
+		msgCounter := uint64(0)
+		sendMsg := func() {
+			err = sender.Send(&num{val: 1}, cid, msgCounter)
+			assert.NoError(t, err)
+			msgCounter++
+		}
+		sendMsg()
+		time.Sleep(100 * time.Millisecond)
 		checkpointDir, err = os.ReadDir(checkpointDirPath)
 		assert.NoError(t, err)
 		assert.Equal(t, 0, len(checkpointDir), "Checkpoint directory should still be empty")
@@ -937,9 +941,8 @@ func TestMapReducer(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(logDir), "Log directory should contain one log file")
 		assertContainsDir(t, logDir, "0")
-		err = sender.Send(&num{val: 1}, cid, 1)
-		assert.NoError(t, err)
-		time.Sleep(100 * time.Millisecond) // wait for the message to be processed
+		sendMsg()
+		time.Sleep(100 * time.Millisecond)
 		logDir, err = os.ReadDir(logDirPath)
 		assert.NoError(t, err)
 		if !assert.Equal(t, 2, len(logDir), "Log directory (%s) should contain two log files", logDirPath) {
@@ -956,11 +959,9 @@ func TestMapReducer(t *testing.T) {
 			log.Errorf("Checkpoint directory (%s) contents: %v", checkpointDirPath, checkpointDir)
 		}
 		assertContainsDir(t, checkpointDir, "0")
-		err = sender.Send(&num{val: 1}, cid, 2)
-		assert.NoError(t, err)
-		err = sender.Send(&num{val: 1}, cid, 3)
-		assert.NoError(t, err)
-		time.Sleep(100 * time.Millisecond) // wait for the message to be processed
+		sendMsg()
+		sendMsg()
+		time.Sleep(100 * time.Millisecond)
 		logDir, err = os.ReadDir(logDirPath)
 		assert.NoError(t, err)
 		if !assert.Equal(t, 2, len(logDir), "Log directory (%s) should still contain two log files", logDirPath) {
@@ -976,11 +977,9 @@ func TestMapReducer(t *testing.T) {
 		}
 		assertContainsDir(t, checkpointDir, "0")
 		assertContainsDir(t, checkpointDir, "1")
-		err = sender.Send(&num{val: 1}, cid, 4)
-		assert.NoError(t, err)
-		err = sender.Send(&num{val: 1}, cid, 5)
-		assert.NoError(t, err)
-		time.Sleep(100 * time.Millisecond) // wait for the message to be processed
+		sendMsg()
+		sendMsg()
+		time.Sleep(100 * time.Millisecond)
 		logDir, err = os.ReadDir(logDirPath)
 		assert.NoError(t, err)
 		if !assert.Equal(t, 2, len(logDir), "Log directory (%s) should still contain two log files", logDirPath) {
@@ -1004,6 +1003,14 @@ func TestMapReducer(t *testing.T) {
 		cancel()
 		assert.Error(t, err)
 
+		stopMapReducer()
+		<-reducerHandle
+
+		mapReducerCtx, stopMapReducer = context.WithCancel(context.Background())
+		reducerHandle = newMapReducer(mapReducerCtx, t, init, 0, sumMapReducer{}, shardCount, shardCountOutput, dirPath, maxLogSize)
+
+		sendMsg()
+
 		err = sender.Prune(cid)
 		assert.NoError(t, err)
 
@@ -1016,7 +1023,7 @@ func TestMapReducer(t *testing.T) {
 		assert.NoError(t, err)
 		log.Debugf("Received message type %s", e.Type())
 		assert.Equal(t, middleware.Normal, e.Type())
-		assert.Equal(t, uint64(6), e.Msg().val)
+		assert.Equal(t, msgCounter, e.Msg().val)
 		e.Ack(true)
 
 		e, err = receiver.Next(ctx)

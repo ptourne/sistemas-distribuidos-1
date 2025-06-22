@@ -338,7 +338,7 @@ func (r *FinalReducer[I, A, R]) FromCheckpoint(data []byte) error {
 		valueDataLen, err := codec.Uint64Decode(reader)
 		if err != nil {
 			r.log.Errorf("input : FromCheckpoint | Error decoding value data len: %s", err)
-			return fmt.Errorf("error decoding key: %w", err)
+			return fmt.Errorf("error decoding value len: %w", err)
 		}
 		valueData, err := codec.DoRead(valueDataLen, reader)
 		if err != nil {

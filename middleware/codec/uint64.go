@@ -21,6 +21,9 @@ func Uint64Decode(r io.Reader) (uint64, error) {
 	}
 	len, err := DoRead(8, r)
 	if err != nil {
+		if err.Error() == "EOF" {
+			return 0, err
+		}
 		return 0, fmt.Errorf("failed to read data: %w", err)
 	}
 	return uint64DecodeFixedLength(len)
