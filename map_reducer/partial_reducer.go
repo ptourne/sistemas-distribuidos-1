@@ -138,7 +138,8 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 					}
 				}
 				r.msgsSinceLastDump++
-				if r.msgsSinceLastDump > r.maxLogSize || e.Type() == middleware.EOF {
+				r.log.Debugf("input : %d | Processed message, total messages since last dump: %d. Max log size is %d", e.Cid(), r.msgsSinceLastDump, r.maxLogSize)
+				if r.msgsSinceLastDump >= r.maxLogSize || e.Type() == middleware.EOF {
 					err = r.DumpAndFlush()
 					if err != nil {
 						r.log.Errorf("Final : Error dumping transaction log: %s", err)
@@ -155,6 +156,7 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 }
 
 func (r *PartialReducer[I, A, R]) DumpAndFlush() error {
+	r.log.Debugf("input : DumpAndFlush | Dumping transaction log")
 	data := r.Dump()
 	err := r.transactionLog.Dump(data)
 	if err != nil {

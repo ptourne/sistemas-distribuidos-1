@@ -94,7 +94,7 @@ func newTransactionLogFromFirstLog(dirPath string, parent A) (TransactionLog, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transaction log from first log: %v", err)
 	}
-	reader, err := os.Open(path.Join(logDirectory(dirPath), "0"))
+	reader, err := os.Open(path.Join(LogDirectory(dirPath), "0"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open transaction log file: %v", err)
 	}
@@ -120,7 +120,7 @@ func newTransactionLogFromLastLogAndCheckpoint(dirPath string, lastLogFileN int,
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transaction log from checkpoint: %v", err)
 	}
-	reader, err := os.Open(path.Join(logDirectory(dirPath), fmt.Sprintf("%d", lastLogFileN)))
+	reader, err := os.Open(path.Join(LogDirectory(dirPath), fmt.Sprintf("%d", lastLogFileN)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open transaction log file: %v", err)
 	}
@@ -143,7 +143,7 @@ func newTransactionLogFromLastLogAndCheckpoint(dirPath string, lastLogFileN int,
 }
 
 func newTransactionLogFromCheckpoint(dirPath string, lastLogFileN int, parent A) (*transactionLog, error) {
-	checkpointDirectory := checkpointDirectory(dirPath)
+	checkpointDirectory := CheckpointDirectory(dirPath)
 	checkpointFilePath := path.Join(checkpointDirectory, fmt.Sprintf("%d", lastLogFileN-1))
 	file, err := os.Open(checkpointFilePath)
 	if err != nil {
@@ -192,7 +192,7 @@ func newTransactionLogFromCheckpoint(dirPath string, lastLogFileN int, parent A)
 		return nil, fmt.Errorf("failed to load checkpoint data into parent: %v", err)
 	}
 
-	logDirectory := logDirectory(dirPath)
+	logDirectory := LogDirectory(dirPath)
 	logFile, err := os.Create(path.Join(logDirectory, fmt.Sprintf("%d", lastLogFileN+1)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transaction log file: %v", err)
@@ -249,7 +249,7 @@ func (l *transactionLog) CatchUpWithLog(reader io.Reader, parent A) error {
 }
 
 func logFiles(dirPath string) ([]os.DirEntry, error) {
-	path := logDirectory(dirPath)
+	path := LogDirectory(dirPath)
 	files, err := os.ReadDir(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -275,7 +275,12 @@ func (l *transactionLog) Dump(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to create log file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		err = file.Close()
+		if err != nil {
+			panic(fmt.Sprintf("TL: Failed to close checkpoint file: %v\n", err))
+		}
+	}()
 
 	// lastClosedTransactionLen := len(l.lastClosedTransactions)
 	// buf, err := codec.Uint64Encode(uint64(lastClosedTransactionLen))
@@ -330,23 +335,53 @@ func (l *transactionLog) Dump(data []byte) error {
 	}
 	l.logWriter = newLogFile
 
+	// clean old log and checkpoint files
+	err = cleanOldFiles(l.logDirectory, int(l.idx))
+	if err != nil {
+		return err
+	}
+	err = cleanOldFiles(l.checkpointDirectory, int(l.idx-1))
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func checkpointDirectory(dirPath string) string {
+func cleanOldFiles(newVar string, idx int) error {
+	oldLogFiles, err := os.ReadDir(newVar)
+	if err != nil {
+		return fmt.Errorf("failed to read directory: %w", err)
+	}
+	for _, file := range oldLogFiles {
+		fileId, err := strconv.Atoi(file.Name())
+		if err != nil {
+			return fmt.Errorf("failed to parse file name %s: %w", file.Name(), err)
+		}
+		if fileId < idx-1 {
+			filePath := path.Join(newVar, file.Name())
+			if err := os.Remove(filePath); err != nil {
+				return fmt.Errorf("failed to remove old file %s: %w", filePath, err)
+			}
+		}
+	}
+	return nil
+}
+
+func CheckpointDirectory(dirPath string) string {
 	return path.Join(dirPath, "checkpoints")
 }
 
-func logDirectory(dirPath string) string {
+func LogDirectory(dirPath string) string {
 	return path.Join(dirPath, "logs")
 }
 
 func newTransactionLog(dirPath string, idx uint64) (*transactionLog, error) {
-	checkpointDirectory := checkpointDirectory(dirPath)
+	checkpointDirectory := CheckpointDirectory(dirPath)
 	if err := os.MkdirAll(checkpointDirectory, 0755); err != nil {
 		panic(fmt.Errorf("failed to create transaction log directory: %v", err))
 	}
-	logDirectory := logDirectory(dirPath)
+	logDirectory := LogDirectory(dirPath)
 	if err := os.MkdirAll(logDirectory, 0755); err != nil {
 		panic(fmt.Errorf("failed to create transaction log directory: %v", err))
 	}
@@ -441,8 +476,6 @@ func (t *transactionLog) Acknowledged() error {
 
 func (t *transactionLog) acknowledged() {
 	if t.openedTransaction != nil && t.openedTransaction.T != ReceivedType_EOF {
-		// t.lastClosedTransactions[t.openedTransaction.Cid] = t.openedTransaction.Id
-		// fmt.Printf("TL: Acknowledged: cid: %d, id: %d\n", t.openedTransaction.Cid, t.openedTransaction.Id)
 		t.openedTransaction = nil
 	}
 }
