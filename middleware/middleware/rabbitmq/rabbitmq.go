@@ -402,6 +402,7 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	}
 	bufId := make([]byte, 8)
 	binary.BigEndian.PutUint64(bufId, id)
+	s.Log.Debugf("Sending msg of id %d with cid %d to exchange %s", id, cid, s.exchangeName)
 	cidC := int64(cid)
 	err = s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
@@ -610,7 +611,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					}
 				}
 				r.Log.Debugf("return normal envelope")
-				return newNormalEnvelope(cid, msgbody, tag, id), nil //TODO
+				return newNormalEnvelope(cid, msgbody, tag, id), nil
 
 			case <-ctxDone:
 				r.Log.Debugf("Timeout reached while waiting for message")

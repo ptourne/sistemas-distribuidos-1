@@ -8,13 +8,13 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 )
 
-type received struct {
+type receivedNormal struct {
 	cid  uint64
 	id   uint64
 	data []byte
 }
 
-func (r received) Encode() []byte {
+func (r receivedNormal) Encode() []byte {
 	dataLen := len(r.data)
 	if dataLen > 0xFFFFFFFF {
 		panic("data length exceeds maximum size")
@@ -26,7 +26,7 @@ func (r received) Encode() []byte {
 
 	bufLen := headerSize + dataLen
 	buf := make([]byte, bufLen)
-	buf[0] = byte(LogType_Received)
+	buf[0] = byte(LogType_ReceivedNormal)
 	binary.BigEndian.PutUint64(buf[1:], r.cid)
 	binary.BigEndian.PutUint64(buf[1+8:], r.id)
 	binary.BigEndian.PutUint32(buf[1+8+8:], uint32(dataLen))
@@ -35,7 +35,7 @@ func (r received) Encode() []byte {
 	return buf
 }
 
-func (r *received) Decode(reader io.Reader) error {
+func (r *receivedNormal) Decode(reader io.Reader) error {
 	var err error
 	r.cid, err = codec.Uint64Decode(reader)
 	if err != nil {

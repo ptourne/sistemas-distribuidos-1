@@ -1,6 +1,7 @@
 package map_reducer
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -11,16 +12,21 @@ import (
 )
 
 type PartialReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]] struct {
-	log            *logger.ConsoleLogger
-	MapReduce      MapReduce[I, A, R]
-	Receiver       middleware.Receiver[I]
-	ReduceBatches  map[uint64]*A
-	Sender         middleware.Sender[A]
-	connIn         middleware.Connection[I]
-	transactionLog transaction_log.TransactionLog
+	log                   *logger.ConsoleLogger
+	MapReduce             MapReduce[I, A, R]
+	Receiver              middleware.Receiver[I]
+	ReduceBatches         map[uint64]*A
+	Sender                middleware.Sender[A]
+	connIn                middleware.Connection[I]
+	transactionLog        transaction_log.TransactionLog
+	pendingPrune          *uint64
+	pendingEOF            *uint64
+	msgsSinceLastDump     uint64
+	maxLogSize            uint64
+	lastNormalMsgIdsByCid map[uint64]uint64
 }
 
-func (pr *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
+func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 	res := make(chan error)
 	task := func() {
 		var err error
@@ -28,150 +34,294 @@ func (pr *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 			res <- err
 			close(res)
 		}()
-		pr.log.Infof("input : Starting maper")
+		r.log.Infof("input : Starting maper")
 		for {
 			select {
 			case <-ctx.Done():
 				err = ctx.Err()
-				pr.log.Infof("input : Received SIGTERM. Shutting down gracefully...")
+				r.log.Infof("input : Received SIGTERM. Shutting down gracefully...")
 				return
 			default:
-				var envelope middleware.Envelope[I]
-				envelope, err = pr.Receiver.Next(ctx)
+				var e middleware.Envelope[I]
+				e, err = r.Receiver.Next(ctx)
 				if err != nil {
 					if (err.Error() == middleware.TimeoutErr{}.Error()) {
 						err = nil
-						pr.log.Infof("input : Received termination signal")
+						r.log.Infof("input : Received termination signal")
 					}
 					return
 				}
-				switch envelope.Type() {
+				cid := e.Cid()
+				if e.Type() == middleware.Normal {
+					lastMsgId, ok := r.lastNormalMsgIdsByCid[cid]
+					id := e.Id()
+					isDuplicate := ok && lastMsgId >= id
+					if isDuplicate {
+						r.log.Debugf("Final : %d | Duplicate message received, ignoring", cid)
+						e.Ack(false)
+						continue
+					}
+					r.lastNormalMsgIdsByCid[cid] = id
+				} else if e.Type() == middleware.EOF {
+					delete(r.lastNormalMsgIdsByCid, cid)
+				}
+				switch e.Type() {
 				case middleware.Normal:
-					msg := envelope.Msg()
-					err := pr.reduce(envelope.Cid(), msg)
+					msg := e.Msg()
+					err = r.reduce(e.Cid(), msg)
 					if err != nil {
-						err = fmt.Errorf("input : %d | Error processing message: %w", envelope.Cid(), err)
-						envelope.Nack(false)
-					}
-
-					envelope.Ack(false)
-				case middleware.EOF:
-					pr.log.Debugf("input : %d | Received EOF", envelope.Cid())
-					err = pr.Sender.SendEOF(envelope.Cid())
-					envelope.Ack(false)
-				case middleware.Prune:
-					pr.log.Debugf("input : %d | Received Prune", envelope.Cid())
-					clientBatch, ok := pr.ReduceBatches[envelope.Cid()]
-					if ok {
-						err := pr.Sender.Send(*clientBatch, envelope.Cid(), 0) // TODO id!!
-						if err != nil {
-							err = fmt.Errorf("error sending partial result: %w", err)
-							return
-						}
-					}
-					err = pr.Sender.Prune(envelope.Cid())
-					if err != nil {
-						err = fmt.Errorf("input : %d | Prune failed: %s", envelope.Cid(), err)
-						envelope.Nack(false)
+						err = fmt.Errorf("input : %d | Error processing message: %w", e.Cid(), err)
+						e.Nack(false)
 						return
 					}
-					envelope.Ack(false)
+					var msgBody []byte
+					msgBody, err = msg.Encode()
+					if err != nil {
+						err = fmt.Errorf("input : %d | Error encoding message: %w", e.Cid(), err)
+						e.Nack(false)
+						return
+					}
+					err = r.transactionLog.Received(e.Cid(), e.Id(), msgBody)
+					if err != nil {
+						err = fmt.Errorf("input : %d | Error logging transaction: %w", e.Cid(), err)
+						e.Nack(false)
+						return
+					}
+					e.Ack(false)
+					err = r.transactionLog.Acknowledged()
+					if err != nil {
+						err = fmt.Errorf("input : %d | Error acknowledging transaction: %w", e.Cid(), err)
+						r.log.Errorf("Input : %d | Error acknowledging transaction: %s", e.Cid(), err)
+						return
+					}
+				case middleware.EOF:
+					r.log.Debugf("input : %d | Received EOF", e.Cid())
+					err = r.Sender.SendEOF(e.Cid())
+					if err != nil {
+						err = fmt.Errorf("input : %d | Error sending EOF: %w", e.Cid(), err)
+						e.Nack(false)
+						return
+					}
+					err = r.transactionLog.ReceivedEOF(e.Cid())
+					if err != nil {
+						err = fmt.Errorf("input : %d | Error logging EOF transaction: %w", e.Cid(), err)
+						e.Nack(false)
+						return
+					}
+					e.Ack(false)
+					err = r.transactionLog.Acknowledged()
+					if err != nil {
+						err = fmt.Errorf("input : %d | Error acknowledging transaction: %w", e.Cid(), err)
+						r.log.Errorf("Input : %d | Error acknowledging transaction: %s", e.Cid(), err)
+						return
+					}
+				case middleware.Prune:
+					r.log.Debugf("input : %d | Received Prune", e.Cid())
+					err = r.processPrune(e.Cid())
+					if err != nil {
+						err = fmt.Errorf("input : %d | Prune failed: %s", e.Cid(), err)
+						e.Nack(false)
+						return
+					}
+					err = r.transactionLog.ReceivedPrune(e.Cid())
+					if err != nil {
+						err = fmt.Errorf("input : %d | Error logging prune transaction: %w", e.Cid(), err)
+						e.Nack(false)
+						return
+					}
+					e.Ack(false)
+					err = r.transactionLog.Acknowledged()
+					if err != nil {
+						err = fmt.Errorf("input : %d | Error acknowledging transaction: %w", e.Cid(), err)
+						r.log.Errorf("Input : %d | Error acknowledging transaction: %s", e.Cid(), err)
+						return
+					}
+				}
+				r.msgsSinceLastDump++
+				r.log.Debugf("input : %d | Processed message, total messages since last dump: %d. Max log size is %d", e.Cid(), r.msgsSinceLastDump, r.maxLogSize)
+				if r.msgsSinceLastDump >= r.maxLogSize || e.Type() == middleware.EOF {
+					err = r.DumpAndFlush()
+					if err != nil {
+						r.log.Errorf("Final : Error dumping transaction log: %s", err)
+						err = fmt.Errorf("error dumping transaction log: %w", err)
+						return
+					}
 				}
 			}
+
 		}
 	}
 	go task()
 	return res
 }
 
-func (pr *PartialReducer[I, A, R]) reduce(cid uint64, msg I) error {
-	pr.log.Debugf("input : %d | Received input", cid)
-	acc := pr.MapReduce.Map(msg)
-	for _, a := range acc {
-		err := pr.reduceAndStore(cid, a)
+func (r *PartialReducer[I, A, R]) DumpAndFlush() error {
+	r.log.Debugf("input : DumpAndFlush | Dumping transaction log")
+	data := r.Dump()
+	err := r.transactionLog.Dump(data)
+	if err != nil {
+		r.log.Errorf("Input : Error dumping transaction log: %s", err)
+		return fmt.Errorf("error dumping transaction log: %w", err)
+	}
+	r.log.Infof("Input : Transaction log dumped successfully")
+	r.msgsSinceLastDump = 0
+	return nil
+}
+
+func (r *PartialReducer[I, A, R]) processPrune(cid uint64) error {
+	clientBatch, ok := r.ReduceBatches[cid]
+	if ok {
+		err := r.Sender.Send(*clientBatch, cid, 0)
 		if err != nil {
-			pr.log.Errorf("input : %d | Error reducing and sending: %v", cid, err)
+			return fmt.Errorf("error sending partial result: %w", err)
+		}
+	}
+	return nil
+}
+
+func (r *PartialReducer[I, A, R]) reduce(cid uint64, msg I) error {
+	r.log.Debugf("input : %d | Received input", cid)
+	acc := r.MapReduce.Map(msg)
+	for _, a := range acc {
+		err := r.reduceAndStore(cid, a)
+		if err != nil {
+			r.log.Errorf("input : %d | Error reducing and sending: %v", cid, err)
 			return fmt.Errorf("error reducing and sending: %w", err)
 		}
 	}
 	return nil
 }
 
-func (pr *PartialReducer[I, A, R]) reduceAndStore(cid uint64, msg A) error {
-	pr.log.Infof("reduc : %d | reduceAndStore ", cid)
-	clientBatch, ok := pr.ReduceBatches[cid]
+func (r *PartialReducer[I, A, R]) reduceAndStore(cid uint64, msg A) error {
+	r.log.Infof("reduc : %d | reduceAndStore ", cid)
+	clientBatch, ok := r.ReduceBatches[cid]
 	if ok {
-		pr.log.Infof("reduc : %d | reduceAndStore partial", cid)
+		r.log.Infof("reduc : %d | reduceAndStore partial", cid)
 		reduc := []A{*clientBatch, msg}
-		reduced := pr.MapReduce.Reduce(reduc)
-		pr.ReduceBatches[cid] = &reduced
+		reduced := r.MapReduce.Reduce(reduc)
+		r.ReduceBatches[cid] = &reduced
 		return nil
 	}
 
-	pr.log.Infof("reduc : %d | reduceAndStore | Creating new batch", cid)
-	pr.ReduceBatches[cid] = &msg
+	r.log.Infof("reduc : %d | reduceAndStore | Creating new batch", cid)
+	r.ReduceBatches[cid] = &msg
 	return nil
 }
 
-func (pr *PartialReducer[I, A, R]) Received(cid, id uint64, data []byte) error {
+func (r *PartialReducer[I, A, R]) Received(cid, id uint64, data []byte) error {
 	var nul I
 	msg, err := nul.Decode(data)
 	if err != nil {
-		pr.log.Errorf("input : %d | Received error decoding message: %s", cid, err)
+		r.log.Errorf("input : %d | Received error decoding message: %s", cid, err)
 		return fmt.Errorf("error decoding message: %w", err)
 	}
-	pr.log.Debugf("input : %d | Received message: %v", cid, msg)
-	return pr.reduce(cid, msg)
+	r.log.Debugf("input : %d | Received message: %v", cid, msg)
+	return r.reduce(cid, msg)
 }
 
-// func (pr *PartialReducer[I, A, R]) ReceivedEOF(cid uint64) error {
+func (r *PartialReducer[I, A, R]) ReceivedPrune(cid uint64) error {
+	r.pendingPrune = &cid
+	return nil
+}
 
-// }
+func (r *PartialReducer[I, A, R]) ReceivedEOF(cid uint64) error {
+	r.pendingEOF = &cid
+	return nil
+}
 
-// func (pr *PartialReducer[I, A, R]) Acknowledged() error {
+func (r *PartialReducer[I, A, R]) Acknowledged() error {
+	r.pendingPrune = nil
+	r.pendingEOF = nil
+	return nil
+}
 
-// }
+func (r *PartialReducer[I, A, R]) Conclude() error {
+	r.log.Debugf("input : Conclude | Finalizing PartialReducer")
+	if r.pendingPrune != nil {
+		err := r.processPrune(*r.pendingPrune)
+		if err != nil {
+			return fmt.Errorf("error processing pending prune: %w", err)
+		}
+		r.pendingPrune = nil
+	}
+	if r.pendingEOF != nil {
+		err := r.Sender.SendEOF(*r.pendingEOF)
+		if err != nil {
+			return fmt.Errorf("error sending pending EOF: %w", err)
+		}
+		r.pendingEOF = nil
+	}
+	return nil
+}
 
-// func (pr *PartialReducer[I, A, R]) FromCheckpoint(data []byte) error {
-// 	pr.log.Debugf("input : FromCheckpoint | Data: %s", data)
-// 	if len(data) == 0 {
-// 		pr.log.Debugf("input : FromCheckpoint | No data to restore")
-// 		return nil
-// 	}
+func (r *PartialReducer[I, A, R]) FromCheckpoint(data []byte) error {
+	r.log.Debugf("input : FromCheckpoint | Data: %s", data)
+	if len(data) == 0 {
+		r.log.Debugf("input : FromCheckpoint | No data to restore")
+		return nil
+	}
 
-// 	pr.ReduceBatches = make(map[string]*A)
-// 	entries := string(data)
-// 	for {
-// 		parts := strings.SplitN(entries, ":", 2)
-// 		if len(parts) != 2 {
-// 			pr.log.Errorf("input : FromCheckpoint | Invalid entry format: %s", entries)
-// 			return fmt.Errorf("invalid entry format: %s", entries)
-// 		}
-// 		key := parts[0]
-// 		var nul A
-// 		parts2 := strings.SplitN(parts[1], ";", 2)
-// 		value, err := nul.Decode([]byte(parts2[0]))
-// 		if err != nil {
-// 			pr.log.Errorf("input : FromCheckpoint | Error decoding value: %s", err)
-// 			return fmt.Errorf("error decoding value: %w", err)
-// 		}
-// 		pr.ReduceBatches[key] = &value
-// 		entries = parts2[1]
-// 	}
-// 	pr.log.Debugf("input : FromCheckpoint | ReduceBatches restored: %v", pr.ReduceBatches)
-// 	return nil
-// }
+	r.ReduceBatches = make(map[uint64]*A)
+	reader := bytes.NewReader(data)
+	for {
+		key, err := codec.Uint64Decode(reader)
+		if err != nil {
+			if err.Error() == "EOF" {
+				r.log.Debugf("input : FromCheckpoint | Reached end of data")
+				break
+			}
+			r.log.Errorf("input : FromCheckpoint | Error decoding key: %s", err)
+			return fmt.Errorf("error decoding key: %w", err)
+		}
+		valueDataLen, err := codec.Uint64Decode(reader)
+		if err != nil {
+			r.log.Errorf("input : FromCheckpoint | Error decoding value data len: %s", err)
+			return fmt.Errorf("error decoding key: %w", err)
+		}
+		valueData, err := codec.DoRead(valueDataLen, reader)
+		if err != nil {
+			r.log.Errorf("input : FromCheckpoint | Error reading value data: %s", err)
+			return fmt.Errorf("error reading value data: %w", err)
+		}
+		var nul A
+		value, err := nul.Decode(valueData)
+		if err != nil {
+			r.log.Errorf("input : FromCheckpoint | Error decoding value: %s", err)
+			return fmt.Errorf("error decoding value: %w", err)
+		}
+		r.ReduceBatches[key] = &value
+	}
+	r.log.Debugf("input : FromCheckpoint | ReduceBatches restored: %v", r.ReduceBatches)
+	return nil
+}
 
-// func (pr *PartialReducer[I, A, R]) Dump() []byte {
-// 	buf := []byte{}
-// 	for key, value := range pr.ReduceBatches {
-// 		data, err := (*value).Encode()
-// 		if err != nil {
-// 			pr.log.Errorf("input : %s | Error encoding value: %s", key, err)
-// 			panic(fmt.Sprintf("error encoding value: %s", err))
-// 		}
-// 		buf = append(buf, []byte(fmt.Sprintf("%s:%s;", key, data))...)
-// 	}
-// 	pr.log.Debugf("input : Dumping ReduceBatches: %s", buf)
-// 	return buf
-// }
+func (r *PartialReducer[I, A, R]) Dump() []byte {
+	r.log.Debugf("input : Dump | Dumping ReduceBatches")
+	if len(r.ReduceBatches) == 0 {
+		r.log.Debugf("input : Dump | No data to dump")
+		return nil
+	}
+
+	var buf bytes.Buffer
+	for key, value := range r.ReduceBatches {
+		keyData, err := codec.Uint64Encode(key)
+		if err != nil {
+			r.log.Errorf("input : Dump | Error encoding key: %s", err)
+			continue
+		}
+		valueData, err := (*value).Encode()
+		if err != nil {
+			r.log.Errorf("input : Dump | Error encoding value: %s", err)
+			continue
+		}
+		valueDataLen, err := codec.Uint64Encode(uint64(len(valueData)))
+		if err != nil {
+			r.log.Errorf("input : Dump | Error encoding value data length: %s", err)
+			continue
+		}
+		buf.Write(keyData)
+		buf.Write(valueDataLen)
+		buf.Write(valueData)
+	}
+	return buf.Bytes()
+}

@@ -3,11 +3,13 @@ package map_reducer
 import (
 	"context"
 	"fmt"
+	"path"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/codec"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware"
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
+	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq/transaction_log"
 )
 
 // MapReducer is a struct that represents a map-reduce operation.
@@ -35,7 +37,8 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	id string,
 	workersCount uint,
 	shardCountOutput uint,
-	// dirPath string,
+	dirPath string,
+	maxLogSize uint64,
 ) (*MapReducer[I, A, R], error) {
 	log := logger.NewConsoleLogger(fmt.Sprintf("worker_mp_%s", id), logger.Debug)
 
@@ -87,27 +90,49 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		RoutingKey:      routingKey,
 		connFinalReduce: connFinalReduce,
 		partialReducer: &PartialReducer[I, A, R]{
-			log:            log,
-			MapReduce:      mapReducer,
-			connIn:         connIn,
-			ReduceBatches:  make(map[uint64]*A),
-			Receiver:       inputCh,
-			Sender:         finalReduceOut,
-			transactionLog: nil,
+			log:                   log,
+			MapReduce:             mapReducer,
+			connIn:                connIn,
+			ReduceBatches:         make(map[uint64]*A),
+			Receiver:              inputCh,
+			Sender:                finalReduceOut,
+			transactionLog:        nil,
+			msgsSinceLastDump:     0,
+			maxLogSize:            maxLogSize,
+			lastNormalMsgIdsByCid: make(map[uint64]uint64),
 		},
 		finalReducer: &FinalReducer[I, A, R]{
-			log:            log,
-			MapReduce:      mapReducer,
-			ReduceBatches:  make(map[uint64]*A),
-			connOut:        connOut,
-			Sender:         output,
-			Receiver:       finalReduceInMap,
-			transactionLog: nil,
+			log:               log,
+			MapReduce:         mapReducer,
+			ReduceBatches:     make(map[uint64]*A),
+			connOut:           connOut,
+			Sender:            output,
+			Receiver:          finalReduceInMap,
+			transactionLog:    nil,
+			msgsSinceLastDump: 0,
+			maxLogSize:        maxLogSize,
 		},
 	}
 
-	// mr.partialReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.partialReducer)
-	// mr.finalReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(dirPath, mr.finalReducer)
+	partialReducerPath := path.Join(dirPath, "partial_reducer")
+	mr.partialReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(partialReducerPath, mr.partialReducer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transaction log for partial reducer: %w", err)
+	}
+	err = mr.partialReducer.Conclude()
+	if err != nil {
+		return nil, fmt.Errorf("failed to conclude partial reducer: %w", err)
+	}
+	finalReducerPath := path.Join(dirPath, "final_reducer")
+	mr.finalReducer.transactionLog, err = transaction_log.NewTransactionLogFromDir(finalReducerPath, mr.finalReducer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transaction log for final reducer: %w", err)
+	}
+	err = mr.partialReducer.Conclude()
+	if err != nil {
+		return nil, fmt.Errorf("failed to conclude final reducer: %w", err)
+	}
+	mr.partialReducer.log.Infof("MapReducer : NewMapReducer | Created with input: %s, name: %s, batchSize: %d", input, name, batchSize)
 
 	return mr, nil
 }

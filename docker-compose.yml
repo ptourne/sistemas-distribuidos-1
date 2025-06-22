@@ -14,7 +14,7 @@ services:
             timeout: 10s
             retries: 10
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
     sentiment_server0:
         container_name: sentiment_server0
@@ -103,7 +103,7 @@ services:
             - NAME=coordinator
             - MONITOR_ADDRESSES=monitor0:9000
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/coordinator:/coordinator-dir
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/coordinator:/coordinator-dir
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -275,7 +275,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_credits:/joiner_credits
 
     joiner_credits1:
         container_name: joiner_credits1
@@ -297,7 +297,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_credits:/joiner_credits
 
     joiner_credits2:
         container_name: joiner_credits2
@@ -319,7 +319,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_credits:/joiner_credits
 
     joiner_rating0:
         container_name: joiner_rating0
@@ -341,7 +341,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_ratings:/joiner_ratings
 
     joiner_rating1:
         container_name: joiner_rating1
@@ -363,7 +363,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_ratings:/joiner_ratings
 
     joiner_rating2:
         container_name: joiner_rating2
@@ -385,7 +385,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_ratings:/joiner_ratings
 
     reduce_by_country_sum_budget0:
         container_name: reduce_by_country_sum_budget0
@@ -399,8 +399,11 @@ services:
             - WORKER_OUTPUT_COUNT=2
             - NAME=reduce_by_country_sum_budget0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_country_sum_budget0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -417,8 +420,11 @@ services:
             - WORKER_OUTPUT_COUNT=2
             - NAME=reduce_by_country_sum_budget1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_country_sum_budget1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -435,8 +441,11 @@ services:
             - WORKER_OUTPUT_COUNT=2
             - NAME=reduce_by_country_sum_budget2
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_country_sum_budget2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -453,8 +462,11 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_5_by_budget0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -471,8 +483,11 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_5_by_budget1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -489,8 +504,11 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_bottom_avg_rating0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -507,8 +525,11 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_bottom_avg_rating1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -525,8 +546,11 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_sentiment0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_sentiment0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -543,8 +567,11 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_sentiment1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_sentiment1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -561,8 +588,11 @@ services:
             - WORKER_OUTPUT_COUNT=2
             - NAME=reduce_by_actor0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_actor0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -579,8 +609,11 @@ services:
             - WORKER_OUTPUT_COUNT=2
             - NAME=reduce_by_actor1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_actor1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -597,6 +630,7 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -615,6 +649,7 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -634,6 +669,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -653,6 +689,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -672,6 +709,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid2
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -691,6 +729,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid3
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -710,6 +749,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid4
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -729,6 +769,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid5
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -748,6 +789,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid6
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -767,6 +809,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid7
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -786,6 +829,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid8
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -805,6 +849,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid9
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -826,7 +871,7 @@ services:
         depends_on:
             - endpoint
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/client/datasets:/datasets
 
     monitor0:
         container_name: monitor0

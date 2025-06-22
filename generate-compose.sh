@@ -41,6 +41,8 @@ else
     exit 1
 fi
 
+max_log_size=1000
+
 # Verify number_of_workers is a positive integer
 if ! [[ "$number_of_workers" =~ ^[0-9]+$ ]] || [ "$number_of_workers" -le -1 ]; then
     echo "Error: Number of workers must be a positive integer"
@@ -362,8 +364,9 @@ compose_reduce() {
     local name=$4
     local dockerfile_path=$5
     local entrypoint=$6
-    echo "    $name$worker_id:
-        container_name: $name$worker_id
+    local container_name="${name}${worker_id}"
+    echo "    $container_name:
+        container_name: $container_name
         build:
             context: .
             dockerfile: $dockerfile_path/Dockerfile
@@ -372,10 +375,13 @@ compose_reduce() {
             - WORKER_ID=$worker_id
             - WORKER_COUNT=$worker_count
             - WORKER_OUTPUT_COUNT=$worker_output_count
-            - NAME=$name$worker_id
+            - NAME=$container_name
             - MONITOR_ADDRESSES=$monitor_addresses
+            - MAX_LOG_SIZE=$max_log_size
         networks:
             - local_net
+        volumes:
+            - ${PWD}/reducer_volumes/$container_name:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -433,6 +439,7 @@ compose_reduce_top_10_by_actor() {
             - WORKER_OUTPUT_COUNT=$worker_output_count
             - NAME=reduce_top_10_by_actor$worker_id
             - MONITOR_ADDRESSES=$monitor_addresses
+            - MAX_LOG_SIZE=$max_log_size
         networks:
             - local_net
         depends_on:
@@ -458,6 +465,7 @@ compose_reduce_by_movieId() {
             - PREFETCH=1
             - NAME=reduce_by_movieid$worker_id
             - MONITOR_ADDRESSES=$monitor_addresses
+            - MAX_LOG_SIZE=$max_log_size
         networks:
             - local_net
         depends_on:

@@ -26,4 +26,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /build/bin/map_reducer github.com/ptour
 
 FROM busybox:latest
 COPY --from=builder /build/bin/map_reducer /map_reducer
+RUN mkdir /transaction_log
+ENV LOG_DIR=/transaction_log
 ENTRYPOINT ["/bin/sh"]

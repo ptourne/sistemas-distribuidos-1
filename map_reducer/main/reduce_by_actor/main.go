@@ -20,6 +20,14 @@ var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_actor_%s", WORKER_ID), 
 func main() {
 	name := os.Getenv("NAME")
 	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
+	logDir := os.Getenv("LOG_DIR")
+	maxLogSizeStr := os.Getenv("MAX_LOG_SIZE")
+	maxLogSize, err := strconv.Atoi(maxLogSizeStr)
+	if err != nil {
+		log.Errorf("failed to max log size: %s", err)
+		return
+	}
+
 	connector, err := rabbitmq.Connector()
 	if err != nil {
 		log.Errorf("failed to create connector: %s", err)
@@ -48,6 +56,8 @@ func main() {
 		id,
 		uint(count),
 		uint(count_output),
+		logDir,
+		uint64(maxLogSize),
 	)
 	if err != nil {
 		log.Errorf("error creating maperducer: %s", err)
