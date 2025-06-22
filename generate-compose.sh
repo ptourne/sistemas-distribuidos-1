@@ -437,6 +437,7 @@ compose_reduce_top_10_by_actor() {
             - WORKER_OUTPUT_COUNT=$worker_output_count
             - NAME=reduce_top_10_by_actor$worker_id
             - MONITOR_ADDRESSES=$monitor_addresses
+            - MAX_LOG_SIZE=$max_log_size
         networks:
             - local_net
         depends_on:
@@ -462,6 +463,7 @@ compose_reduce_by_movieId() {
             - PREFETCH=1
             - NAME=reduce_by_movieid$worker_id
             - MONITOR_ADDRESSES=$monitor_addresses
+            - MAX_LOG_SIZE=$max_log_size
         networks:
             - local_net
         depends_on:

@@ -630,6 +630,7 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -648,6 +649,7 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -667,6 +669,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -686,6 +689,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -705,6 +709,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid2
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -724,6 +729,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid3
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -743,6 +749,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid4
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -762,6 +769,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid5
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -781,6 +789,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid6
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -800,6 +809,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid7
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -819,6 +829,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid8
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
@@ -838,6 +849,7 @@ services:
             - PREFETCH=1
             - NAME=reduce_by_movieid9
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         depends_on:
