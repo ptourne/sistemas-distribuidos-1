@@ -98,7 +98,9 @@ func TestMapReducer(t *testing.T) {
 	test5 := provider.AsyncDeployRabbit()
 	test6 := provider.AsyncDeployRabbit()
 	test7 := provider.AsyncDeployRabbit()
-	// test8 := provider.AsyncDeployRabbit()
+	test8 := provider.AsyncDeployRabbit()
+	test9 := provider.AsyncDeployRabbit()
+	test10 := provider.AsyncDeployRabbit()
 
 	test1container := <-test1
 	defer test1container.Container.Teardown()
@@ -114,8 +116,12 @@ func TestMapReducer(t *testing.T) {
 	defer test6container.Container.Teardown()
 	test7container := <-test7
 	defer test7container.Container.Teardown()
-	// test8container := <-test8
-	// defer test8container.Container.Teardown()
+	test8container := <-test8
+	defer test8container.Container.Teardown()
+	test9container := <-test9
+	defer test9container.Container.Teardown()
+	test10container := <-test10
+	defer test10container.Container.Teardown()
 
 	t.Run("CoordinatorLogEmpty", func(t *testing.T) {
 		init := test1container
@@ -688,7 +694,7 @@ func TestMapReducer(t *testing.T) {
 	})
 
 	t.Run("CoordinatorLogRecoveryMsgError", func(t *testing.T) {
-		init := test4container
+		init := test8container
 		assert.NoError(t, init.Err)
 		sender, receiver := startCoordinator(t, init)
 		defer sender.Close()
@@ -772,7 +778,7 @@ func TestMapReducer(t *testing.T) {
 	})
 
 	t.Run("CoordinatorLogRecoveryQueryPhaseQ1", func(t *testing.T) {
-		init := test1container
+		init := test9container
 		assert.NoError(t, init.Err)
 		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointSender := startCoordinatorQuery(t, init)
 		defer sender.Close()
@@ -811,39 +817,46 @@ func TestMapReducer(t *testing.T) {
 		assert.True(t, model.EqualsRows(&rowQ1, rows[1][0]))
 		assert.True(t, ended)
 
-		// Process the data to get to query phase
-		// ctx, ctxStop, wg := coordinatorRun(t, init, log, tmpDir)
-		// var rows []middleware.Envelope[*model.Row]
-		// for i := 0; i < 4; i++ {
-		// 	row, err := receiver.Next(ctx)
-		// 	assert.NoError(t, err)
-		// 	rows = append(rows, row)
-		// 	row.Ack(false)
-		// }
+		// Restart coordinator and verify recovery
+		log = logger.NewConsoleLogger("test", logger.Info)
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir, true)
 
-		// // Stop coordinator during query phase (Q1)
-		// time.Sleep(1 * time.Second)
-		// ctxStop()
-		// wg.Wait()
+		rowQ2 := model.Row{
+			Strings:  map[string]string{"country": "US"},
+			Numerics: map[string]uint64{"budget_sum": 120153886644},
+		}
+		sendQ(t, q2Sender, cid, 1, &rowQ2)
+		sendQEOF(t, q2Sender, cid)
 
-		// // Verify query phase log exists
-		// queryLogPath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "querys")
-		// _, err := os.Stat(queryLogPath)
-		// assert.NoError(t, err, "Query log file should exist")
+		rowQ3 := model.Row{
+			Floats:  map[string]float64{"avg_rating": 4.4},
+			Strings: map[string]string{"title": "The Mugger", "movieID": "6636"},
+		}
+		sendQ(t, q3Sender, cid, 1, &rowQ3)
+		sendQEOF(t, q3Sender, cid)
 
-		// // Restart coordinator and verify recovery
-		// log = logger.NewConsoleLogger("test", logger.Info)
-		// ctx, ctxStop, wg = coordinatorRun(t, init, log, tmpDir)
+		rowQ4 := model.Row{
+			Strings: map[string]string{"title": "The Mugger", "movieID": "6636"},
+		}
+		sendQ(t, q4Sender, cid, 1, &rowQ4)
+		sendQEOF(t, q4Sender, cid)
 
-		// // Verify that the coordinator recovers from query phase
-		// // The coordinator should continue processing queries
-		// time.Sleep(2 * time.Second)
-		// ctxStop()
-		// wg.Wait()
+		rowQ5 := model.Row{
+			Strings: map[string]string{"title": "The Mugger", "movieID": "6636"},
+		}
+		sendQ(t, q5Sender, cid, 1, &rowQ5)
+		sendQEOF(t, q5Sender, cid)
 
-		// // Verify that the log was cleaned up after completion
-		// _, err = os.Stat(queryLogPath)
-		// assert.Error(t, err, "Query log file should be cleaned up after completion")
+		time.Sleep(5 * time.Second)
+
+		ctxStop()
+		wg.Wait()
+
+		// Verify that the log was cleaned up after completion
+		queryLogPath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "querys")
+		_, err := os.Stat(queryLogPath)
+		assert.Error(t, err, "Query log file should be cleaned up after completion")
+
 	})
 
 }
@@ -896,7 +909,7 @@ func coordinatorRun(t *testing.T, init rabbitmq.AsyncDeployRabbitRes, log *logge
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	ctx, ctxStop := context.WithCancel(context.Background())
-	go runCoordinator(ctx, log, cConnector, tmpDir, 1, 1, &wg, queriesPhaseIncluded)
+	go runCoordinator(ctx, log, cConnector, tmpDir, 1, 1, &wg, queriesPhaseIncluded, false)
 	return ctx, ctxStop, &wg
 }
 
