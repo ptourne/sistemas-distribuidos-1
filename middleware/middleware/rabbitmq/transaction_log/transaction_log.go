@@ -31,7 +31,6 @@ type TransactionLog interface {
 	ReceivedEOF(cid uint64) error
 	Acknowledged() error
 	OpenedTransaction() *Transaction
-	HasTransactions(cid uint64) bool
 	Close() error
 	Dump(data []byte) error
 }
@@ -151,31 +150,31 @@ func newTransactionLogFromCheckpoint(dirPath string, lastLogFileN int, parent A)
 		return nil, fmt.Errorf("failed to open checkpoint file: %v", err)
 	}
 
-	lastClosedTransactionsLen, err := codec.Uint64Decode(file)
-	if err != nil {
-		if err := file.Close(); err != nil {
-			return nil, fmt.Errorf("failed to close previous checkpoint file: %w", err)
-		}
-		return nil, fmt.Errorf("failed to read last closed transaction from checkpoint file: %v", err)
-	}
-	lastClosedTransactions := make(map[uint64]uint64, lastClosedTransactionsLen)
-	for range lastClosedTransactionsLen {
-		cid, err := codec.Uint64Decode(file)
-		if err != nil {
-			if err := file.Close(); err != nil {
-				return nil, fmt.Errorf("failed to close previous checkpoint file: %w", err)
-			}
-			return nil, fmt.Errorf("failed to read cid last closed transaction from checkpoint file: %v", err)
-		}
-		lastTransaction, err := codec.Uint64Decode(file)
-		if err != nil {
-			if err := file.Close(); err != nil {
-				return nil, fmt.Errorf("failed to close previous checkpoint file: %w", err)
-			}
-			return nil, fmt.Errorf("failed to read last closed transaction from checkpoint file: %v and cid: %v", err, cid)
-		}
-		lastClosedTransactions[cid] = lastTransaction
-	}
+	// lastClosedTransactionsLen, err := codec.Uint64Decode(file)
+	// if err != nil {
+	// 	if err := file.Close(); err != nil {
+	// 		return nil, fmt.Errorf("failed to close previous checkpoint file: %w", err)
+	// 	}
+	// 	return nil, fmt.Errorf("failed to read last closed transaction from checkpoint file: %v", err)
+	// }
+	// lastClosedTransactions := make(map[uint64]uint64, lastClosedTransactionsLen)
+	// for range lastClosedTransactionsLen {
+	// 	cid, err := codec.Uint64Decode(file)
+	// 	if err != nil {
+	// 		if err := file.Close(); err != nil {
+	// 			return nil, fmt.Errorf("failed to close previous checkpoint file: %w", err)
+	// 		}
+	// 		return nil, fmt.Errorf("failed to read cid last closed transaction from checkpoint file: %v", err)
+	// 	}
+	// 	lastTransaction, err := codec.Uint64Decode(file)
+	// 	if err != nil {
+	// 		if err := file.Close(); err != nil {
+	// 			return nil, fmt.Errorf("failed to close previous checkpoint file: %w", err)
+	// 		}
+	// 		return nil, fmt.Errorf("failed to read last closed transaction from checkpoint file: %v and cid: %v", err, cid)
+	// 	}
+	// 	lastClosedTransactions[cid] = lastTransaction
+	// }
 
 	data, err := io.ReadAll(file)
 	if err != nil {
@@ -199,12 +198,12 @@ func newTransactionLogFromCheckpoint(dirPath string, lastLogFileN int, parent A)
 		return nil, fmt.Errorf("failed to create transaction log file: %v", err)
 	}
 	return &transactionLog{
-		checkpointDirectory:    checkpointDirectory,
-		logDirectory:           logDirectory,
-		idx:                    uint64(lastLogFileN),
-		logWriter:              logFile,
-		openedTransaction:      nil,
-		lastClosedTransactions: lastClosedTransactions,
+		checkpointDirectory: checkpointDirectory,
+		logDirectory:        logDirectory,
+		idx:                 uint64(lastLogFileN),
+		logWriter:           logFile,
+		openedTransaction:   nil,
+		// lastClosedTransactions: lastClosedTransactions,
 	}, nil
 }
 
@@ -262,12 +261,12 @@ func logFiles(dirPath string) ([]os.DirEntry, error) {
 }
 
 type transactionLog struct {
-	checkpointDirectory    string
-	logDirectory           string
-	idx                    uint64
-	logWriter              *os.File
-	openedTransaction      *Transaction
-	lastClosedTransactions map[uint64]uint64
+	checkpointDirectory string
+	logDirectory        string
+	idx                 uint64
+	logWriter           *os.File
+	openedTransaction   *Transaction
+	// lastClosedTransactions map[uint64]uint64
 }
 
 func (l *transactionLog) Dump(data []byte) error {
@@ -278,35 +277,35 @@ func (l *transactionLog) Dump(data []byte) error {
 	}
 	defer file.Close()
 
-	lastClosedTransactionLen := len(l.lastClosedTransactions)
-	buf, err := codec.Uint64Encode(uint64(lastClosedTransactionLen))
-	if err != nil {
-		return fmt.Errorf("failed to encode last closed transaction length: %w", err)
-	}
-	err = codec.DoWrite(buf, file)
-	if err != nil {
-		return fmt.Errorf("failed to write last closed transaction length to checkpoint file: %w", err)
-	}
+	// lastClosedTransactionLen := len(l.lastClosedTransactions)
+	// buf, err := codec.Uint64Encode(uint64(lastClosedTransactionLen))
+	// if err != nil {
+	// 	return fmt.Errorf("failed to encode last closed transaction length: %w", err)
+	// }
+	// err = codec.DoWrite(buf, file)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to write last closed transaction length to checkpoint file: %w", err)
+	// }
 
-	for cid, lastTransaction := range l.lastClosedTransactions {
-		buf, err := codec.Uint64Encode(cid)
-		if err != nil {
-			return fmt.Errorf("failed to encode last closed transaction: %w", err)
-		}
-		err = codec.DoWrite(buf, file)
-		if err != nil {
-			return fmt.Errorf("failed to write last closed transaction to checkpoint file: %w", err)
-		}
-		buf, err = codec.Uint64Encode(lastTransaction)
-		if err != nil {
-			return fmt.Errorf("failed to encode last closed transaction: %w", err)
-		}
-		err = codec.DoWrite(buf, file)
-		if err != nil {
-			return fmt.Errorf("failed to write last closed transaction to checkpoint file: %w", err)
-		}
+	// for cid, lastTransaction := range l.lastClosedTransactions {
+	// 	buf, err := codec.Uint64Encode(cid)
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to encode last closed transaction: %w", err)
+	// 	}
+	// 	err = codec.DoWrite(buf, file)
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to write last closed transaction to checkpoint file: %w", err)
+	// 	}
+	// 	buf, err = codec.Uint64Encode(lastTransaction)
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to encode last closed transaction: %w", err)
+	// 	}
+	// 	err = codec.DoWrite(buf, file)
+	// 	if err != nil {
+	// 		return fmt.Errorf("failed to write last closed transaction to checkpoint file: %w", err)
+	// 	}
 
-	}
+	// }
 	if len(data) > 0 {
 		err = codec.DoWrite(data, file)
 		if err != nil {
@@ -353,12 +352,12 @@ func newTransactionLog(dirPath string, idx uint64) (*transactionLog, error) {
 	}
 
 	return &transactionLog{
-		checkpointDirectory:    checkpointDirectory,
-		logDirectory:           logDirectory,
-		idx:                    idx,
-		logWriter:              nil,
-		openedTransaction:      nil,
-		lastClosedTransactions: make(map[uint64]uint64),
+		checkpointDirectory: checkpointDirectory,
+		logDirectory:        logDirectory,
+		idx:                 idx,
+		logWriter:           nil,
+		openedTransaction:   nil,
+		// lastClosedTransactions: make(map[uint64]uint64),
 	}, nil
 }
 
@@ -425,7 +424,7 @@ func (t *transactionLog) receivedEOF(log receivedEof) {
 		Cid: log.cid,
 		T:   ReceivedType_EOF,
 	}
-	delete(t.lastClosedTransactions, log.cid)
+	// delete(t.lastClosedTransactions, log.cid)
 }
 
 func (t *transactionLog) Acknowledged() error {
@@ -442,19 +441,14 @@ func (t *transactionLog) Acknowledged() error {
 
 func (t *transactionLog) acknowledged() {
 	if t.openedTransaction != nil && t.openedTransaction.T != ReceivedType_EOF {
-		t.lastClosedTransactions[t.openedTransaction.Cid] = t.openedTransaction.Id
-		fmt.Printf("TL: Acknowledged: cid: %d, id: %d\n", t.openedTransaction.Cid, t.openedTransaction.Id)
+		// t.lastClosedTransactions[t.openedTransaction.Cid] = t.openedTransaction.Id
+		// fmt.Printf("TL: Acknowledged: cid: %d, id: %d\n", t.openedTransaction.Cid, t.openedTransaction.Id)
 		t.openedTransaction = nil
 	}
 }
 
 func (t *transactionLog) OpenedTransaction() *Transaction {
 	return t.openedTransaction
-}
-
-func (t *transactionLog) HasTransactions(cid uint64) bool {
-	_, ok := t.lastClosedTransactions[cid]
-	return ok
 }
 
 func (t *transactionLog) Close() error {
