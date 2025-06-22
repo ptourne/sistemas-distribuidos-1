@@ -527,7 +527,7 @@ func TestReadQueriesRows(t *testing.T) {
 
 		_, _, _, err = ReadQueriesRows(file)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "no lines found in query file")
+		assert.Contains(t, err.Error(), "no valid queries found")
 	})
 
 	t.Run("Test query without rows", func(t *testing.T) {
@@ -583,11 +583,18 @@ func TestReadQueriesRows(t *testing.T) {
 			Floats:   map[string]float64{"rating": 3.8, "score": 7.2},
 		}
 
+		complexRow3 := &model.Row{
+			Strings:  map[string]string{"country": "US"},
+			Numerics: map[string]uint64{"budget_sum": 120153886644},
+		}
+
 		err = tl.WriteBeginQuery(1)
 		assert.NoError(t, err)
 		err = tl.WriteRowQuery(complexRow1)
 		assert.NoError(t, err)
 		err = tl.WriteRowQuery(complexRow2)
+		assert.NoError(t, err)
+		err = tl.WriteRowQuery(complexRow3)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -606,9 +613,10 @@ func TestReadQueriesRows(t *testing.T) {
 		// Verificar que las rows complejas se leyeron correctamente
 		rows, exists := queryRowsMap[1]
 		assert.True(t, exists)
-		assert.Len(t, rows, 2)
+		assert.Len(t, rows, 3)
 		assert.True(t, model.EqualsRows(complexRow1, rows[0]))
 		assert.True(t, model.EqualsRows(complexRow2, rows[1]))
+		assert.True(t, model.EqualsRows(complexRow3, rows[2]))
 	})
 
 	t.Run("Test corrupted lines are ignored", func(t *testing.T) {

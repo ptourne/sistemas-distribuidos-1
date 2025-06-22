@@ -836,13 +836,15 @@ func TestMapReducer(t *testing.T) {
 		sendQEOF(t, q3Sender, cid)
 
 		rowQ4 := model.Row{
-			Strings: map[string]string{"title": "The Mugger", "movieID": "6636"},
+			Strings:  map[string]string{"actor": "Ricardo Darín"},
+			Numerics: map[string]uint64{"count": 17},
 		}
 		sendQ(t, q4Sender, cid, 1, &rowQ4)
 		sendQEOF(t, q4Sender, cid)
 
 		rowQ5 := model.Row{
-			Strings: map[string]string{"title": "The Mugger", "movieID": "6636"},
+			Strings: map[string]string{"sentiment": "NEGATIVE"},
+			Floats:  map[string]float64{"avg_rate": 5453.397595},
 		}
 		sendQ(t, q5Sender, cid, 1, &rowQ5)
 		sendQEOF(t, q5Sender, cid)
@@ -871,6 +873,477 @@ func TestMapReducer(t *testing.T) {
 		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ4)
 		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 5)
 		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ5)
+		nextVerifyPrune(t, allQuerysToEndpointReceiver, ctx)
+		nextVerifyEOF(t, allQuerysToEndpointReceiver, ctx)
+		ctxstop()
+	})
+
+	t.Run("CoordinatorLogRecoveryQueryPhaseQ2", func(t *testing.T) {
+		init := test9container
+		assert.NoError(t, init.Err)
+		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
+		defer sender.Close()
+		defer receiver.Close()
+		defer q1Sender.Close()
+		defer q2Sender.Close()
+		defer q3Sender.Close()
+		defer q4Sender.Close()
+		defer q5Sender.Close()
+		defer allQuerysToEndpointReceiver.Close()
+		cid := uint64(1)
+
+		log := logger.NewConsoleLogger("coordinator", logger.Info)
+		tmpDir := t.TempDir()
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, true)
+
+		// Send file data and process it
+		fileName := "test_csv"
+		sendCoordinator(t, fileName, sender, common.FileName, cid, 1)
+		csvData := "id,name\n1,Alice\n2,Bob\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 2)
+		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 3)
+		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 4)
+
+		time.Sleep(1 * time.Second)
+		rowQ1 := model.Row{
+			Strings: map[string]string{"title": "Alice"},
+			Arrays:  map[string][]string{"genres": {"Action", "Adventure", "Sci-Fi"}},
+		}
+		sendQ(t, q1Sender, cid, 1, &rowQ1)
+		rowQ1_2 := model.Row{
+			Strings: map[string]string{"title": "Spirit"},
+			Arrays:  map[string][]string{"genres": {"Adventure", "Fantasy"}},
+		}
+		sendQ(t, q1Sender, cid, 1, &rowQ1_2)
+		qNumber, rows, ended := stopCoordinatorAndReadLogQuery(t, ctxStop, wg, tmpDir, cid)
+		assert.Equal(t, uint8(1), qNumber)
+		assert.True(t, model.EqualsRows(&rowQ1, rows[1][0]))
+		assert.True(t, model.EqualsRows(&rowQ1_2, rows[1][1]))
+		assert.False(t, ended)
+
+		// Restart coordinator and verify recovery
+		log = logger.NewConsoleLogger("test", logger.Info)
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir, true)
+
+		rowQ1_3 := model.Row{
+			Strings: map[string]string{"title": "Cindirella"},
+			Arrays:  map[string][]string{"genres": {"Fantasy", "Romance"}},
+		}
+		sendQ(t, q1Sender, cid, 1, &rowQ1_3)
+		sendQEOF(t, q1Sender, cid)
+
+		rowQ2 := model.Row{
+			Strings:  map[string]string{"country": "US"},
+			Numerics: map[string]uint64{"budget_sum": 120153886644},
+		}
+		sendQ(t, q2Sender, cid, 1, &rowQ2)
+		sendQEOF(t, q2Sender, cid)
+
+		rowQ3 := model.Row{
+			Floats:  map[string]float64{"avg_rating": 4.4},
+			Strings: map[string]string{"title": "The Mugger", "movieID": "6636"},
+		}
+		sendQ(t, q3Sender, cid, 1, &rowQ3)
+		sendQEOF(t, q3Sender, cid)
+
+		rowQ4 := model.Row{
+			Strings:  map[string]string{"actor": "Ricardo Darín"},
+			Numerics: map[string]uint64{"count": 17},
+		}
+		sendQ(t, q4Sender, cid, 1, &rowQ4)
+		sendQEOF(t, q4Sender, cid)
+
+		rowQ5 := model.Row{
+			Strings: map[string]string{"sentiment": "NEGATIVE"},
+			Floats:  map[string]float64{"avg_rate": 5453.397595},
+		}
+		sendQ(t, q5Sender, cid, 1, &rowQ5)
+		sendQEOF(t, q5Sender, cid)
+
+		time.Sleep(2 * time.Second)
+
+		ctxStop()
+		wg.Wait()
+
+		// Verify that the log was cleaned up after completion
+		queryLogPath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "querys")
+		_, err := os.Stat(queryLogPath)
+		assert.Error(t, err, "Query log file should be cleaned up after completion")
+
+		//verifico con allQuerysToEndpointSender que se enviaron las querys
+		ctx, ctxstop := context.WithCancel(context.Background())
+		log.Infof("verifico que se enviaron las querys")
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 1)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ1)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ1_2)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 1)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ1)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ1_2)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ1_3)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 2)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ2)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 3)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ3)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 4)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ4)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 5)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ5)
+		nextVerifyPrune(t, allQuerysToEndpointReceiver, ctx)
+		nextVerifyEOF(t, allQuerysToEndpointReceiver, ctx)
+		ctxstop()
+	})
+
+	t.Run("CoordinatorLogRecoveryQueryPhaseQ3", func(t *testing.T) {
+		init := test10container
+		assert.NoError(t, init.Err)
+		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
+		defer sender.Close()
+		defer receiver.Close()
+		defer q1Sender.Close()
+		defer q2Sender.Close()
+		defer q3Sender.Close()
+		defer q4Sender.Close()
+		defer q5Sender.Close()
+		defer allQuerysToEndpointReceiver.Close()
+		cid := uint64(1)
+
+		log := logger.NewConsoleLogger("coordinator", logger.Info)
+		tmpDir := t.TempDir()
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, true)
+
+		// Send file data and process it
+		fileName := "test_csv"
+		sendCoordinator(t, fileName, sender, common.FileName, cid, 1)
+		csvData := "id,name\n1,Alice\n2,Bob\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 2)
+		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 3)
+		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 4)
+
+		time.Sleep(1 * time.Second)
+		// Complete Q1
+		rowQ1 := model.Row{
+			Strings: map[string]string{"title": "Alice"},
+			Arrays:  map[string][]string{"genres": {"Action", "Adventure", "Sci-Fi"}},
+		}
+		sendQ(t, q1Sender, cid, 1, &rowQ1)
+		sendQEOF(t, q1Sender, cid)
+
+		// Complete Q2
+		rowQ2 := model.Row{
+			Strings:  map[string]string{"country": "US"},
+			Numerics: map[string]uint64{"budget_sum": 120153886644},
+		}
+		sendQ(t, q2Sender, cid, 1, &rowQ2)
+		sendQEOF(t, q2Sender, cid)
+
+		// Start Q3 but don't complete it
+		rowQ3_1 := model.Row{
+			Floats:  map[string]float64{"avg_rating": 4.4},
+			Strings: map[string]string{"title": "The Mugger", "movieID": "6636"},
+		}
+		sendQ(t, q3Sender, cid, 1, &rowQ3_1)
+		rowQ3_2 := model.Row{
+			Floats:  map[string]float64{"avg_rating": 3.8},
+			Strings: map[string]string{"title": "Another Movie", "movieID": "6637"},
+		}
+		sendQ(t, q3Sender, cid, 1, &rowQ3_2)
+		qNumber, rows, ended := stopCoordinatorAndReadLogQuery(t, ctxStop, wg, tmpDir, cid)
+		assert.Equal(t, uint8(3), qNumber)
+		assert.Equal(t, 1, len(rows[1]))
+		assert.Equal(t, 1, len(rows[2]))
+		assert.Equal(t, 2, len(rows[3]))
+		assert.True(t, model.EqualsRows(&rowQ1, rows[1][0]))
+		assert.True(t, model.EqualsRows(&rowQ2, rows[2][0]))
+		assert.True(t, model.EqualsRows(&rowQ3_1, rows[3][0]))
+		assert.True(t, model.EqualsRows(&rowQ3_2, rows[3][1]))
+		assert.False(t, ended)
+
+		// Restart coordinator and verify recovery
+		log = logger.NewConsoleLogger("test", logger.Info)
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir, true)
+
+		// Complete Q3
+		rowQ3_3 := model.Row{
+			Floats:  map[string]float64{"avg_rating": 2.1},
+			Strings: map[string]string{"title": "Bad Movie", "movieID": "6638"},
+		}
+		sendQ(t, q3Sender, cid, 1, &rowQ3_3)
+		sendQEOF(t, q3Sender, cid)
+
+		// Complete remaining queries
+		rowQ4 := model.Row{
+			Strings:  map[string]string{"actor": "Ricardo Darín"},
+			Numerics: map[string]uint64{"count": 17},
+		}
+		sendQ(t, q4Sender, cid, 1, &rowQ4)
+		sendQEOF(t, q4Sender, cid)
+
+		rowQ5 := model.Row{
+			Strings: map[string]string{"sentiment": "NEGATIVE"},
+			Floats:  map[string]float64{"avg_rate": 5453.397595},
+		}
+		sendQ(t, q5Sender, cid, 1, &rowQ5)
+		sendQEOF(t, q5Sender, cid)
+
+		time.Sleep(2 * time.Second)
+
+		ctxStop()
+		wg.Wait()
+
+		// Verify that the log was cleaned up after completion
+		queryLogPath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "querys")
+		_, err := os.Stat(queryLogPath)
+		assert.Error(t, err, "Query log file should be cleaned up after completion")
+
+		//verifico con allQuerysToEndpointSender que se enviaron las querys
+		ctx, ctxstop := context.WithCancel(context.Background())
+		log.Infof("verifico que se enviaron las querys")
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 1)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ1)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 2)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ2)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 3)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ3_1)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ3_2)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 3)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ3_1)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ3_2)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ3_3)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 4)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ4)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 5)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ5)
+		nextVerifyPrune(t, allQuerysToEndpointReceiver, ctx)
+		nextVerifyEOF(t, allQuerysToEndpointReceiver, ctx)
+		ctxstop()
+	})
+	t.Run("CoordinatorLogRecoveryQueryPhaseQ5", func(t *testing.T) {
+		init := test10container
+		assert.NoError(t, init.Err)
+		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
+		defer sender.Close()
+		defer receiver.Close()
+		defer q1Sender.Close()
+		defer q2Sender.Close()
+		defer q3Sender.Close()
+		defer q4Sender.Close()
+		defer q5Sender.Close()
+		defer allQuerysToEndpointReceiver.Close()
+		cid := uint64(1)
+
+		log := logger.NewConsoleLogger("coordinator", logger.Info)
+		tmpDir := t.TempDir()
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, true)
+
+		// Send file data and process it
+		fileName := "test_csv"
+		sendCoordinator(t, fileName, sender, common.FileName, cid, 1)
+		csvData := "id,name\n1,Alice\n2,Bob\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 2)
+		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 3)
+		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 4)
+
+		time.Sleep(1 * time.Second)
+		// Complete Q1, Q2, Q3, Q4
+		rowQ1 := model.Row{
+			Strings: map[string]string{"title": "Alice"},
+			Arrays:  map[string][]string{"genres": {"Action", "Adventure", "Sci-Fi"}},
+		}
+		sendQ(t, q1Sender, cid, 1, &rowQ1)
+		sendQEOF(t, q1Sender, cid)
+
+		rowQ2 := model.Row{
+			Strings:  map[string]string{"country": "US"},
+			Numerics: map[string]uint64{"budget_sum": 120153886644},
+		}
+		sendQ(t, q2Sender, cid, 1, &rowQ2)
+		sendQEOF(t, q2Sender, cid)
+
+		rowQ3 := model.Row{
+			Floats:  map[string]float64{"avg_rating": 4.4},
+			Strings: map[string]string{"title": "The Mugger", "movieID": "6636"},
+		}
+		sendQ(t, q3Sender, cid, 1, &rowQ3)
+		sendQEOF(t, q3Sender, cid)
+
+		rowQ4 := model.Row{
+			Strings: map[string]string{"title": "The Mugger", "movieID": "6636"},
+		}
+		sendQ(t, q4Sender, cid, 1, &rowQ4)
+		sendQEOF(t, q4Sender, cid)
+
+		// Start Q5 but don't complete it
+		rowQ5_1 := model.Row{
+			Strings: map[string]string{"title": "The Mugger", "movieID": "6636"},
+		}
+		sendQ(t, q5Sender, cid, 1, &rowQ5_1)
+		rowQ5_2 := model.Row{
+			Strings: map[string]string{"title": "Another Movie", "movieID": "6637"},
+		}
+		sendQ(t, q5Sender, cid, 1, &rowQ5_2)
+		qNumber, rows, ended := stopCoordinatorAndReadLogQuery(t, ctxStop, wg, tmpDir, cid)
+		assert.Equal(t, uint8(5), qNumber)
+		assert.True(t, model.EqualsRows(&rowQ5_1, rows[5][0]))
+		assert.True(t, model.EqualsRows(&rowQ5_2, rows[5][1]))
+		assert.False(t, ended)
+
+		// Restart coordinator and verify recovery
+		log = logger.NewConsoleLogger("test", logger.Info)
+		_, ctxStop, wg = coordinatorRun(t, init, log, tmpDir, true)
+
+		// Complete Q5
+		rowQ5_3 := model.Row{
+			Strings: map[string]string{"title": "Third Movie", "movieID": "6638"},
+		}
+		sendQ(t, q5Sender, cid, 1, &rowQ5_3)
+		sendQEOF(t, q5Sender, cid)
+
+		time.Sleep(2 * time.Second)
+
+		ctxStop()
+		wg.Wait()
+
+		// Verify that the log was cleaned up after completion
+		queryLogPath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "querys")
+		_, err := os.Stat(queryLogPath)
+		assert.Error(t, err, "Query log file should be cleaned up after completion")
+
+		//verifico con allQuerysToEndpointSender que se enviaron las querys
+		ctx, ctxstop := context.WithCancel(context.Background())
+		log.Infof("verifico que se enviaron las querys")
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 1)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ1)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 2)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ2)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 3)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ3)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 4)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ4)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 5)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ5_1)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ5_2)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 5)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ5_1)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ5_2)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ5_3)
+		nextVerifyPrune(t, allQuerysToEndpointReceiver, ctx)
+		nextVerifyEOF(t, allQuerysToEndpointReceiver, ctx)
+		ctxstop()
+
+		// Verify that the log was cleaned up after completion
+		_, err = os.Stat(queryLogPath)
+		assert.Error(t, err, "Query log file should be cleaned up after completion")
+	})
+
+	t.Run("CoordinatorLogRecoveryQueryPhaseEmptyQueries", func(t *testing.T) {
+		init := test10container
+		assert.NoError(t, init.Err)
+		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
+		defer sender.Close()
+		defer receiver.Close()
+		defer q1Sender.Close()
+		defer q2Sender.Close()
+		defer q3Sender.Close()
+		defer q4Sender.Close()
+		defer q5Sender.Close()
+		defer allQuerysToEndpointReceiver.Close()
+		cid := uint64(1)
+
+		log := logger.NewConsoleLogger("coordinator", logger.Info)
+		tmpDir := t.TempDir()
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, true)
+
+		// Send file data and process it
+		fileName := "test_csv"
+		sendCoordinator(t, fileName, sender, common.FileName, cid, 1)
+		csvData := "id,name\n1,Alice\n2,Bob\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 2)
+		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 3)
+		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 4)
+
+		time.Sleep(1 * time.Second)
+		// Send empty queries (just EOFs)
+		sendQEOF(t, q1Sender, cid)
+		sendQEOF(t, q2Sender, cid)
+		sendQEOF(t, q3Sender, cid)
+		sendQEOF(t, q4Sender, cid)
+		sendQEOF(t, q5Sender, cid)
+
+		time.Sleep(2 * time.Second)
+
+		ctxStop()
+		wg.Wait()
+
+		// Verify that the log was cleaned up after completion
+		queryLogPath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "querys")
+		_, err := os.Stat(queryLogPath)
+		assert.Error(t, err, "Query log file should be cleaned up after completion")
+
+		//verifico con allQuerysToEndpointSender que se enviaron las querys vacías
+		ctx, ctxstop := context.WithCancel(context.Background())
+		log.Infof("verifico que se enviaron las querys vacías")
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 1)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 2)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 3)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 4)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 5)
+		nextVerifyPrune(t, allQuerysToEndpointReceiver, ctx)
+		nextVerifyEOF(t, allQuerysToEndpointReceiver, ctx)
+		ctxstop()
+	})
+
+	t.Run("CoordinatorLogRecoveryQueryPhaseEmptyQueries", func(t *testing.T) {
+		init := test10container
+		assert.NoError(t, init.Err)
+		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
+		defer sender.Close()
+		defer receiver.Close()
+		defer q1Sender.Close()
+		defer q2Sender.Close()
+		defer q3Sender.Close()
+		defer q4Sender.Close()
+		defer q5Sender.Close()
+		defer allQuerysToEndpointReceiver.Close()
+		cid := uint64(1)
+
+		log := logger.NewConsoleLogger("coordinator", logger.Info)
+		tmpDir := t.TempDir()
+		_, ctxStop, wg := coordinatorRun(t, init, log, tmpDir, true)
+
+		// Send file data and process it
+		fileName := "test_csv"
+		sendCoordinator(t, fileName, sender, common.FileName, cid, 1)
+		csvData := "id,name\n1,Alice\n2,Bob\n"
+		sendCoordinator(t, csvData, sender, common.FileData, cid, 2)
+		sendCoordinator(t, "EOF", sender, common.FinishFile, cid, 3)
+		sendCoordinator(t, "EOF", sender, common.AllFilesSent, cid, 4)
+
+		time.Sleep(1 * time.Second)
+		// Send empty queries (just EOFs)
+		sendQEOF(t, q1Sender, cid)
+		sendQEOF(t, q2Sender, cid)
+		sendQEOF(t, q3Sender, cid)
+		sendQEOF(t, q4Sender, cid)
+		sendQEOF(t, q5Sender, cid)
+
+		time.Sleep(2 * time.Second)
+
+		ctxStop()
+		wg.Wait()
+
+		// Verify that the log was cleaned up after completion
+		queryLogPath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "querys")
+		_, err := os.Stat(queryLogPath)
+		assert.Error(t, err, "Query log file should be cleaned up after completion")
+
+		//verifico con allQuerysToEndpointSender que se enviaron las querys vacías
+		ctx, ctxstop := context.WithCancel(context.Background())
+		log.Infof("verifico que se enviaron las querys vacías")
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 1)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 2)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 3)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 4)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 5)
 		nextVerifyPrune(t, allQuerysToEndpointReceiver, ctx)
 		nextVerifyEOF(t, allQuerysToEndpointReceiver, ctx)
 		ctxstop()

@@ -1,12 +1,10 @@
 package transaction_log
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path"
 	"strconv"
-	"strings"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
@@ -386,37 +384,34 @@ func (t *transactionLog) writeBeginQuery(file *os.File, numberQuery uint8) error
 	if err != nil {
 		return fmt.Errorf("failed to encode number query: %w", err)
 	}
-	buffer := make([]byte, len(queryTypeEncode)+len(numberQueryEncode)+1)
+	buffer := make([]byte, len(queryTypeEncode)+len(numberQueryEncode))
 	copy(buffer, queryTypeEncode)
 	copy(buffer[len(queryTypeEncode):], numberQueryEncode)
-	buffer[len(queryTypeEncode)+len(numberQueryEncode)] = '\n'
 	return codec.DoWrite(buffer, file)
 }
 
 func (t *transactionLog) writeRowQuery(file *os.File, row *model.Row) error {
 	queryTypeEncode, err := codec.Uint8Encode(uint8(QUERY_ROW))
 	if err != nil {
-		return fmt.Errorf("failed to encode string: %w", err)
+		return fmt.Errorf("failed to encode query type: %w", err)
 	}
 	encodeRow, err := row.Encode()
 	if err != nil {
 		return fmt.Errorf("failed to encode row: %w", err)
 	}
-	buffer := make([]byte, len(queryTypeEncode)+len(encodeRow)+1)
+	buffer := make([]byte, len(queryTypeEncode)+len(encodeRow))
 	copy(buffer, queryTypeEncode)
 	copy(buffer[len(queryTypeEncode):], encodeRow)
-	buffer[len(queryTypeEncode)+len(encodeRow)] = '\n'
 	return codec.DoWrite(buffer, file)
 }
 
 func (t *transactionLog) writeEndQuery(file *os.File) error {
-	buffer := make([]byte, 1+1)
+	buffer := make([]byte, 1)
 	queryTypeEncode, err := codec.Uint8Encode(uint8(QUERY_END))
 	if err != nil {
 		return fmt.Errorf("failed to encode string: %w", err)
 	}
 	copy(buffer, queryTypeEncode)
-	buffer[len(queryTypeEncode)] = '\n'
 	return codec.DoWrite(buffer, file)
 }
 
@@ -430,59 +425,49 @@ func (t *transactionLog) ReadLastQueryRows() (uint8, []*model.Row, bool, error) 
 	}
 	defer f.Close()
 
-	// Leer todas las líneas del archivo
-	var lines []string
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-
-	if len(lines) == 0 {
-		return 0, nil, false, fmt.Errorf("no lines found in query file")
-	}
-
-	// Leer desde la última línea hacia la primera
+	// Leer datos binarios directamente de arriba a abajo
 	lastQueryNumber := uint8(0)
 	lastRows := []*model.Row{}
 	foundBegin := false
 	queryEnded := false
 
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := lines[i]
-		reader := strings.NewReader(line)
-		//decodifico primer byte
-		queryType, err := codec.Uint8Decode(reader)
+	for {
+		// Leer tipo de query
+		queryType, err := codec.Uint8Decode(f)
 		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
 			log.Errorf("failed to decode query type: %v", err)
-			continue
+			break
 		}
 
 		if queryType == uint8(QUERY_BEGIN) {
-			log.Infof("found begin: %s", line)
-			// Encontramos el BEGIN, extraer el número y terminar
-			n, err := codec.Uint8Decode(reader)
+			log.Infof("found begin")
+			// Encontramos el BEGIN, extraer el número
+			n, err := codec.Uint8Decode(f)
 			if err != nil {
-				log.Errorf("failed to parse BEGIN line: %v", err)
-				continue
+				log.Errorf("failed to parse BEGIN: %v", err)
+				break
 			}
 			lastQueryNumber = n
+			lastRows = []*model.Row{} // Reset rows for new query
 			foundBegin = true
-			break
+			queryEnded = false
 		} else if queryType == uint8(QUERY_ROW) {
-			log.Infof("found row: %s", line)
-			row, err := model.RowDecode(reader)
+			log.Infof("found row")
+			row, err := model.RowDecode(f)
 			if err != nil {
 				log.Errorf("failed to decode row: %v", err)
-				continue
+				break
 			}
-			// Insertar al inicio para mantener el orden original
-			lastRows = append([]*model.Row{row}, lastRows...)
+			lastRows = append(lastRows, row)
 		} else if queryType == uint8(QUERY_END) {
 			queryEnded = true
-			continue
 		} else {
-			// Línea corrupta, ignorar
-			continue
+			// Tipo de query desconocido, ignorar
+			log.Errorf("unknown query type: %d", queryType)
+			break
 		}
 	}
 
@@ -542,40 +527,29 @@ func updateQueriesLog(t *transactionLog, lastQueryNumber uint8, lastRows []*mode
 }
 
 func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[uint8][]*model.Row, queryEnded bool, err error) {
-	// Leer todas las líneas del archivo
-	var lines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-
-	if len(lines) == 0 {
-		return 0, nil, false, fmt.Errorf("no lines found in query file")
-	}
-
-	// Leer desde la primera línea hacia la última
+	// Leer datos binarios directamente de arriba a abajo
 	queryRowsMap = make(map[uint8][]*model.Row)
 	currentQueryNumber = uint8(0)
 	queryEnded = false
 
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
-		reader := strings.NewReader(line)
-
-		// Decodificar primer byte
-		queryType, err := codec.Uint8Decode(reader)
+	for {
+		// Leer tipo de query
+		queryType, err := codec.Uint8Decode(file)
 		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
 			log.Errorf("failed to decode query type: %v", err)
-			continue
+			break
 		}
 
 		if queryType == uint8(QUERY_BEGIN) {
-			log.Infof("found begin: %s", line)
+			log.Infof("found begin")
 			// Encontramos el BEGIN, extraer el número
-			n, err := codec.Uint8Decode(reader)
+			n, err := codec.Uint8Decode(file)
 			if err != nil {
-				log.Errorf("failed to parse BEGIN line: %v", err)
-				continue
+				log.Errorf("failed to parse BEGIN: %v", err)
+				break
 			}
 			currentQueryNumber = n
 			queryEnded = false
@@ -584,11 +558,11 @@ func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[
 				queryRowsMap[currentQueryNumber] = []*model.Row{}
 			}
 		} else if queryType == uint8(QUERY_ROW) {
-			log.Infof("found row: %s", line)
-			row, err := model.RowDecode(reader)
+			log.Infof("found row")
+			row, err := model.RowDecode(file)
 			if err != nil {
 				log.Errorf("failed to decode row: %v", err)
-				continue
+				break
 			}
 			// Agregar la row a la query actual
 			if currentQueryNumber > 0 {
@@ -597,8 +571,9 @@ func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[
 		} else if queryType == uint8(QUERY_END) {
 			queryEnded = true
 		} else {
-			// Línea corrupta, ignorar
-			continue
+			// Tipo de query desconocido, ignorar
+			log.Errorf("unknown query type: %d", queryType)
+			break
 		}
 	}
 
