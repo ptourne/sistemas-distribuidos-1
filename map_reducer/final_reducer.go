@@ -195,14 +195,14 @@ func (r *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 						return
 					}
 				}
-			}
-			r.msgsSinceLastDump++
-			if r.msgsSinceLastDump > r.maxLogSize {
-				err = r.DumpAndFlush()
-				if err != nil {
-					r.log.Errorf("Final : Error dumping transaction log: %s", err)
-					err = fmt.Errorf("error dumping transaction log: %w", err)
-					return
+				r.msgsSinceLastDump++
+				if r.msgsSinceLastDump > r.maxLogSize || e.Type() == middleware.EOF {
+					err = r.DumpAndFlush()
+					if err != nil {
+						r.log.Errorf("Final : Error dumping transaction log: %s", err)
+						err = fmt.Errorf("error dumping transaction log: %w", err)
+						return
+					}
 				}
 			}
 		}
