@@ -399,6 +399,7 @@ services:
             - WORKER_OUTPUT_COUNT=2
             - NAME=reduce_by_country_sum_budget0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
@@ -419,6 +420,7 @@ services:
             - WORKER_OUTPUT_COUNT=2
             - NAME=reduce_by_country_sum_budget1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
@@ -439,6 +441,7 @@ services:
             - WORKER_OUTPUT_COUNT=2
             - NAME=reduce_by_country_sum_budget2
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
@@ -459,6 +462,7 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
@@ -479,6 +483,7 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
@@ -499,6 +504,7 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
@@ -519,6 +525,7 @@ services:
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
@@ -539,6 +546,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_sentiment0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
@@ -559,6 +567,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_sentiment1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
@@ -579,6 +588,7 @@ services:
             - WORKER_OUTPUT_COUNT=2
             - NAME=reduce_by_actor0
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
@@ -599,6 +609,7 @@ services:
             - WORKER_OUTPUT_COUNT=2
             - NAME=reduce_by_actor1
             - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:

@@ -41,6 +41,8 @@ else
     exit 1
 fi
 
+max_log_size=1000
+
 # Verify number_of_workers is a positive integer
 if ! [[ "$number_of_workers" =~ ^[0-9]+$ ]] || [ "$number_of_workers" -le -1 ]; then
     echo "Error: Number of workers must be a positive integer"
@@ -373,6 +375,7 @@ compose_reduce() {
             - WORKER_OUTPUT_COUNT=$worker_output_count
             - NAME=$container_name
             - MONITOR_ADDRESSES=$monitor_addresses
+            - MAX_LOG_SIZE=$max_log_size
         networks:
             - local_net
         volumes:
