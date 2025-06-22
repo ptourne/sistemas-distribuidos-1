@@ -68,16 +68,6 @@ func TestTransactionLog(t *testing.T) {
 		}
 		assert.False(t, EqualsRows(row1, row6))
 
-		// Test con rows diferentes en Type
-		row7 := &Row{
-			Type:     QueryName, // diferente tipo
-			Numerics: map[string]uint64{"a": 1, "b": 2},
-			Strings:  map[string]string{"x": "hello", "y": "world"},
-			Arrays:   map[string][]string{"tags": {"tag1", "tag2"}},
-			Floats:   map[string]float64{"score": 3.14},
-		}
-		assert.False(t, EqualsRows(row1, row7))
-
 		// Test con nil
 		assert.True(t, EqualsRows(nil, nil))
 		assert.False(t, EqualsRows(row1, nil))

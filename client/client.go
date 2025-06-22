@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common"
@@ -13,6 +14,21 @@ import (
 )
 
 const CHUNK_SIZE = 1024
+
+func (c *Client) Reconnect(addr string) error {
+	log.Infof("Intentando reconectar...")
+	if c.conn != nil {
+		c.conn.Close()
+	}
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("error al reconectar: %v", err)
+	}
+	c.conn = conn
+	log.Infof("Reconectado exitosamente")
+	return nil
+}
 
 func (c *Client) Run() error {
 	log.Infof("Sending files")
@@ -41,7 +57,7 @@ OuterLoop:
 		_, err := io.ReadFull(c.conn, sizeBuf)
 		if err != nil {
 			log.Infof("Error leyendo tamaño: %v", err)
-			break
+			return err
 		}
 
 		packetSize := binary.BigEndian.Uint32(sizeBuf[0:4])
@@ -50,7 +66,7 @@ OuterLoop:
 		_, err = io.ReadFull(c.conn, dataBuf)
 		if err != nil {
 			log.Errorf("Error leyendo datos del paquete: %v", err)
-			break
+			return err
 		}
 
 		switch packetType {
@@ -64,7 +80,7 @@ OuterLoop:
 			err = json.Unmarshal(dataBuf, &movie)
 			if err != nil {
 				log.Errorf("Error unmarshaling data: %v", err)
-				break OuterLoop
+				return err
 			}
 			switch queryType {
 			case "Q1":
@@ -79,6 +95,7 @@ OuterLoop:
 				printRowQx(movie)
 			default:
 				log.Infof("Query no soportada: %s", queryType)
+				return fmt.Errorf("query no soportada: %s", queryType)
 			}
 
 		case model.FinishQuerys:
@@ -112,7 +129,10 @@ func (c *Client) SendFiles() error {
 		}
 	}
 	bufFinish := []byte("ALL FILES SENT")
-	common.WriteProtocolTypePackage(c.conn, bufFinish, len(bufFinish), common.AllFilesSent)
+	err := common.WriteProtocolTypePackage(c.conn, bufFinish, len(bufFinish), common.AllFilesSent)
+	if err != nil {
+		return err
+	}
 	log.Infof("Files sent")
 	return nil
 }
@@ -150,8 +170,7 @@ func sendFile(c *Client, fileName string) error {
 		}
 	}
 	bufFinish := []byte(fileName)
-	common.WriteProtocolTypePackage(c.conn, bufFinish, len(bufFinish), common.FinishFile)
-	return nil
+	return common.WriteProtocolTypePackage(c.conn, bufFinish, len(bufFinish), common.FinishFile)
 }
 
 func (c *Client) StopClient() {

@@ -329,6 +329,8 @@ compose_endpoint() {
         depends_on:
             rabbitmq:
                 condition: service_healthy
+        volumes:
+            - ${PWD}/endpoint:/endpoint-dir-ids
 "
 }
 

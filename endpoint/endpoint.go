@@ -27,7 +27,8 @@ type Endpoint struct {
 		conn   net.Conn
 		output chan middleware.Envelope[*model.Row]
 	}
-	wg sync.WaitGroup
+	wg           sync.WaitGroup
+	cidGenerator IDGenerator
 }
 
 func NewEndpoint() (*Endpoint, error) {
@@ -46,12 +47,14 @@ func NewEndpoint() (*Endpoint, error) {
 			conn   net.Conn
 			output chan middleware.Envelope[*model.Row]
 		}),
-		wg: sync.WaitGroup{},
+		wg:           sync.WaitGroup{},
+		cidGenerator: NewEndpointIDGenerator(),
 	}
 	return endpoint, nil
 }
 
 func (e *Endpoint) Run() error {
+	// defer e.cidGenerator.Close()
 	connector, err := rabbitmq.Connector()
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
@@ -68,6 +71,27 @@ func (e *Endpoint) Run() error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	fileBytes := "file_bytes"
+	fileBytesSender, err := middlewareChanByte.WriteTo(fileBytes, []string{"file_bytes"}, "0", 1)
+	if err != nil {
+		return fmt.Errorf("failed to create write queue %s: %v", fileBytes, err)
+	}
+	defer fileBytesSender.Close()
+
+	cid := e.cidGenerator.CurrentID()
+	if cid > uint64(0) {
+		log.Infof("Sending IgnoreClient to previous cids")
+
+		for i := 0; i < int(cid); i++ {
+			msg := &common.PackageFile{
+				PackageType: common.IgnoreClient,
+				Buf:         model.FileChunk{Bytes: []byte("IgnoreClient")},
+			}
+			log.Infof("Sending IgnoreClient for cid %d", i)
+			fileBytesSender.Send(msg, uint64(i), uint64(0))
+		}
+	}
 
 	e.wg.Add(1)
 	go func() {
@@ -97,11 +121,15 @@ func (e *Endpoint) Run() error {
 			e.lockClientsConn.Lock()
 			structCid, exists := e.clientsConn[cid]
 			e.lockClientsConn.Unlock()
-			outputCid := structCid.output
 			if !exists {
-				log.Errorf("Cid not found: %v", cid)
-				break
+				// log.Errorf("Cid not found: %v", cid)
+				err = envelope.Ack(false)
+				if err != nil {
+					log.Errorf("failed to ack message in endpoint %s", err)
+				}
+				continue
 			}
+			outputCid := structCid.output
 			switch envelope.Type() {
 			case middleware.EOF:
 				log.Infof("cid %d finished receiving", cid)
@@ -130,7 +158,7 @@ func (e *Endpoint) Run() error {
 			log.Errorf("accept_connections, error: %v", err)
 			continue
 		}
-		cid := GenerateRandomID()
+		cid := e.cidGenerator.GenerateID()
 		log.Infof("Accepted connection with id: %d", cid)
 		e.wg.Add(1)
 		go e.handleClient(conn, ip, middlewareChanByte, cid)
@@ -149,18 +177,46 @@ func (e *Endpoint) handleClient(conn net.Conn, ip string, middlewareChanByte mid
 	e.clientsConn[cid] = structCid
 	e.lockClientsConn.Unlock()
 	err := e.ReceiveFilesFromClient(conn, ip, middlewareChanByte, cid)
-	if err != nil {
-		log.Errorf("error recibiendo archivos: %v", err)
+	if err == nil {
+		err = e.ReceiveAndSendQuerysResults(conn, ip, structCid.output, cid)
 	}
-	err = e.ReceiveAndSendQuerysResults(conn, ip, structCid.output, cid)
-	if err != nil {
-		log.Errorf("error recibiendo o enviando querys: %v", err)
+	if err != nil && (err.Error() == "failed to receive message from client" || err.Error() == "failed to send message to client") {
+		fileBytes := "file_bytes"
+		fileBytesSender, err := middlewareChanByte.WriteTo(fileBytes, []string{"file_bytes"}, "0", 1)
+		if err != nil {
+			return
+		}
+		defer fileBytesSender.Close()
+		msg := &common.PackageFile{
+			PackageType: common.IgnoreClient,
+			Buf:         model.FileChunk{Bytes: []byte("IgnoreClient")},
+		}
+		log.Infof("Sending IgnoreClient for cid %d", cid)
+		err = fileBytesSender.Send(msg, cid, uint64(0))
+		if err != nil {
+			log.Errorf("Error sending IgnoreClient for cid %d: %v", cid, err)
+		}
 	}
 	e.lockClientsConn.Lock()
 	log.Infof("Closing connection with id: %d", cid)
 	conn.Close()
 	delete(e.clientsConn, cid)
 	e.lockClientsConn.Unlock()
+	for {
+		select {
+		case envelope := <-structCid.output:
+			if envelope.Cid() != cid {
+				log.Errorf("Received message from wrong cid: %d", envelope.Cid())
+				continue
+			}
+			err = envelope.Ack(false)
+			if err != nil {
+				log.Errorf("failed to ack message in endpoint %s", err)
+			}
+		default:
+			return
+		}
+	}
 }
 
 func (s *Endpoint) acceptNewConnection() (net.Conn, string, error) {
@@ -191,6 +247,11 @@ OuterLoop:
 			err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), model.FinishQuerys)
 			if err != nil {
 				log.Errorf("Failed to send message: %v", err)
+				err = envelope.Ack(false)
+				if err != nil {
+					return fmt.Errorf("failed to ack message in endpoint %s", err)
+				}
+				return fmt.Errorf("failed to send message to client")
 			}
 			err = envelope.Ack(false)
 			if err != nil {
@@ -221,7 +282,12 @@ OuterLoop:
 		err = common.WriteProtocolTypeRow(conn, bufAck, len(bufAck), receivedMovie.Type)
 		if err != nil {
 			log.Errorf("Failed to send message: %v", err)
-			continue
+			err = envelope.Ack(false)
+			if err != nil {
+				return fmt.Errorf("failed to ack message in endpoint %s", err)
+			}
+			return fmt.Errorf("failed to send message to client")
+
 		}
 		err = envelope.Ack(false)
 		if err != nil {
@@ -240,6 +306,7 @@ func (e *Endpoint) ReceiveFilesFromClient(conn net.Conn, ip string, middlewareCh
 	defer fileBytesSender.Close()
 
 	log.Infof("Receiving files")
+
 	id_last_send := uint64(0)
 OuterLoop:
 	for {
@@ -248,7 +315,7 @@ OuterLoop:
 		_, err := io.ReadFull(conn, sizeBuf)
 		if err != nil {
 			log.Infof("Error leyendo tamaño: %v", err)
-			break
+			return fmt.Errorf("failed to receive message from client")
 		}
 
 		packetSize := binary.BigEndian.Uint32(sizeBuf[0:4])
@@ -257,7 +324,7 @@ OuterLoop:
 		_, err = io.ReadFull(conn, dataBuf)
 		if err != nil {
 			log.Errorf("Error leyendo datos del paquete: %v", err)
-			break
+			return fmt.Errorf("failed to receive message from client")
 		}
 		data := string(dataBuf)
 
@@ -306,7 +373,7 @@ OuterLoop:
 		err = common.SendAck(conn)
 		if err != nil {
 			log.Errorf("Error enviando ACK: %v", err)
-			break OuterLoop
+			return fmt.Errorf("failed to send message to client")
 		}
 	}
 	return nil

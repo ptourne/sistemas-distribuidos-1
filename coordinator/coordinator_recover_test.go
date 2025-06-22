@@ -101,6 +101,10 @@ func TestMapReducer(t *testing.T) {
 	test8 := provider.AsyncDeployRabbit()
 	test9 := provider.AsyncDeployRabbit()
 	test10 := provider.AsyncDeployRabbit()
+	test11 := provider.AsyncDeployRabbit()
+	test12 := provider.AsyncDeployRabbit()
+	test13 := provider.AsyncDeployRabbit()
+	test14 := provider.AsyncDeployRabbit()
 
 	test1container := <-test1
 	defer test1container.Container.Teardown()
@@ -122,6 +126,14 @@ func TestMapReducer(t *testing.T) {
 	defer test9container.Container.Teardown()
 	test10container := <-test10
 	defer test10container.Container.Teardown()
+	test11container := <-test11
+	defer test11container.Container.Teardown()
+	test12container := <-test12
+	defer test12container.Container.Teardown()
+	test13container := <-test13
+	defer test13container.Container.Teardown()
+	test14container := <-test14
+	defer test14container.Container.Teardown()
 
 	t.Run("CoordinatorLogEmpty", func(t *testing.T) {
 		init := test1container
@@ -879,7 +891,7 @@ func TestMapReducer(t *testing.T) {
 	})
 
 	t.Run("CoordinatorLogRecoveryQueryPhaseQ2", func(t *testing.T) {
-		init := test9container
+		init := test10container
 		assert.NoError(t, init.Err)
 		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
 		defer sender.Close()
@@ -994,7 +1006,7 @@ func TestMapReducer(t *testing.T) {
 	})
 
 	t.Run("CoordinatorLogRecoveryQueryPhaseQ3", func(t *testing.T) {
-		init := test10container
+		init := test11container
 		assert.NoError(t, init.Err)
 		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
 		defer sender.Close()
@@ -1118,7 +1130,7 @@ func TestMapReducer(t *testing.T) {
 		ctxstop()
 	})
 	t.Run("CoordinatorLogRecoveryQueryPhaseQ5", func(t *testing.T) {
-		init := test10container
+		init := test12container
 		assert.NoError(t, init.Err)
 		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
 		defer sender.Close()
@@ -1236,7 +1248,7 @@ func TestMapReducer(t *testing.T) {
 	})
 
 	t.Run("CoordinatorLogRecoveryQueryPhaseEmptyQueries", func(t *testing.T) {
-		init := test10container
+		init := test13container
 		assert.NoError(t, init.Err)
 		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
 		defer sender.Close()
@@ -1293,7 +1305,7 @@ func TestMapReducer(t *testing.T) {
 	})
 
 	t.Run("CoordinatorLogRecoveryQueryPhaseEmptyQueries", func(t *testing.T) {
-		init := test10container
+		init := test14container
 		assert.NoError(t, init.Err)
 		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
 		defer sender.Close()

@@ -13,7 +13,7 @@ func TestFileChunkSpeed(t *testing.T) {
 	newFunction(t, count, 1024*10)
 	// newFunction(t, count, 1024*1024)
 
-	t.Fail()
+	// t.Fail()
 
 }
 

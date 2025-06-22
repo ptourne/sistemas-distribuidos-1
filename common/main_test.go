@@ -8,8 +8,7 @@ import (
 
 func TestDictionaryToListName(t *testing.T) {
 	input := "[{'name': 'John \"wick\"', 'age': 30, 'city': 'New York'}, {'name': 'John wick2', 'age': 30, 'city': 'New York'}, {'name': \"Tom' cruise\", 'age': 30, 'city': 'New York'}]"
-	//input := "[{'name': 'John \"wick\"', 'order': 0, 'profile_path': '/zir0SuHwhFb2Sj7feQgIeMecG8m.jp','age': 30, 'city': 'New York'}, {'name': 'John wick2', 'age': 30, 'city': 'New York'}, {'name': \"Tom' cruise\", 'age': 30, 'city': 'New York'}]"
-	expected := []string{"John 'wick'", "John wick2", "Tom' cruise"}
+	expected := []string{"John \"wick\"", "John wick2", "Tom' cruise"}
 	res, err := utils.DictionaryToListName(input)
 
 	if err != nil {

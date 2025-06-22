@@ -26,8 +26,29 @@ GOMAXPROCS=$NUMBER_OF_THREADS go test
 res_map_reducer=$?
 popd
 
+echo "Coordinator package tests"
+pushd coordinator/
+GOMAXPROCS=$NUMBER_OF_THREADS go test 
+res_coordinator=$?
+popd
+
+echo "Coordinator package tests"
+pushd coordinator/
+GOMAXPROCS=$NUMBER_OF_THREADS go test ./...
+res_coordinator=$?
+popd
+
+echo "Joiner package tests"
+pushd joiners/test
+GOMAXPROCS=$NUMBER_OF_THREADS go test ./...
+res_joiners=$?
+popd
+
+
 echo "All tests completed"
 echo "Common package tests: $res_common"
 echo "Codec package tests: $res_codec"
 echo "RabbitMQ tests: $res_rabbitmq"
 echo "Map-Reducer tests: $res_map_reducer"
+echo "Coordinator tests: $res_coordinator"
+echo "Joiner tests: $res_joiners"
