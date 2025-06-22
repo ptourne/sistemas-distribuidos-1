@@ -28,6 +28,7 @@ func NewMapReducerBySentiment(
 	count uint,
 	workerCountOutput uint,
 	dirPath string,
+	maxLogSize uint64,
 ) (*MapReducerSum, error) {
 	return map_reducer.NewMapReducer[In, *Acc, Res](
 		connector,
@@ -40,6 +41,7 @@ func NewMapReducerBySentiment(
 		count,
 		workerCountOutput,
 		dirPath,
+		maxLogSize,
 	)
 }
 

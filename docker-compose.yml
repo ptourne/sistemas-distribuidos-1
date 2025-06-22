@@ -103,7 +103,7 @@ services:
             - NAME=coordinator
             - MONITOR_ADDRESSES=monitor0:9000
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/coordinator:/coordinator-dir
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/coordinator:/coordinator-dir
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -401,6 +401,8 @@ services:
             - MONITOR_ADDRESSES=monitor0:9000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_country_sum_budget0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -419,6 +421,8 @@ services:
             - MONITOR_ADDRESSES=monitor0:9000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_country_sum_budget1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -437,6 +441,8 @@ services:
             - MONITOR_ADDRESSES=monitor0:9000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_country_sum_budget2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -455,6 +461,8 @@ services:
             - MONITOR_ADDRESSES=monitor0:9000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_5_by_budget0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -473,6 +481,8 @@ services:
             - MONITOR_ADDRESSES=monitor0:9000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_5_by_budget1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -491,6 +501,8 @@ services:
             - MONITOR_ADDRESSES=monitor0:9000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_bottom_avg_rating0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -509,6 +521,8 @@ services:
             - MONITOR_ADDRESSES=monitor0:9000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_bottom_avg_rating1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -527,6 +541,8 @@ services:
             - MONITOR_ADDRESSES=monitor0:9000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_sentiment0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -545,6 +561,8 @@ services:
             - MONITOR_ADDRESSES=monitor0:9000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_sentiment1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -563,6 +581,8 @@ services:
             - MONITOR_ADDRESSES=monitor0:9000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_actor0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -581,6 +601,8 @@ services:
             - MONITOR_ADDRESSES=monitor0:9000
         networks:
             - local_net
+        volumes:
+            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_actor1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy

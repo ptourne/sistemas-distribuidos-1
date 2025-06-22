@@ -27,6 +27,7 @@ func NewMapReducerByActor(
 	workersCount uint,
 	workerCountOutput uint,
 	dirPath string,
+	maxLogSize uint64,
 ) (*MapReducerSum, error) {
 	return map_reducer.NewMapReducer[In, *Acc, Res](
 		connector,
@@ -39,6 +40,7 @@ func NewMapReducerByActor(
 		workersCount,
 		workerCountOutput,
 		dirPath,
+		maxLogSize,
 	)
 }
 

@@ -360,8 +360,9 @@ compose_reduce() {
     local name=$4
     local dockerfile_path=$5
     local entrypoint=$6
-    echo "    $name$worker_id:
-        container_name: $name$worker_id
+    local container_name="${name}${worker_id}"
+    echo "    $container_name:
+        container_name: $container_name
         build:
             context: .
             dockerfile: $dockerfile_path/Dockerfile
@@ -370,10 +371,12 @@ compose_reduce() {
             - WORKER_ID=$worker_id
             - WORKER_COUNT=$worker_count
             - WORKER_OUTPUT_COUNT=$worker_output_count
-            - NAME=$name$worker_id
+            - NAME=$container_name
             - MONITOR_ADDRESSES=$monitor_addresses
         networks:
             - local_net
+        volumes:
+            - ${PWD}/reducer_volumes/$container_name:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy

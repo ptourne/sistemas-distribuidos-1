@@ -31,9 +31,9 @@ type TransactionLog interface {
 	ReceivedEOF(cid uint64) error
 	Acknowledged() error
 	OpenedTransaction() *Transaction
-	IsDuplicate(cid, id uint64) bool
 	HasTransactions(cid uint64) bool
 	Close() error
+	Dump(data []byte) error
 }
 
 type A interface {
@@ -443,17 +443,13 @@ func (t *transactionLog) Acknowledged() error {
 func (t *transactionLog) acknowledged() {
 	if t.openedTransaction != nil && t.openedTransaction.T != ReceivedType_EOF {
 		t.lastClosedTransactions[t.openedTransaction.Cid] = t.openedTransaction.Id
+		fmt.Printf("TL: Acknowledged: cid: %d, id: %d\n", t.openedTransaction.Cid, t.openedTransaction.Id)
 		t.openedTransaction = nil
 	}
 }
 
 func (t *transactionLog) OpenedTransaction() *Transaction {
 	return t.openedTransaction
-}
-
-func (t *transactionLog) IsDuplicate(cid, id uint64) bool {
-	lastTransaction, ok := t.lastClosedTransactions[cid]
-	return ok && lastTransaction >= id
 }
 
 func (t *transactionLog) HasTransactions(cid uint64) bool {

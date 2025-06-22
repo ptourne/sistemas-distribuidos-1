@@ -3,6 +3,7 @@ package transaction_log
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -529,6 +530,7 @@ func testWithOps(t *testing.T, ops []Op, tests func(tl TransactionLog)) {
 	tl, err := NewTransactionLogFromDir(dirPath, p)
 	assert.NoError(t, err, "Expected no error when creating TransactionLog from directory")
 
+	dumpCount := 0
 	for _, op := range ops {
 		var err error
 		if op.receivedNormal != nil {
@@ -542,6 +544,7 @@ func testWithOps(t *testing.T, ops []Op, tests func(tl TransactionLog)) {
 			if concreteTL, ok := tl.(*transactionLog); ok {
 				data := p.Dump()
 				err = concreteTL.Dump(data)
+				dumpCount++
 			} else {
 				t.Fatalf("Expected transactionLog type for dump operation")
 			}
@@ -554,6 +557,17 @@ func testWithOps(t *testing.T, ops []Op, tests func(tl TransactionLog)) {
 	tests(tl)
 
 	p2 := newMockParent()
+
+	checkpointEntries, err := os.ReadDir(checkpointDirectory(dirPath))
+	assert.NoError(t, err, "Expected no error reading checkpoint directory")
+	assert.Equal(t, len(checkpointEntries), dumpCount, "Expected checkpoint entries to match dump count")
+	fmt.Printf("Checkpoint files: %v\n", checkpointEntries)
+
+	logEntries, err := os.ReadDir(logDirectory(dirPath))
+	assert.NoError(t, err, "Expected no error reading log directory")
+	assert.Equal(t, len(logEntries), dumpCount+1, "Expected log entries to match dump count + 1 for initial state")
+	fmt.Printf("Log files: %v\n", logEntries)
+
 	recoveredTL, err := NewTransactionLogFromDir(dirPath, p2)
 	assert.NoError(t, err, "Expected no error when recovering TransactionLog from directory")
 	assert.NotNil(t, recoveredTL, "Expected TransactionLog to be created from file")

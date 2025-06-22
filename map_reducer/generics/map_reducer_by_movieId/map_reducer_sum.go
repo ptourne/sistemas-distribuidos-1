@@ -38,6 +38,7 @@ func NewMapReducerByMovieId(
 	workerCount uint,
 	shardCountOutput uint,
 	dirPath string,
+	maxLogSize uint64,
 ) (*MapReducerSum, error) {
 	return NewMapReducer[In, *Acc, Res](
 		connector,
@@ -52,6 +53,7 @@ func NewMapReducerByMovieId(
 		workerCount,
 		shardCountOutput,
 		dirPath,
+		maxLogSize,
 	)
 }
 
@@ -114,6 +116,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 	count uint,
 	shardCount uint,
 	dirPath string,
+	maxLogSize uint64,
 ) (*map_reducer.MapReducer[I, A, R], error) {
 	return map_reducer.NewMapReducer(
 		connector,
@@ -126,6 +129,7 @@ func NewMapReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Ser
 		count,
 		shardCount,
 		dirPath,
+		maxLogSize,
 	)
 	// var t string = "direct"
 	// nameId := fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID)
