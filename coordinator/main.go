@@ -477,6 +477,7 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 	if queryEnded {
 		log.Infof("Query %d ended", queryNumber)
 		queryNumber++
+		queriesRows = []*model.Row{}
 	}
 
 	if queryNumber < 2 {
@@ -489,6 +490,7 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 			log.Errorf("Error verifying Q1: %v", err)
 			return
 		}
+		queriesRows = []*model.Row{}
 	}
 	if queryNumber < 3 {
 		err := verifyingQ2(log, allQuerysToEndpointSender, cid, channelsCid.q2, transactionLog, queriesRows, ctx, removeVerification)
@@ -500,6 +502,7 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
+		queriesRows = []*model.Row{}
 	}
 	log.Infof("queryNumber4: %d", queryNumber)
 	if queryNumber < 4 {
@@ -512,6 +515,7 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
+		queriesRows = []*model.Row{}
 	}
 	if queryNumber < 5 {
 		err := verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx, removeVerification)
@@ -523,6 +527,7 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
+		queriesRows = []*model.Row{}
 	}
 	if queryNumber < 6 {
 		err := verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5, transactionLog, queriesRows, ctx, removeVerification)

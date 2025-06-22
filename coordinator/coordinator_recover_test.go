@@ -50,7 +50,7 @@ func startCoordinator(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (middlew
 	return sender, receiver
 }
 
-func startCoordinatorQuery(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (middleware.Sender[*common.PackageFile], middleware.Receiver[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row]) {
+func startCoordinatorQuery(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (middleware.Sender[*common.PackageFile], middleware.Receiver[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Sender[*model.Row], middleware.Receiver[*model.Row]) {
 	senderConnector, err := rabbitmq.ConnectorCustom(init.Config)
 	assert.NoError(t, err)
 
@@ -81,10 +81,10 @@ func startCoordinatorQuery(t *testing.T, init rabbitmq.AsyncDeployRabbitRes) (mi
 	q5Sender, err := middlewareChanRow.WriteTo("filter_avg_rate", []string{"q5"}, "0", 1)
 	assert.NoError(t, err)
 
-	allQuerysToEndpointSender, err := middlewareChanRow.WriteTo("all_querys_to_endpoint", []string{"all_querys_to_endpoint"}, "0", 1)
+	allQuerysToEndpointReceiver, err := middlewareChanRow.ConsumeFrom("all_querys_to_endpoint", "all_querys_to_endpoint", "0", 1, 1)
 	assert.NoError(t, err)
 
-	return sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointSender
+	return sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver
 }
 
 func TestMapReducer(t *testing.T) {
@@ -780,7 +780,7 @@ func TestMapReducer(t *testing.T) {
 	t.Run("CoordinatorLogRecoveryQueryPhaseQ1", func(t *testing.T) {
 		init := test9container
 		assert.NoError(t, init.Err)
-		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointSender := startCoordinatorQuery(t, init)
+		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
 		defer sender.Close()
 		defer receiver.Close()
 		defer q1Sender.Close()
@@ -788,7 +788,7 @@ func TestMapReducer(t *testing.T) {
 		defer q3Sender.Close()
 		defer q4Sender.Close()
 		defer q5Sender.Close()
-		defer allQuerysToEndpointSender.Close()
+		defer allQuerysToEndpointReceiver.Close()
 		cid := uint64(1)
 
 		log := logger.NewConsoleLogger("coordinator", logger.Info)
@@ -847,7 +847,7 @@ func TestMapReducer(t *testing.T) {
 		sendQ(t, q5Sender, cid, 1, &rowQ5)
 		sendQEOF(t, q5Sender, cid)
 
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 
 		ctxStop()
 		wg.Wait()
@@ -857,6 +857,23 @@ func TestMapReducer(t *testing.T) {
 		_, err := os.Stat(queryLogPath)
 		assert.Error(t, err, "Query log file should be cleaned up after completion")
 
+		//verifico con allQuerysToEndpointSender que se enviaron las querys
+		ctx, ctxstop := context.WithCancel(context.Background())
+		log.Infof("verifico que se enviaron las querys")
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 1)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ1)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 2)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 2)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ2)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 3)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ3)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 4)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ4)
+		nextVerifyNumberQuery(t, allQuerysToEndpointReceiver, ctx, 5)
+		nextVerifyRow(t, allQuerysToEndpointReceiver, ctx, &rowQ5)
+		nextVerifyPrune(t, allQuerysToEndpointReceiver, ctx)
+		nextVerifyEOF(t, allQuerysToEndpointReceiver, ctx)
+		ctxstop()
 	})
 
 }
@@ -936,4 +953,38 @@ func stopCoordinatorAndReadLogQuery(t *testing.T, ctxStop context.CancelFunc, wg
 	logFile.Close()
 	assert.NoError(t, err)
 	return qNumber, rows, ended
+}
+
+func nextVerifyNumberQuery(t *testing.T, receiver middleware.Receiver[*model.Row], ctx context.Context, queryNumber uint8) {
+	row, err := receiver.Next(ctx)
+	assert.NoError(t, err)
+	msg := row.Msg()
+	assert.Equal(t, model.QueryName, msg.Type)
+	assert.Equal(t, queryNumber, uint8(msg.Strings["type"][1]-'0'))
+	row.Ack(false)
+}
+
+func nextVerifyRow(t *testing.T, receiver middleware.Receiver[*model.Row], ctx context.Context, rowToVerify *model.Row) {
+	log := logger.NewConsoleLogger("test", logger.Info)
+	row, err := receiver.Next(ctx)
+	assert.NoError(t, err)
+	msg := row.Msg()
+	assert.Equal(t, model.QueryRow, msg.Type)
+	log.Infof("msg: %v", msg)
+	assert.True(t, model.EqualsRows(rowToVerify, msg))
+	row.Ack(false)
+}
+
+func nextVerifyPrune(t *testing.T, receiver middleware.Receiver[*model.Row], ctx context.Context) {
+	row, err := receiver.Next(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, middleware.Prune, row.Type())
+	row.Ack(false)
+}
+
+func nextVerifyEOF(t *testing.T, receiver middleware.Receiver[*model.Row], ctx context.Context) {
+	row, err := receiver.Next(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, middleware.EOF, row.Type())
+	row.Ack(false)
 }

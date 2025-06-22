@@ -126,15 +126,11 @@ func RowDecode(r io.Reader) (*Row, error) {
 }
 
 func EqualsRows(row1, row2 *Row) bool {
+
 	if row1 == nil && row2 == nil {
 		return true
 	}
 	if row1 == nil || row2 == nil {
-		return false
-	}
-
-	// Comparar Type
-	if row1.Type != row2.Type {
 		return false
 	}
 
