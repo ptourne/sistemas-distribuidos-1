@@ -24,6 +24,8 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
+const CHECKPOINT_INTERVAL = uint64(1000)
+
 func main() {
 
 	name := os.Getenv("NAME")
@@ -167,7 +169,7 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 
 func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*ChannelsCid, inputChannelMapLock *sync.Mutex, ctx context.Context, wg *sync.WaitGroup, log *logger.ConsoleLogger, queriesPhaseIncluded bool, removeVerification bool, ignoreCtxs map[uint64]*ctxIgnoreClient) {
 	log.Infof("Recovering from logs")
-	transactionLogs, err := transaction_log.RecoverFromLogs(c.dirPath)
+	transactionLogs, err := transaction_log.RecoverFromLogs(c.dirPath, CHECKPOINT_INTERVAL)
 	if err != nil {
 		log.Errorf("Failed to recover from logs: %v", err)
 		return
@@ -255,7 +257,7 @@ func handleClient(cid uint64, channelsCid *ChannelsCid, c *ConfigCoordinator, wg
 	defer ratingsSender.Close()
 	defer allQuerysToEndpointSender.Close()
 
-	tlog, err := transaction_log.NewTransactionLogForCid(c.dirPath, cid)
+	tlog, err := transaction_log.NewTransactionLogForCid(c.dirPath, cid, CHECKPOINT_INTERVAL)
 	if err != nil {
 		log.Errorf("Failed to create transaction log for cid %d: %v", cid, err)
 		return
@@ -308,7 +310,7 @@ OuterLoop:
 					log.Errorf("Failed to ack envelope: %v", err)
 				}
 				log.Infof("Received IGNORE for cid %d", cid)
-				tlog.CloseAll()
+				tlog.RemoveAll()
 				return
 			}
 		}
@@ -366,7 +368,7 @@ OuterLoop:
 		}
 	}
 
-	tlog.CloseAll()
+	tlog.RemoveAll()
 
 	log.Infof("finish all querys verified")
 }
@@ -386,7 +388,7 @@ func handleClientRecover(transactionLog transaction_log.TransactionLog, channels
 	defer creditsSender.Close()
 	defer ratingsSender.Close()
 	defer allQuerysToEndpointSender.Close()
-	tlog, err := transaction_log.NewTransactionLogForCid(c.dirPath, cid)
+	tlog, err := transaction_log.NewTransactionLogForCid(c.dirPath, cid, CHECKPOINT_INTERVAL)
 	if err != nil {
 		log.Errorf("Failed to create transaction log for cid %d: %v", cid, err)
 		return
@@ -446,11 +448,11 @@ OuterLoop:
 					log.Errorf("Failed to ack envelope: %v", err)
 				}
 				log.Infof("Received ALL FILES SENT")
-				tlog.CloseLog()
+				tlog.RemoveLog()
 				break OuterLoop
 
 			case common.IgnoreClient:
-				tlog.CloseAll()
+				tlog.RemoveAll()
 				err := msgEnvelope.Ack(false)
 				if err != nil {
 					log.Errorf("Failed to ack envelope: %v", err)
@@ -524,7 +526,7 @@ OuterLoop:
 		}
 	}
 
-	tlog.CloseAll()
+	tlog.RemoveAll()
 
 	log.Infof("finish all querys verified")
 }
@@ -612,7 +614,7 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 		}
 	}
 
-	transactionLog.CloseAll()
+	transactionLog.RemoveAll()
 
 }
 
@@ -727,7 +729,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 						log.Errorf("Error sending EOF for ratings: %v", err)
 					}
 				}
-				tlog.CloseLog()
+				tlog.RemoveLog()
 				err2 := connReader.ackAllEnvelopes()
 				if err2 != nil {
 					log.Errorf("Failed to ack envelopes: %v", err2)
@@ -1132,7 +1134,7 @@ OuterLoop:
 		case <-cancelSignal:
 			if removeVerification {
 				log.Infof("Queries | Ignoring results for cid %d", cid)
-				transactionLog.CloseAll()
+				transactionLog.RemoveAll()
 				removeVerification = false
 			}
 		case <-ctx.Done():

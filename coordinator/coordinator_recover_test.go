@@ -254,7 +254,7 @@ func TestMapReducer(t *testing.T) {
 		}
 	})
 
-	t.Run("CoordinatorLargeLine", func(t *testing.T) {
+	t.Run("CoordinatorLargeLine2", func(t *testing.T) {
 		init := test3container
 		assert.NoError(t, init.Err)
 		sender, receiver := startCoordinator(t, init)
@@ -380,11 +380,11 @@ func TestMapReducer(t *testing.T) {
 		csvData = "\n2,Don"
 		sendCoordinator(t, csvData, sender, common.FileData, cid, 4)
 		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK = stopCoordinatorAndReadLog(t, ctxStop, wg, tmpDir, cid)
-		assert.Equal(t, gotFilename, fileName)
-		assert.Equal(t, gotCounter, uint64(1))
-		assert.Equal(t, gotRead, []string{"1", "Alice"})
-		assert.Equal(t, string(gotLastReadNotIncluided), "2,Don")
-		assert.Equal(t, gotLastIdACK, uint64(4))
+		assert.Equal(t, fileName, gotFilename)
+		assert.Equal(t, uint64(1), gotCounter)
+		assert.Equal(t, []string{"1", "Alice"}, gotRead)
+		assert.Equal(t, "2,Don", string(gotLastReadNotIncluided))
+		assert.Equal(t, uint64(4), gotLastIdACK)
 
 		log.Infof("envio paquete final y eofs")
 		csvData = "\n"
@@ -553,7 +553,7 @@ func TestMapReducer(t *testing.T) {
 		assert.Error(t, err, "Expected log file to not exist, but it does exist")
 	})
 
-	t.Run("CoordinatorLogRecoveryEOFS", func(t *testing.T) {
+	t.Run("CoordinatorLogRecoveryEOFS1", func(t *testing.T) {
 		init := test6container
 		assert.NoError(t, init.Err)
 		sender, receiver := startCoordinator(t, init)
@@ -1129,7 +1129,7 @@ func TestMapReducer(t *testing.T) {
 		nextVerifyEOF(t, allQuerysToEndpointReceiver, ctx)
 		ctxstop()
 	})
-	t.Run("CoordinatorLogRecoveryQueryPhaseQ5", func(t *testing.T) {
+	t.Run("CoordinatorLogRecoveryQueryPhaseQ4", func(t *testing.T) {
 		init := test12container
 		assert.NoError(t, init.Err)
 		sender, receiver, q1Sender, q2Sender, q3Sender, q4Sender, q5Sender, allQuerysToEndpointReceiver := startCoordinatorQuery(t, init)
@@ -1372,7 +1372,7 @@ func stopCoordinatorAndReadLog(t *testing.T, ctxStop context.CancelFunc, wg *syn
 	logFilePath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "log")
 	logFile, err := os.Open(logFilePath)
 	assert.NoError(t, err)
-	gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, err := transaction_log.ReadLogFile(logFile)
+	gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, err := transaction_log.ReadLastLogEntry(logFile)
 	logFile.Close()
 	assert.NoError(t, err)
 	return gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK

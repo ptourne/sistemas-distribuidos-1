@@ -1,6 +1,7 @@
 package transaction_log
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -29,7 +30,7 @@ func TestTransactionLog(t *testing.T) {
 		assert.NoError(t, err)
 		defer file.Close()
 
-		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, err := ReadLogFile(file)
+		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, err := readLogFile(file)
 		assert.NoError(t, err)
 		assert.Equal(t, filename, gotFilename)
 		assert.Equal(t, counter, gotCounter)
@@ -40,7 +41,7 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("TestNewTransactionLogForCidAndUpdate", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		cid := uint64(55)
-		tlog, err := NewTransactionLogForCid(tmpDir, cid)
+		tlog, err := NewTransactionLogForCid(tmpDir, cid, 10)
 		assert.NoError(t, err)
 		assert.NotNil(t, tlog)
 
@@ -62,7 +63,7 @@ func TestTransactionLog(t *testing.T) {
 	t.Run("TestRecoverFromLogs", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		cid := uint64(77)
-		tlog, err := NewTransactionLogForCid(tmpDir, cid)
+		tlog, err := NewTransactionLogForCid(tmpDir, cid, 10)
 		assert.NoError(t, err)
 
 		// Guardar log
@@ -75,8 +76,12 @@ func TestTransactionLog(t *testing.T) {
 		err = tlog.Update(fileName, counter, read, lastReadNotIncluided, lastIdACK)
 		assert.NoError(t, err)
 
+		//cierro el archivo
+		err = tlog.CloseLog()
+		assert.NoError(t, err)
+
 		// Test RecoverFromLogs
-		logs, err := RecoverFromLogs(tmpDir)
+		logs, err := RecoverFromLogs(tmpDir, 10)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, logs)
 		assert.Len(t, logs, 1)
@@ -141,7 +146,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		cid := uint64(1)
 
 		// Crear transaction log
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 		require.NotNil(t, tl)
 
@@ -179,7 +184,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		// Escribir un bloque completo
@@ -206,7 +211,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		// Escribir un bloque incompleto
@@ -232,7 +237,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		// Primer bloque
@@ -273,7 +278,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		complexRow := &model.Row{
@@ -303,7 +308,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		_, _, _, err = tl.ReadLastQueryRows()
@@ -314,7 +319,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		err = tl.WriteBeginQuery(1)
@@ -333,7 +338,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		// Escribir múltiples bloques
@@ -362,11 +367,11 @@ func TestTransactionLogQueries(t *testing.T) {
 }
 
 func TestReadQueriesRows(t *testing.T) {
-	t.Run("Test single complete query", func(t *testing.T) {
+	t.Run("TestSingleCompleteQuery", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		// Escribir una query completa
@@ -398,11 +403,11 @@ func TestReadQueriesRows(t *testing.T) {
 		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows[1]))
 	})
 
-	t.Run("Test multiple complete queries", func(t *testing.T) {
+	t.Run("TestMultipleCompleteQueries", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		// Primera query
@@ -462,11 +467,11 @@ func TestReadQueriesRows(t *testing.T) {
 		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"d": 4}}, rows3[0]))
 	})
 
-	t.Run("Test incomplete query at end", func(t *testing.T) {
+	t.Run("TestIncompleteQueryAtEnd", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		// Query completa
@@ -508,11 +513,11 @@ func TestReadQueriesRows(t *testing.T) {
 		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows2[0]))
 	})
 
-	t.Run("Test empty file", func(t *testing.T) {
+	t.Run("TestEmptyFile", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		// Crear archivo vacío
@@ -530,11 +535,11 @@ func TestReadQueriesRows(t *testing.T) {
 		assert.Contains(t, err.Error(), "no valid queries found")
 	})
 
-	t.Run("Test query without rows", func(t *testing.T) {
+	t.Run("TestQueryWithoutRows", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		// Query sin rows
@@ -560,11 +565,11 @@ func TestReadQueriesRows(t *testing.T) {
 		assert.Empty(t, rows)
 	})
 
-	t.Run("Test complex rows with all fields", func(t *testing.T) {
+	t.Run("TestComplexRowsWithAllFields", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		complexRow1 := &model.Row{
@@ -619,11 +624,11 @@ func TestReadQueriesRows(t *testing.T) {
 		assert.True(t, model.EqualsRows(complexRow3, rows[2]))
 	})
 
-	t.Run("Test corrupted lines are ignored", func(t *testing.T) {
+	t.Run("TestCorruptedLinesAreIgnored", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
-		tl, err := NewTransactionLogForCid(tempDir, cid)
+		tl, err := NewTransactionLogForCid(tempDir, cid, 10)
 		require.NoError(t, err)
 
 		// Escribir query válida
@@ -657,5 +662,202 @@ func TestReadQueriesRows(t *testing.T) {
 		assert.True(t, exists)
 		assert.Len(t, rows, 1)
 		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0]))
+	})
+}
+
+func TestTransactionLogCheckpoint(t *testing.T) {
+	t.Run("Testcheckpointevery3writes", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cid := uint64(123)
+		checkpointInterval := uint64(3)
+
+		// Crear transaction log con checkpoint cada 3 escrituras
+		tl, err := NewTransactionLogForCid(tempDir, cid, checkpointInterval)
+		require.NoError(t, err)
+		require.NotNil(t, tl)
+
+		// Primera escritura - no debería hacer checkpoint
+		err = tl.Update("file1.txt", 1, []string{"row1", "row2"}, []byte{1, 2, 3}, 10)
+		assert.NoError(t, err)
+
+		// Verificar que el archivo existe y tiene contenido
+		logFile := tl.(*transactionLog).logFileName
+		fileInfo, err := os.Stat(logFile)
+		assert.NoError(t, err)
+		assert.Greater(t, fileInfo.Size(), int64(0))
+
+		// Segunda escritura - no debería hacer checkpoint
+		err = tl.Update("file2.txt", 2, []string{"row3", "row4"}, []byte{4, 5, 6}, 20)
+		assert.NoError(t, err)
+
+		// Tercera escritura - DEBERÍA hacer checkpoint
+		err = tl.Update("file3.txt", 3, []string{"row5", "row6"}, []byte{7, 8, 9}, 30)
+		assert.NoError(t, err)
+
+		tl.CloseLog()
+
+		// Verificar que se hizo checkpoint (el archivo debería contener solo la última entrada)
+		recoveredLogs, err := RecoverFromLogs(tempDir, checkpointInterval)
+		assert.NoError(t, err)
+		assert.Len(t, recoveredLogs, 1)
+
+		recoveredLog := recoveredLogs[0]
+		cidR, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, err := recoveredLog.Recover()
+		assert.NoError(t, err)
+		assert.Equal(t, cid, cidR)
+		assert.Equal(t, "file3.txt", filenameR) // Solo la última entrada
+		assert.Equal(t, uint64(3), counterR)
+		assert.Equal(t, []string{"row5", "row6"}, readR)
+		assert.Equal(t, []byte{7, 8, 9}, lastReadNotIncluidedR)
+		assert.Equal(t, uint64(30), lastIdACKR)
+
+		// Cuarta escritura - no debería hacer checkpoint
+		err = recoveredLog.Update("file4.txt", 4, []string{"row7", "row8"}, []byte{10, 11, 12}, 40)
+		assert.NoError(t, err)
+
+		// Quinta escritura - no debería hacer checkpoint
+		err = recoveredLog.Update("file5.txt", 5, []string{"row9", "row10"}, []byte{13, 14, 15}, 50)
+		assert.NoError(t, err)
+
+		// Verificar
+		recoveredLogs2, err := RecoverFromLogs(tempDir, checkpointInterval)
+		assert.NoError(t, err)
+		assert.Len(t, recoveredLogs2, 1)
+
+		recoveredLog2 := recoveredLogs2[0]
+		_, filenameR2, counterR2, readR2, lastReadNotIncluidedR2, lastIdACKR2, err := recoveredLog2.Recover()
+		assert.NoError(t, err)
+		assert.Equal(t, "file5.txt", filenameR2)
+		assert.Equal(t, uint64(5), counterR2)
+		assert.Equal(t, []string{"row9", "row10"}, readR2)
+		assert.Equal(t, []byte{13, 14, 15}, lastReadNotIncluidedR2)
+		assert.Equal(t, uint64(50), lastIdACKR2)
+
+		// Sexta escritura - DEBERÍA hacer checkpoint
+		err = recoveredLog2.Update("file6.txt", 6, []string{"row11", "row12"}, []byte{16, 17, 18}, 60)
+		assert.NoError(t, err)
+
+		// Verificar que se hizo el segundo checkpoint
+		recoveredLogs3, err := RecoverFromLogs(tempDir, checkpointInterval)
+		assert.NoError(t, err)
+		assert.Len(t, recoveredLogs3, 1)
+
+		recoveredLog3 := recoveredLogs3[0]
+		_, filenameR3, counterR3, readR3, lastReadNotIncluidedR3, lastIdACKR3, err := recoveredLog3.Recover()
+		assert.NoError(t, err)
+		assert.Equal(t, "file6.txt", filenameR3) // Solo la última entrada del segundo checkpoint
+		assert.Equal(t, uint64(6), counterR3)
+		assert.Equal(t, []string{"row11", "row12"}, readR3)
+		assert.Equal(t, []byte{16, 17, 18}, lastReadNotIncluidedR3)
+		assert.Equal(t, uint64(60), lastIdACKR3)
+	})
+
+	t.Run("Test checkpoint with interval 1", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cid := uint64(456)
+		checkpointInterval := uint64(1)
+
+		// Crear transaction log con checkpoint en cada escritura
+		tl, err := NewTransactionLogForCid(tempDir, cid, checkpointInterval)
+		require.NoError(t, err)
+
+		// Primera escritura - debería hacer checkpoint inmediatamente
+		err = tl.Update("single.txt", 1, []string{"single_row"}, []byte{1}, 100)
+		assert.NoError(t, err)
+
+		// Verificar que se hizo checkpoint
+		recoveredLogs, err := RecoverFromLogs(tempDir, checkpointInterval)
+		assert.NoError(t, err)
+		assert.Len(t, recoveredLogs, 1)
+
+		recoveredLog := recoveredLogs[0]
+		_, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, err := recoveredLog.Recover()
+		assert.NoError(t, err)
+		assert.Equal(t, "single.txt", filenameR)
+		assert.Equal(t, uint64(1), counterR)
+		assert.Equal(t, []string{"single_row"}, readR)
+		assert.Equal(t, []byte{1}, lastReadNotIncluidedR)
+		assert.Equal(t, uint64(100), lastIdACKR)
+	})
+
+	t.Run("Test checkpoint with interval 0 (no checkpoint)", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cid := uint64(789)
+		checkpointInterval := uint64(0)
+
+		// Crear transaction log sin checkpoint
+		tl, err := NewTransactionLogForCid(tempDir, cid, checkpointInterval)
+		require.NoError(t, err)
+
+		// Hacer múltiples escrituras
+		for i := 1; i <= 5; i++ {
+			err = tl.Update(fmt.Sprintf("file%d.txt", i), uint64(i),
+				[]string{fmt.Sprintf("row%d", i)}, []byte{byte(i)}, uint64(i*10))
+			assert.NoError(t, err)
+		}
+
+		// Verificar que se recuperan todas las entradas (solo la última válida)
+		recoveredLogs, err := RecoverFromLogs(tempDir, checkpointInterval)
+		assert.NoError(t, err)
+		assert.Len(t, recoveredLogs, 1)
+
+		recoveredLog := recoveredLogs[0]
+		_, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, err := recoveredLog.Recover()
+		assert.NoError(t, err)
+		assert.Equal(t, "file5.txt", filenameR) // Solo la última entrada válida
+		assert.Equal(t, uint64(5), counterR)
+		assert.Equal(t, []string{"row5"}, readR)
+		assert.Equal(t, []byte{5}, lastReadNotIncluidedR)
+		assert.Equal(t, uint64(50), lastIdACKR)
+	})
+
+	t.Run("Test checkpoint file size reduction", func(t *testing.T) {
+		tempDir := t.TempDir()
+		cid := uint64(999)
+		checkpointInterval := uint64(2)
+
+		// Crear transaction log
+		tl, err := NewTransactionLogForCid(tempDir, cid, checkpointInterval)
+		require.NoError(t, err)
+
+		// Primera escritura
+		err = tl.Update("large_file.txt", 1,
+			[]string{"very_long_row_name_that_takes_up_space", "another_long_row"},
+			[]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, 100)
+		assert.NoError(t, err)
+
+		// Obtener tamaño del archivo después de la primera escritura
+		logFile := tl.(*transactionLog).logFileName
+		fileInfo1, err := os.Stat(logFile)
+		assert.NoError(t, err)
+		sizeAfterFirstWrite := fileInfo1.Size()
+
+		// Segunda escritura - debería hacer checkpoint
+		err = tl.Update("small_file.txt", 2, []string{"small"}, []byte{1}, 200)
+		assert.NoError(t, err)
+
+		// Obtener tamaño del archivo después del checkpoint
+		fileInfo2, err := os.Stat(logFile)
+		assert.NoError(t, err)
+		sizeAfterCheckpoint := fileInfo2.Size()
+
+		// El archivo después del checkpoint debería ser más pequeño
+		// porque solo contiene la última entrada
+		assert.Less(t, sizeAfterCheckpoint, sizeAfterFirstWrite,
+			"Checkpoint should reduce file size by keeping only the last entry")
+
+		// Verificar que solo se recupera la última entrada
+		recoveredLogs, err := RecoverFromLogs(tempDir, checkpointInterval)
+		assert.NoError(t, err)
+		assert.Len(t, recoveredLogs, 1)
+
+		recoveredLog := recoveredLogs[0]
+		_, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, err := recoveredLog.Recover()
+		assert.NoError(t, err)
+		assert.Equal(t, "small_file.txt", filenameR) // Solo la última entrada
+		assert.Equal(t, uint64(2), counterR)
+		assert.Equal(t, []string{"small"}, readR)
+		assert.Equal(t, []byte{1}, lastReadNotIncluidedR)
+		assert.Equal(t, uint64(200), lastIdACKR)
 	})
 }

@@ -25,7 +25,7 @@ func TestWriteAndReadLogFile_Basic(t *testing.T) {
 
 		// Reabrir para lectura desde el principio
 		tmpFile.Seek(0, 0)
-		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, err := ReadLogFile(tmpFile)
+		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, err := readLogFile(tmpFile)
 		assert.NoError(t, err)
 		assert.Equal(t, filename, gotFilename)
 		assert.Equal(t, counter, gotCounter)
@@ -50,7 +50,7 @@ func TestWriteAndReadLogFile_Basic(t *testing.T) {
 		assert.NoError(t, err)
 
 		tmpFile.Seek(0, 0)
-		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, err := ReadLogFile(tmpFile)
+		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, err := readLogFile(tmpFile)
 		assert.NoError(t, err)
 		assert.Equal(t, filename, gotFilename)
 		assert.Equal(t, counter, gotCounter)
@@ -68,7 +68,7 @@ func TestWriteAndReadLogFile_Basic(t *testing.T) {
 		tmpFile.Write([]byte{0x01, 0x02, 0x03})
 		tmpFile.Seek(0, 0)
 
-		_, _, _, _, _, err = ReadLogFile(tmpFile)
+		_, _, _, _, _, err = readLogFile(tmpFile)
 		assert.Error(t, err)
 	})
 
@@ -94,7 +94,7 @@ func TestWriteAndReadLogFile_Basic(t *testing.T) {
 		assert.NoError(t, err)
 
 		tmpFile.Seek(0, 0)
-		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, err := ReadLogFile(tmpFile)
+		gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, err := readLogFile(tmpFile)
 		assert.NoError(t, err)
 		assert.Equal(t, filename, gotFilename)
 		assert.Equal(t, counter, gotCounter)
