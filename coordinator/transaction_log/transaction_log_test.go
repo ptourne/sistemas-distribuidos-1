@@ -141,7 +141,7 @@ func TestTransactionLog(t *testing.T) {
 // }
 
 func TestTransactionLogQueries(t *testing.T) {
-	t.Run("Test writeRowQuery", func(t *testing.T) {
+	t.Run("TestWriteRowQuery", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
@@ -156,17 +156,18 @@ func TestTransactionLogQueries(t *testing.T) {
 		queryNumber, rows, queryEnded, err := tl.ReadLastQueryRows()
 		assert.NoError(t, err)
 		assert.Equal(t, uint8(1), queryNumber)
-		assert.Equal(t, []*model.Row{}, rows)
+		assert.Equal(t, []RowWithID{}, rows)
 		assert.False(t, queryEnded)
 
 		log.Infof("WriteRowQuery")
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}}, 1)
 		assert.NoError(t, err)
 		queryNumber, rows, queryEnded, err = tl.ReadLastQueryRows()
 		assert.NoError(t, err)
 		assert.Equal(t, uint8(1), queryNumber)
 		assert.Len(t, rows, 1)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0].Row))
+		assert.Equal(t, uint64(1), rows[0].ID)
 		assert.False(t, queryEnded)
 
 		log.Infof("WriteEndQuery")
@@ -176,11 +177,12 @@ func TestTransactionLogQueries(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, uint8(1), queryNumber)
 		assert.Len(t, rows, 1)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0].Row))
+		assert.Equal(t, uint64(1), rows[0].ID)
 		assert.True(t, queryEnded)
 	})
 
-	t.Run("Test complete block with END", func(t *testing.T) {
+	t.Run("TestCompleteBlockWithEND", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
@@ -190,9 +192,9 @@ func TestTransactionLogQueries(t *testing.T) {
 		// Escribir un bloque completo
 		err = tl.WriteBeginQuery(1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}}, 1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}}, 2)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -202,12 +204,14 @@ func TestTransactionLogQueries(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, uint8(1), queryNumber)
 		assert.Len(t, rows, 2)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0]))
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows[1]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0].Row))
+		assert.Equal(t, uint64(1), rows[0].ID)
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows[1].Row))
+		assert.Equal(t, uint64(2), rows[1].ID)
 		assert.True(t, queryEnded)
 	})
 
-	t.Run("Test incomplete block without END", func(t *testing.T) {
+	t.Run("TestIncompleteBlockWithoutEND", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
@@ -217,9 +221,9 @@ func TestTransactionLogQueries(t *testing.T) {
 		// Escribir un bloque incompleto
 		err = tl.WriteBeginQuery(2)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"c": 3}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"c": 3}}, 3)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"d": 4}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"d": 4}}, 4)
 		assert.NoError(t, err)
 		// Sin WriteEndQuery
 
@@ -228,12 +232,14 @@ func TestTransactionLogQueries(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, uint8(2), queryNumber)
 		assert.Len(t, rows, 2)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"c": 3}}, rows[0]))
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"d": 4}}, rows[1]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"c": 3}}, rows[0].Row))
+		assert.Equal(t, uint64(3), rows[0].ID)
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"d": 4}}, rows[1].Row))
+		assert.Equal(t, uint64(4), rows[1].ID)
 		assert.False(t, queryEnded)
 	})
 
-	t.Run("Test multiple blocks - keep last one", func(t *testing.T) {
+	t.Run("TestMultipleBlocksKeepLastOne", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
@@ -243,7 +249,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		// Primer bloque
 		err = tl.WriteBeginQuery(1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}}, 1)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -251,9 +257,9 @@ func TestTransactionLogQueries(t *testing.T) {
 		// Segundo bloque
 		err = tl.WriteBeginQuery(2)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}}, 2)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"c": 3}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"c": 3}}, 3)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -261,7 +267,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		// Tercer bloque (incompleto)
 		err = tl.WriteBeginQuery(3)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"d": 4}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"d": 4}}, 4)
 		assert.NoError(t, err)
 		// Sin END
 
@@ -270,11 +276,12 @@ func TestTransactionLogQueries(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, uint8(3), queryNumber)
 		assert.Len(t, rows, 1)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"d": 4}}, rows[0]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"d": 4}}, rows[0].Row))
+		assert.Equal(t, uint64(4), rows[0].ID)
 		assert.False(t, queryEnded)
 	})
 
-	t.Run("Test complex row with all fields", func(t *testing.T) {
+	t.Run("TestComplexRowWithAllFields", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
@@ -291,7 +298,7 @@ func TestTransactionLogQueries(t *testing.T) {
 
 		err = tl.WriteBeginQuery(1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(complexRow)
+		err = tl.WriteRowQuery(complexRow, 1)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -300,11 +307,12 @@ func TestTransactionLogQueries(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, uint8(1), queryNumber)
 		assert.Len(t, rows, 1)
-		assert.True(t, model.EqualsRows(complexRow, rows[0]))
+		assert.True(t, model.EqualsRows(complexRow, rows[0].Row))
+		assert.Equal(t, uint64(1), rows[0].ID)
 		assert.True(t, queryEnded)
 	})
 
-	t.Run("Test empty file", func(t *testing.T) {
+	t.Run("TestEmptyFile", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
@@ -315,7 +323,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("Test BEGIN without rows", func(t *testing.T) {
+	t.Run("TestBeginWithoutRows", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
@@ -334,7 +342,7 @@ func TestTransactionLogQueries(t *testing.T) {
 		assert.True(t, queryEnded)
 	})
 
-	t.Run("Test file cleanup after ReadLastQueryRows", func(t *testing.T) {
+	t.Run("TestFileCleanupAfterReadLastQueryRows", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cid := uint64(1)
 
@@ -344,14 +352,14 @@ func TestTransactionLogQueries(t *testing.T) {
 		// Escribir múltiples bloques
 		err = tl.WriteBeginQuery(1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}}, 1)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
 
 		err = tl.WriteBeginQuery(2)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}}, 2)
 		assert.NoError(t, err)
 		// Sin END
 
@@ -360,7 +368,8 @@ func TestTransactionLogQueries(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, uint8(2), queryNumber)
 		assert.Len(t, rows, 1)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows[0]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows[0].Row))
+		assert.Equal(t, uint64(2), rows[0].ID)
 		assert.False(t, queryEnded)
 	})
 
@@ -377,9 +386,9 @@ func TestReadQueriesRows(t *testing.T) {
 		// Escribir una query completa
 		err = tl.WriteBeginQuery(1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}}, 1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}}, 2)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -399,8 +408,10 @@ func TestReadQueriesRows(t *testing.T) {
 		rows, exists := queryRowsMap[1]
 		assert.True(t, exists)
 		assert.Len(t, rows, 2)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0]))
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows[1]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0].Row))
+		assert.Equal(t, uint64(1), rows[0].ID)
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows[1].Row))
+		assert.Equal(t, uint64(2), rows[1].ID)
 	})
 
 	t.Run("TestMultipleCompleteQueries", func(t *testing.T) {
@@ -413,7 +424,7 @@ func TestReadQueriesRows(t *testing.T) {
 		// Primera query
 		err = tl.WriteBeginQuery(1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}}, 1)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -421,9 +432,9 @@ func TestReadQueriesRows(t *testing.T) {
 		// Segunda query
 		err = tl.WriteBeginQuery(2)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}}, 2)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"c": 3}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"c": 3}}, 3)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -431,7 +442,7 @@ func TestReadQueriesRows(t *testing.T) {
 		// Tercera query
 		err = tl.WriteBeginQuery(3)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"d": 4}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"d": 4}}, 4)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -451,20 +462,24 @@ func TestReadQueriesRows(t *testing.T) {
 		rows1, exists := queryRowsMap[1]
 		assert.True(t, exists)
 		assert.Len(t, rows1, 1)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows1[0]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows1[0].Row))
+		assert.Equal(t, uint64(1), rows1[0].ID)
 
 		// Verificar query 2
 		rows2, exists := queryRowsMap[2]
 		assert.True(t, exists)
 		assert.Len(t, rows2, 2)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows2[0]))
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"c": 3}}, rows2[1]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows2[0].Row))
+		assert.Equal(t, uint64(2), rows2[0].ID)
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"c": 3}}, rows2[1].Row))
+		assert.Equal(t, uint64(3), rows2[1].ID)
 
 		// Verificar query 3
 		rows3, exists := queryRowsMap[3]
 		assert.True(t, exists)
 		assert.Len(t, rows3, 1)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"d": 4}}, rows3[0]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"d": 4}}, rows3[0].Row))
+		assert.Equal(t, uint64(4), rows3[0].ID)
 	})
 
 	t.Run("TestIncompleteQueryAtEnd", func(t *testing.T) {
@@ -477,7 +492,7 @@ func TestReadQueriesRows(t *testing.T) {
 		// Query completa
 		err = tl.WriteBeginQuery(1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}}, 1)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -485,7 +500,7 @@ func TestReadQueriesRows(t *testing.T) {
 		// Query incompleta
 		err = tl.WriteBeginQuery(2)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"b": 2}}, 2)
 		assert.NoError(t, err)
 		// Sin END
 
@@ -504,13 +519,15 @@ func TestReadQueriesRows(t *testing.T) {
 		rows1, exists := queryRowsMap[1]
 		assert.True(t, exists)
 		assert.Len(t, rows1, 1)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows1[0]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows1[0].Row))
+		assert.Equal(t, uint64(1), rows1[0].ID)
 
 		// Verificar query 2
 		rows2, exists := queryRowsMap[2]
 		assert.True(t, exists)
 		assert.Len(t, rows2, 1)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows2[0]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"b": 2}}, rows2[0].Row))
+		assert.Equal(t, uint64(2), rows2[0].ID)
 	})
 
 	t.Run("TestEmptyFile", func(t *testing.T) {
@@ -595,11 +612,11 @@ func TestReadQueriesRows(t *testing.T) {
 
 		err = tl.WriteBeginQuery(1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(complexRow1)
+		err = tl.WriteRowQuery(complexRow1, 1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(complexRow2)
+		err = tl.WriteRowQuery(complexRow2, 2)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(complexRow3)
+		err = tl.WriteRowQuery(complexRow3, 3)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -619,9 +636,13 @@ func TestReadQueriesRows(t *testing.T) {
 		rows, exists := queryRowsMap[1]
 		assert.True(t, exists)
 		assert.Len(t, rows, 3)
-		assert.True(t, model.EqualsRows(complexRow1, rows[0]))
-		assert.True(t, model.EqualsRows(complexRow2, rows[1]))
-		assert.True(t, model.EqualsRows(complexRow3, rows[2]))
+		assert.True(t, model.EqualsRows(complexRow1, rows[0].Row))
+		assert.Equal(t, uint64(1), rows[0].ID)
+		assert.True(t, model.EqualsRows(complexRow2, rows[1].Row))
+		assert.Equal(t, uint64(2), rows[1].ID)
+		assert.True(t, model.EqualsRows(complexRow3, rows[2].Row))
+		assert.Equal(t, uint64(3), rows[2].ID)
+
 	})
 
 	t.Run("TestCorruptedLinesAreIgnored", func(t *testing.T) {
@@ -634,7 +655,7 @@ func TestReadQueriesRows(t *testing.T) {
 		// Escribir query válida
 		err = tl.WriteBeginQuery(1)
 		assert.NoError(t, err)
-		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}})
+		err = tl.WriteRowQuery(&model.Row{Numerics: map[string]uint64{"a": 1}}, 1)
 		assert.NoError(t, err)
 		err = tl.WriteEndQuery()
 		assert.NoError(t, err)
@@ -661,7 +682,8 @@ func TestReadQueriesRows(t *testing.T) {
 		rows, exists := queryRowsMap[1]
 		assert.True(t, exists)
 		assert.Len(t, rows, 1)
-		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0]))
+		assert.True(t, model.EqualsRows(&model.Row{Numerics: map[string]uint64{"a": 1}}, rows[0].Row))
+		assert.Equal(t, uint64(1), rows[0].ID)
 	})
 }
 

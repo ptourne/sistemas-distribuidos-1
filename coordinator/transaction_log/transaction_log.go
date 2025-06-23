@@ -32,7 +32,7 @@ type transactionLog struct {
 	queryFileName        string
 	isQueryPhase         bool
 	lastQueryNumber      uint8
-	lastQueryRows        []*model.Row
+	lastQueryRows        []RowWithID
 	lastQueryEnded       bool
 	checkpointInterval   uint64   // cada cuántas escrituras hacer checkpoint
 	writeCount           uint64   // contador de escrituras desde el último checkpoint
@@ -47,12 +47,20 @@ type TransactionLog interface {
 	RemoveAll() error
 	RemoveLog() error
 	CloseLog() error
-	ReadLastQueryRows() (uint8, []*model.Row, bool, error)
+	ReadLastQueryRows() (uint8, []RowWithID, bool, error)
 	WriteBeginQuery(numberQuery uint8) error
-	WriteRowQuery(row *model.Row) error
+	WriteRowQuery(row *model.Row, idRow uint64) error
 	WriteEndQuery() error
-	RecoverQueryPhase() (uint8, []*model.Row, bool, error)
+	RecoverQueryPhase() (uint8, []RowWithID, bool, error)
 	IsQueryPhase() bool
+}
+
+// Define a struct to hold both id and row
+// lastRows will now be a slice of this struct
+
+type RowWithID struct {
+	ID  uint64
+	Row *model.Row
 }
 
 func RecoverFromLogs(dirPath string, checkpointInterval uint64) ([]TransactionLog, error) {
@@ -179,7 +187,7 @@ func (t *transactionLog) IsQueryPhase() bool {
 	return t.isQueryPhase
 }
 
-func (t *transactionLog) RecoverQueryPhase() (uint8, []*model.Row, bool, error) {
+func (t *transactionLog) RecoverQueryPhase() (uint8, []RowWithID, bool, error) {
 	if !t.isQueryPhase {
 		return 0, nil, false, fmt.Errorf("not in query phase")
 	}
@@ -466,13 +474,13 @@ func (t *transactionLog) WriteBeginQuery(numberQuery uint8) error {
 	return t.writeBeginQuery(f, numberQuery)
 }
 
-func (t *transactionLog) WriteRowQuery(row *model.Row) error {
+func (t *transactionLog) WriteRowQuery(row *model.Row, idRow uint64) error {
 	f, err := os.OpenFile(t.queryFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open query file: %w", err)
 	}
 	defer f.Close()
-	return t.writeRowQuery(f, row)
+	return t.writeRowQuery(f, row, idRow)
 }
 
 func (t *transactionLog) WriteEndQuery() error {
@@ -499,7 +507,7 @@ func (t *transactionLog) writeBeginQuery(file *os.File, numberQuery uint8) error
 	return codec.DoWrite(buffer, file)
 }
 
-func (t *transactionLog) writeRowQuery(file *os.File, row *model.Row) error {
+func (t *transactionLog) writeRowQuery(file *os.File, row *model.Row, idRow uint64) error {
 	queryTypeEncode, err := codec.Uint8Encode(uint8(QUERY_ROW))
 	if err != nil {
 		return fmt.Errorf("failed to encode query type: %w", err)
@@ -508,9 +516,14 @@ func (t *transactionLog) writeRowQuery(file *os.File, row *model.Row) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode row: %w", err)
 	}
-	buffer := make([]byte, len(queryTypeEncode)+len(encodeRow))
+	idRowEncode, err := codec.Uint64Encode(idRow)
+	if err != nil {
+		return fmt.Errorf("failed to encode id row: %w", err)
+	}
+	buffer := make([]byte, len(queryTypeEncode)+len(encodeRow)+len(idRowEncode))
 	copy(buffer, queryTypeEncode)
 	copy(buffer[len(queryTypeEncode):], encodeRow)
+	copy(buffer[len(queryTypeEncode)+len(encodeRow):], idRowEncode)
 	return codec.DoWrite(buffer, file)
 }
 
@@ -524,7 +537,7 @@ func (t *transactionLog) writeEndQuery(file *os.File) error {
 	return codec.DoWrite(buffer, file)
 }
 
-func (t *transactionLog) ReadLastQueryRows() (uint8, []*model.Row, bool, error) {
+func (t *transactionLog) ReadLastQueryRows() (uint8, []RowWithID, bool, error) {
 	f, err := os.Open(t.queryFileName)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -536,7 +549,7 @@ func (t *transactionLog) ReadLastQueryRows() (uint8, []*model.Row, bool, error) 
 
 	// Leer datos binarios directamente de arriba a abajo
 	lastQueryNumber := uint8(0)
-	lastRows := []*model.Row{}
+	lastRows := []RowWithID{}
 	foundBegin := false
 	queryEnded := false
 
@@ -559,7 +572,7 @@ func (t *transactionLog) ReadLastQueryRows() (uint8, []*model.Row, bool, error) 
 				break
 			}
 			lastQueryNumber = n
-			lastRows = []*model.Row{} // Reset rows for new query
+			lastRows = []RowWithID{} // Reset rows for new query
 			foundBegin = true
 			queryEnded = false
 		} else if queryType == uint8(QUERY_ROW) {
@@ -568,7 +581,12 @@ func (t *transactionLog) ReadLastQueryRows() (uint8, []*model.Row, bool, error) 
 				log.Errorf("failed to decode row: %v", err)
 				break
 			}
-			lastRows = append(lastRows, row)
+			idRow, err := codec.Uint64Decode(f)
+			if err != nil {
+				log.Errorf("failed to decode id row: %v", err)
+				break
+			}
+			lastRows = append(lastRows, RowWithID{ID: idRow, Row: row})
 		} else if queryType == uint8(QUERY_END) {
 			queryEnded = true
 		} else {
@@ -592,7 +610,7 @@ func (t *transactionLog) ReadLastQueryRows() (uint8, []*model.Row, bool, error) 
 	return lastQueryNumber, lastRows, queryEnded, nil
 }
 
-func updateQueriesLog(t *transactionLog, lastQueryNumber uint8, lastRows []*model.Row, queryEnded bool) error {
+func updateQueriesLog(t *transactionLog, lastQueryNumber uint8, lastRows []RowWithID, queryEnded bool) error {
 	tempPath := t.queryFileName + ".tmp"
 	tempFile, err := os.Create(tempPath)
 	if err != nil {
@@ -606,9 +624,9 @@ func updateQueriesLog(t *transactionLog, lastQueryNumber uint8, lastRows []*mode
 		}
 	}
 	if len(lastRows) > 0 {
-		for _, row := range lastRows {
+		for _, rowWithID := range lastRows {
 			// Escribir QUERY_ROW
-			if err := t.writeRowQuery(tempFile, row); err != nil {
+			if err := t.writeRowQuery(tempFile, rowWithID.Row, rowWithID.ID); err != nil {
 				return fmt.Errorf("failed to write row to temp query file: %w", err)
 			}
 		}
@@ -630,9 +648,9 @@ func updateQueriesLog(t *transactionLog, lastQueryNumber uint8, lastRows []*mode
 	return nil
 }
 
-func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[uint8][]*model.Row, queryEnded bool, err error) {
+func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[uint8][]RowWithID, queryEnded bool, err error) {
 	// Leer datos binarios directamente de arriba a abajo
-	queryRowsMap = make(map[uint8][]*model.Row)
+	queryRowsMap = make(map[uint8][]RowWithID)
 	currentQueryNumber = uint8(0)
 	queryEnded = false
 
@@ -658,7 +676,7 @@ func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[
 			queryEnded = false
 			// Inicializar el slice para esta query si no existe
 			if _, exists := queryRowsMap[currentQueryNumber]; !exists {
-				queryRowsMap[currentQueryNumber] = []*model.Row{}
+				queryRowsMap[currentQueryNumber] = []RowWithID{}
 			}
 		} else if queryType == uint8(QUERY_ROW) {
 			row, err := model.RowDecode(file)
@@ -666,9 +684,14 @@ func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[
 				log.Errorf("failed to decode row: %v", err)
 				break
 			}
-			// Agregar la row a la query actual
+			idRow, err := codec.Uint64Decode(file)
+			if err != nil {
+				log.Errorf("failed to decode id row: %v", err)
+				break
+			}
+			// Agregar la row con id a la query actual
 			if currentQueryNumber > 0 {
-				queryRowsMap[currentQueryNumber] = append(queryRowsMap[currentQueryNumber], row)
+				queryRowsMap[currentQueryNumber] = append(queryRowsMap[currentQueryNumber], RowWithID{ID: idRow, Row: row})
 			}
 		} else if queryType == uint8(QUERY_END) {
 			queryEnded = true
