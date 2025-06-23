@@ -120,7 +120,7 @@ func RecoverFromLogs(dirPath string, checkpointInterval uint64) ([]TransactionLo
 			transactionLog.lastReadNotIncluided = lastReadNotIncluided
 			transactionLog.lastIdACK = lastIdACK
 
-			log.Infof("SSII fileName: %s counter: %d read: %v lastReadNotIncluided: %v lastIdACK: %d", fileName, counter, read, lastReadNotIncluided, lastIdACK)
+			log.Infof("RECOVER: \n fileName: %s \n counter: %d \n read: %v \n lastReadNotIncluided: %v \n lastIdACK: %d", fileName, counter, read, lastReadNotIncluided, lastIdACK)
 
 			// //actualizo el archivo de log
 			err = SaveLogSafely(transactionLog.logFileName, fileName, counter, read, lastReadNotIncluided, lastIdACK)
@@ -128,8 +128,6 @@ func RecoverFromLogs(dirPath string, checkpointInterval uint64) ([]TransactionLo
 				return nil, fmt.Errorf("failed to save log file: %w", err)
 			}
 			transactionLog.writeCount = 1
-			log.Infof("WROTE SAFELY")
-			// Abrir el archivo de log para escritura futura
 			logFile, err = os.OpenFile(transactionLog.logFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
 				return nil, fmt.Errorf("failed to open log file for writing for cid %s: %v", cid, err)
@@ -261,8 +259,6 @@ func ReadLastLogEntry(file *os.File) (filename string, counter uint64, read []st
 	var lastLastReadNotIncluided []byte
 	var lastLastIdACK uint64
 
-	log := logger.NewConsoleLogger("transaction_log", logger.Info)
-
 	// Leer todas las entradas del archivo hasta encontrar un error de parseo
 	for {
 		currentFilename, currentCounter, currentRead, currentLastReadNotIncluided, currentLastIdACK, err := readLogFile(file)
@@ -274,7 +270,6 @@ func ReadLastLogEntry(file *os.File) (filename string, counter uint64, read []st
 			return lastFilename, lastCounter, lastRead, lastLastReadNotIncluided, lastLastIdACK, nil
 		}
 
-		log.Infof("currentFilename: %s currentCounter: %d currentRead: %v currentLastReadNotIncluided: %v currentLastIdACK: %d", currentFilename, currentCounter, currentRead, currentLastReadNotIncluided, currentLastIdACK)
 		// Guardar los valores actuales como los últimos válidos
 		lastFilename = currentFilename
 		lastCounter = currentCounter
@@ -317,10 +312,6 @@ func SaveLogSafely(path string, fileName string, counter uint64, read []string, 
 }
 
 func (t *transactionLog) Update(fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64) error {
-	log := logger.NewConsoleLogger("transaction_log", logger.Info)
-
-	log.Infof("Update fileName: %s counter: %d read: %v lastReadNotIncluided: %v lastIdACK: %d", fileName, counter, read, lastReadNotIncluided, lastIdACK)
-
 	if t.isQueryPhase {
 		return fmt.Errorf("in query phase")
 	}
@@ -332,8 +323,6 @@ func (t *transactionLog) Update(fileName string, counter uint64, read []string, 
 
 	// Incrementar contador de escrituras
 	t.writeCount++
-	log.Infof("writeCount: %d", t.writeCount)
-
 	// Verificar si es momento de hacer checkpoint
 	if t.writeCount >= t.checkpointInterval {
 		// Cerrar el archivo actual antes de hacer checkpoint
@@ -355,13 +344,9 @@ func (t *transactionLog) Update(fileName string, counter uint64, read []string, 
 			return fmt.Errorf("failed to reopen log file after checkpoint: %w", err)
 		}
 		t.logFile = logFile
-
-		// Resetear contador de escrituras
 		t.writeCount = 0
 		log.Infof("Checkpoint created for cid %d after %d writes", t.cid, t.checkpointInterval)
 	} else {
-		// Escribir directamente al archivo ya abierto
-		log.Infof("Writing to log file for cid %d", t.cid)
 		err := WriteLogFile(t.logFile, t.fileName, t.counter, t.read, t.lastReadNotIncluided, t.lastIdACK)
 		if err != nil {
 			return fmt.Errorf("failed to write to log file: %w", err)
@@ -567,7 +552,6 @@ func (t *transactionLog) ReadLastQueryRows() (uint8, []*model.Row, bool, error) 
 		}
 
 		if queryType == uint8(QUERY_BEGIN) {
-			log.Infof("found begin")
 			// Encontramos el BEGIN, extraer el número
 			n, err := codec.Uint8Decode(f)
 			if err != nil {
@@ -579,7 +563,6 @@ func (t *transactionLog) ReadLastQueryRows() (uint8, []*model.Row, bool, error) 
 			foundBegin = true
 			queryEnded = false
 		} else if queryType == uint8(QUERY_ROW) {
-			log.Infof("found row")
 			row, err := model.RowDecode(f)
 			if err != nil {
 				log.Errorf("failed to decode row: %v", err)
@@ -618,13 +601,11 @@ func updateQueriesLog(t *transactionLog, lastQueryNumber uint8, lastRows []*mode
 	defer tempFile.Close()
 
 	if lastQueryNumber > 0 {
-		log.Infof("writing begin query: %d", lastQueryNumber)
 		if err := t.writeBeginQuery(tempFile, lastQueryNumber); err != nil {
 			return fmt.Errorf("failed to write BEGIN to temp query file: %w", err)
 		}
 	}
 	if len(lastRows) > 0 {
-		log.Infof("writing rows: %d", len(lastRows))
 		for _, row := range lastRows {
 			// Escribir QUERY_ROW
 			if err := t.writeRowQuery(tempFile, row); err != nil {
@@ -634,7 +615,6 @@ func updateQueriesLog(t *transactionLog, lastQueryNumber uint8, lastRows []*mode
 	}
 
 	if queryEnded {
-		log.Infof("writing end query")
 		if err := t.writeEndQuery(tempFile); err != nil {
 			return fmt.Errorf("failed to write END to temp query file: %w", err)
 		}
@@ -668,7 +648,6 @@ func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[
 		}
 
 		if queryType == uint8(QUERY_BEGIN) {
-			log.Infof("found begin")
 			// Encontramos el BEGIN, extraer el número
 			n, err := codec.Uint8Decode(file)
 			if err != nil {
@@ -682,7 +661,6 @@ func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[
 				queryRowsMap[currentQueryNumber] = []*model.Row{}
 			}
 		} else if queryType == uint8(QUERY_ROW) {
-			log.Infof("found row")
 			row, err := model.RowDecode(file)
 			if err != nil {
 				log.Errorf("failed to decode row: %v", err)
@@ -693,7 +671,6 @@ func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[
 				queryRowsMap[currentQueryNumber] = append(queryRowsMap[currentQueryNumber], row)
 			}
 		} else if queryType == uint8(QUERY_END) {
-			log.Infof("found end")
 			queryEnded = true
 		} else {
 			// Tipo de query desconocido, ignorar
