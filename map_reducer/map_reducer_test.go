@@ -619,7 +619,7 @@ func TestMapReducer(t *testing.T) {
 			expected += i
 		}
 
-		for i := 0; i < int(shardCountOutput); i++ {
+		for i := range int(shardCountOutput) {
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			_, err = receivers[i].Next(ctx)
 			cancel()
@@ -635,7 +635,7 @@ func TestMapReducer(t *testing.T) {
 		cant_msg_received := 0
 		cant_msg_not_received := 0
 
-		for i := 0; i < int(shardCountOutput); i++ {
+		for i := range int(shardCountOutput) {
 			log.Debugf("Waiting for message")
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
 			e, err := receivers[i].Next(ctx)
@@ -645,19 +645,19 @@ func TestMapReducer(t *testing.T) {
 			case middleware.Normal:
 				cant_msg_received++
 				if i == 0 {
-					assert.Equal(t, expected, e.Msg().val)
-					assert.Equal(t, uint64(0), e.Id())
-				} else {
 					assert.Equal(t, expected+1, e.Msg().val)
+					assert.Equal(t, uint64(2), e.Id())
+				} else {
+					assert.Equal(t, expected, e.Msg().val)
 					assert.Equal(t, uint64(1), e.Id())
 				}
 				e.Ack(true)
-				if i == 0 {
+				if i == 1 {
 					e, err = receivers[i].Next(ctx)
 					assert.NoError(t, err)
 					assert.Equal(t, middleware.Normal, e.Type())
 					assert.Equal(t, expected+2, e.Msg().val)
-					assert.Equal(t, uint64(2), e.Id())
+					assert.Equal(t, uint64(3), e.Id())
 					e.Ack(true)
 				}
 
@@ -684,7 +684,7 @@ func TestMapReducer(t *testing.T) {
 		e.Ack(false)
 		cancel()
 
-		for i := 0; i < int(shardCountOutput); i++ {
+		for i := range int(shardCountOutput) {
 			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 			_, err = receivers[i].Next(ctx)
 			cancel()
