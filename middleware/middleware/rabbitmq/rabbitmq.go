@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -148,7 +149,6 @@ type SenderRabbitmq[T codec.Serializable[T]] struct {
 	isBlocked     atomic.Bool
 	isClosed      atomic.Bool
 	Log           *logger.ConsoleLogger
-	idSender      string
 	consumerCount uint
 }
 
@@ -161,6 +161,7 @@ type SenderChannel[T codec.Serializable[T]] struct {
 	exchangeName string
 	ch           *amqp.Channel
 	Log          *logger.ConsoleLogger
+	senderId     uint64
 }
 
 func (s *SenderChannel[T]) Close() {
@@ -256,7 +257,7 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 		return nil, err
 	}
 
-	closeSender, err := CreateProducerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "fanout")
+	closeSender, err := CreateProducerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "fanout", 0)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +294,7 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 	return receiver, nil
 }
 
-func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middlewareRabbitmq[T], readExchangeName string, t string) (SenderChannel[I], error) {
+func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middlewareRabbitmq[T], readExchangeName string, t string, senderId uint64) (SenderChannel[I], error) {
 	ch, err := m.Conn.Channel()
 	if err != nil {
 		return SenderChannel[I]{}, fmt.Errorf("failed to open a channel: %v", err)
@@ -321,6 +322,7 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 		exchangeName: readExchangeName,
 		ch:           ch,
 		Log:          m.Log,
+		senderId:     senderId,
 	}
 	return newVar, nil
 }
@@ -357,12 +359,16 @@ func (m *middlewareRabbitmq[T]) WriteTo(outputName string, subscribers []string,
 		}
 		m.Log.Debugf("subscribersMap[%s] = %v  for %s", sub, subscribersMap[sub], outputName)
 	}
-	return m.writeToRK(outputName, subscribersMap, "direct", idWorker, consumerCount)
+	workerId, err := strconv.ParseUint(idWorker, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse workerId %s: %v", idWorker, err)
+	}
+	return m.writeToRK(outputName, subscribersMap, "direct", workerId, consumerCount)
 }
 
-func (m *middlewareRabbitmq[T]) writeToRK(outputName string, subscribers map[string][]string, t string, idWorker string, consumerCount uint) (middleware.Sender[T], error) {
+func (m *middlewareRabbitmq[T]) writeToRK(outputName string, subscribers map[string][]string, t string, senderId uint64, consumerCount uint) (middleware.Sender[T], error) {
 	m.Log.Debugf("Creating WriteTo exchange '%s'", outputName)
-	output, err := CreateProducerRK[T, T](m, outputName, t)
+	output, err := CreateProducerRK[T, T](m, outputName, t, senderId)
 	if err != nil {
 		return nil, fmt.Errorf("failed to declare exchange %v", err)
 	}
@@ -381,7 +387,6 @@ func (m *middlewareRabbitmq[T]) writeToRK(outputName string, subscribers map[str
 		exchangeName:  outputName,
 		output:        output,
 		Log:           m.Log,
-		idSender:      idWorker,
 		consumerCount: consumerCount,
 	}
 	sender.isBlocked.Store(false)
@@ -402,7 +407,9 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 	}
 	bufId := make([]byte, 8)
 	binary.BigEndian.PutUint64(bufId, id)
-	s.Log.Debugf("Sending msg of id %d with cid %d to exchange %s", id, cid, s.exchangeName)
+	bufSenderId := make([]byte, 8)
+	binary.BigEndian.PutUint64(bufSenderId, s.senderId)
+	s.Log.Debugf("Sending msg of id %d with cid %d and senderId %d to exchange %s", id, cid, s.senderId, s.exchangeName)
 	cidC := int64(cid)
 	err = s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
@@ -413,9 +420,10 @@ func (s *SenderChannel[T]) PublishRK(ctx context.Context, msg T, routingKey stri
 			ContentType: "application/message",
 			Body:        buf,
 			Headers: amqp.Table{
-				"cid":  cidC,
-				"type": normal.String(),
-				"id":   bufId,
+				"cid":      cidC,
+				"type":     normal.String(),
+				"id":       bufId,
+				"senderId": bufSenderId,
 			},
 		})
 	if err != nil {
@@ -456,6 +464,8 @@ func (s *SenderChannel[T]) ResendEOFToPeers(cid uint64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	bufId := make([]byte, 8)
 	binary.BigEndian.PutUint64(bufId, uint64(0))
+	bufSenderId := make([]byte, 8)
+	binary.BigEndian.PutUint64(bufSenderId, s.senderId)
 	cidC := int64(cid)
 
 	err := s.ch.PublishWithContext(ctx,
@@ -467,9 +477,10 @@ func (s *SenderChannel[T]) ResendEOFToPeers(cid uint64) error {
 			ContentType: "application/message",
 			Body:        []byte{},
 			Headers: amqp.Table{
-				"cid":  cidC,
-				"type": eofCid.String(),
-				"id":   bufId,
+				"cid":      cidC,
+				"type":     eofCid.String(),
+				"id":       bufId,
+				"senderId": bufSenderId,
 			},
 		})
 	cancel()
@@ -484,6 +495,8 @@ func (s *SenderChannel[T]) SendEOFRK(ctx context.Context, routingKey string, cid
 	s.Log.Debugf("SendEOFRK in chan %s with routingKey %s and cid %d", s.exchangeName, routingKey, cid)
 	bufId := make([]byte, 8)
 	binary.BigEndian.PutUint64(bufId, uint64(0))
+	bufSenderId := make([]byte, 8)
+	binary.BigEndian.PutUint64(bufSenderId, s.senderId)
 	cidC := int64(cid)
 	err := s.ch.PublishWithContext(ctx,
 		s.exchangeName, // exchange
@@ -494,9 +507,10 @@ func (s *SenderChannel[T]) SendEOFRK(ctx context.Context, routingKey string, cid
 			ContentType: "application/message",
 			Body:        []byte{},
 			Headers: amqp.Table{
-				"cid":  cidC,
-				"type": eofCid.String(),
-				"id":   bufId,
+				"cid":      cidC,
+				"type":     eofCid.String(),
+				"id":       bufId,
+				"senderId": bufSenderId,
 			},
 		})
 	if err != nil {
@@ -558,7 +572,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					return nil, fmt.Errorf("read channel was closed")
 				}
 				r.Log.Debugf("Received message from input in receiver %s", r.input.queueName)
-				t, cid, id, msgbody, tag, err := unpackMsg[T](msg)
+				t, cid, id, senderId, msgbody, tag, err := unpackMsg[T](msg)
 				if err != nil {
 					return nil, fmt.Errorf("failed to process close notification: %v", err)
 				}
@@ -611,7 +625,7 @@ func (r *receiverRabbitmq[T]) Next(ctx context.Context) (middleware.Envelope[T],
 					}
 				}
 				r.Log.Debugf("return normal envelope")
-				return newNormalEnvelope(cid, msgbody, tag, id), nil
+				return newNormalEnvelope(cid, msgbody, tag, id, senderId), nil
 
 			case <-ctxDone:
 				r.Log.Debugf("Timeout reached while waiting for message")
@@ -630,7 +644,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	if !ok {
 		return false, true, nil, fmt.Errorf("read channel was closed")
 	}
-	t, cid, _, notification, tag, err := unpackMsg[*CloseNotification](msg)
+	t, cid, _, _, notification, tag, err := unpackMsg[*CloseNotification](msg)
 	if err != nil {
 		r.Log.Errorf("failed to unpack close notification: %v", err)
 		return false, true, nil, fmt.Errorf("failed to process close notification: %v", err)
@@ -713,45 +727,52 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	return false, false, nil, nil
 }
 
-func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, cid uint64, id uint64, received T, tag *amqp.Delivery, err error) {
+func unpackMsg[T codec.Serializable[T]](msg amqp.Delivery) (t TypeMsgInternal, cid uint64, id uint64, senderId uint64, received T, tag *amqp.Delivery, err error) {
 	tag = &msg
 	cidRaw, ok := msg.Headers["cid"]
 	if !ok {
-		return t, cid, id, received, tag, fmt.Errorf("cid missing from header")
+		return t, cid, id, senderId, received, tag, fmt.Errorf("cid missing from header")
 	}
 
 	cidC, ok := cidRaw.(int64)
 	if !ok {
-		return t, cid, id, received, tag, fmt.Errorf("cid is not a int64: %T", cidRaw)
+		return t, cid, id, senderId, received, tag, fmt.Errorf("cid is not a int64: %T", cidRaw)
 	}
 	cid = uint64(cidC)
 
 	idBuf, ok := msg.Headers["id"]
 	if !ok {
-		return t, cid, id, received, tag, fmt.Errorf("id missing from header")
+		return t, cid, id, senderId, received, tag, fmt.Errorf("id missing from header")
 	}
 
 	id = binary.BigEndian.Uint64(idBuf.([]byte))
 
+	senderIdBuf, ok := msg.Headers["senderId"]
+	if !ok {
+		return t, cid, id, senderId, received, tag, fmt.Errorf("senderId missing from header")
+	}
+
+	senderId = binary.BigEndian.Uint64(senderIdBuf.([]byte))
+
 	typeMessageRaw, ok := msg.Headers["type"]
 	if !ok {
-		return t, cid, id, received, tag, fmt.Errorf("type missing from header")
+		return t, cid, id, senderId, received, tag, fmt.Errorf("type missing from header")
 	}
 
 	typeMessageInternal, err := FromStringTypeMsgInternal(typeMessageRaw.(string))
 	if err != nil {
-		return t, cid, id, received, tag, fmt.Errorf("failed to decode type message: %v", err)
+		return t, cid, id, senderId, received, tag, fmt.Errorf("failed to decode type message: %v", err)
 	}
 
 	if typeMessageInternal == normal {
 		var nul T
 		received, err = nul.Decode(msg.Body)
 		if err != nil {
-			return t, cid, id, received, tag, fmt.Errorf("failed to decode item: %v", err)
+			return t, cid, id, senderId, received, tag, fmt.Errorf("failed to decode item: %v", err)
 		}
 	}
 
-	return typeMessageInternal, cid, id, received, tag, nil
+	return typeMessageInternal, cid, id, senderId, received, tag, nil
 }
 
 func (s *SenderRabbitmq[T]) Send(row T, cid uint64, id uint64) error {
@@ -796,15 +817,18 @@ func (s *SenderRabbitmq[T]) Prune(cid uint64) error {
 func (s SenderChannel[T]) Prune(cid uint64) error {
 	bufId := make([]byte, 8)
 	binary.BigEndian.PutUint64(bufId, uint64(0))
+	bufSenderId := make([]byte, 8)
+	binary.BigEndian.PutUint64(bufSenderId, s.senderId)
 	cidC := int64(cid)
 	c, err := s.ch.PublishWithDeferredConfirm(s.exchangeName, "", false, false,
 		amqp.Publishing{
 			ContentType: "application/message",
 			Body:        []byte{},
 			Headers: amqp.Table{
-				"cid":  cidC,
-				"type": prune.String(),
-				"id":   bufId,
+				"cid":      cidC,
+				"type":     prune.String(),
+				"id":       bufId,
+				"senderId": bufSenderId,
 			},
 		})
 	if err != nil {

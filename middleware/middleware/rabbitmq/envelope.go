@@ -12,20 +12,22 @@ import (
 
 var log2 = logger.NewConsoleLogger("envelope", logger.Info)
 
-func newNormalEnvelope[T codec.Serializable[T]](cid uint64, msgbody T, tag *amqp.Delivery, id uint64) middleware.Envelope[T] {
+func newNormalEnvelope[T codec.Serializable[T]](cid uint64, msgbody T, tag *amqp.Delivery, id uint64, senderId uint64) middleware.Envelope[T] {
 	return &EnvelopeRabbitmq[T]{
-		msg: msgbody,
-		tag: tag,
-		cid: cid,
-		id:  id,
+		msg:      msgbody,
+		tag:      tag,
+		cid:      cid,
+		id:       id,
+		senderId: senderId,
 	}
 }
 
 type EnvelopeRabbitmq[T codec.Serializable[T]] struct {
-	msg T
-	tag *amqp.Delivery
-	cid uint64
-	id  uint64
+	msg      T
+	tag      *amqp.Delivery
+	cid      uint64
+	id       uint64
+	senderId uint64
 }
 
 func (r *EnvelopeRabbitmq[T]) Msg() T {
@@ -42,6 +44,10 @@ func (r *EnvelopeRabbitmq[T]) Type() middleware.TypeMsg {
 
 func (r *EnvelopeRabbitmq[T]) Id() uint64 {
 	return r.id
+}
+
+func (r *EnvelopeRabbitmq[T]) SenderId() uint64 {
+	return r.senderId
 }
 
 func (r *EnvelopeRabbitmq[T]) ResendEOFIfRedelivered() error {
@@ -121,6 +127,10 @@ func (r *eofEnvelopeRabbitmq[T]) Type() middleware.TypeMsg {
 
 func (r *eofEnvelopeRabbitmq[T]) Id() uint64 {
 	return 0 // EOF TIENE QUE TENER SU PROPPIO ID?
+}
+
+func (r *eofEnvelopeRabbitmq[T]) SenderId() uint64 {
+	return 0 // EOF messages don't have a specific sender ID
 }
 
 func (r *eofEnvelopeRabbitmq[T]) Ack(multiple bool) error {
@@ -204,6 +214,10 @@ func (r *prune2EnvelopeRabbitmq[T]) Type() middleware.TypeMsg {
 
 func (r *prune2EnvelopeRabbitmq[T]) Id() uint64 {
 	return 0 //TODO TIENE QUE TENER UN ID PROPIO?
+}
+
+func (r *prune2EnvelopeRabbitmq[T]) SenderId() uint64 {
+	return 0 // Prune messages don't have a specific sender ID
 }
 
 func (r *prune2EnvelopeRabbitmq[T]) Ack(multiple bool) error {

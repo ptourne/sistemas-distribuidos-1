@@ -204,6 +204,7 @@ func TestMapReducer(t *testing.T) {
 	test7 := provider.AsyncDeployRabbit()
 	test8 := provider.AsyncDeployRabbit()
 	test9 := provider.AsyncDeployRabbit()
+	test10 := provider.AsyncDeployRabbit()
 
 	test0container := <-test0
 	defer test0container.Container.Teardown()
@@ -225,6 +226,8 @@ func TestMapReducer(t *testing.T) {
 	defer test8container.Container.Teardown()
 	test9container := <-test9
 	defer test9container.Container.Teardown()
+	test10container := <-test10
+	defer test10container.Container.Teardown()
 
 	t.Run("1Reducer0Msg", func(t *testing.T) {
 		init := test0container
@@ -884,10 +887,129 @@ func TestMapReducer(t *testing.T) {
 		log.Infof("All handlers finisheded YESSS")
 	})
 
+	t.Run("NormalMsgsWithSameIdButDifferentSenderId", func(t *testing.T) {
+		init := test9container
+		assert.NoError(t, init.Err)
+
+		cid := uint64(1)
+		shardCount := uint(1)
+		shardCountOutput := uint(1)
+		// sender, receivers, stopMapReducer, handlers, err := setupReducerPipelineRK(t, init, shardCount, shardCountOutput, sumMapReducer{}, 10000000000000000000)
+		var maxLogSize uint64 = 10000000000000000000
+		senderConnector, err := rabbitmq.ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+
+		middlewareSenderLogger := logger.NewConsoleLogger("midd_send", logger.Debug)
+		senderMiddleware := rabbitmq.NewMiddleware[i](senderConnector, middlewareSenderLogger)
+		sender1, err := senderMiddleware.WriteTo("input", []string{"map_reducer"}, "1", shardCount)
+		assert.NoError(t, err)
+		sender2, err := senderMiddleware.WriteTo("input", []string{"map_reducer"}, "2", shardCount)
+		assert.NoError(t, err)
+
+		handlers := make([]chan struct{}, shardCount)
+		mapReducerCtx, stopMapReducer := context.WithCancel(context.Background())
+		for i := 0; i < int(shardCount); i++ {
+			dirPath := t.TempDir()
+			handler := newMapReducer(mapReducerCtx, t, init, i, sumMapReducer{}, shardCount, shardCountOutput, dirPath, maxLogSize)
+			handlers[i] = handler
+		}
+
+		receiverConnector, err := rabbitmq.ConnectorCustom(init.Config)
+		assert.NoError(t, err)
+		middlewareReceiverLogger := logger.NewConsoleLogger("midd_rec", logger.Debug)
+		receivers := []middleware.Receiver[r]{}
+		receiverMiddleware := rabbitmq.NewMiddleware[r](receiverConnector, middlewareReceiverLogger)
+		for i := 0; i < int(shardCountOutput); i++ {
+			rk := fmt.Sprintf("%d", i)
+			receiver, err := receiverMiddleware.ConsumeFrom("map_reducer", "receiver", rk, 1, shardCountOutput)
+			assert.NoError(t, err)
+			assert.NotNil(t, receiver)
+			receivers = append(receivers, receiver)
+		}
+		// return sender, receivers, stopMapReducer, handlers, err
+
+		assert.NoError(t, err)
+
+		err = sender1.Send(&num{val: 1}, cid, 0)
+		assert.NoError(t, err)
+		err = sender2.Send(&num{val: 1}, cid, 0)
+		assert.NoError(t, err)
+
+		for i := range int(shardCountOutput) {
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			_, err = receivers[i].Next(ctx)
+			cancel()
+			assert.Error(t, err)
+		}
+
+		err = sender1.Prune(cid)
+		assert.NoError(t, err)
+
+		err = sender1.SendEOF(cid)
+		assert.NoError(t, err)
+
+		cant_msg_received := []int{}
+		cant_msg_not_received := uint(0)
+
+		for i := range int(shardCountOutput) {
+			log.Debugf("Waiting for message")
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+			e, err := receivers[i].Next(ctx)
+			assert.NoError(t, err)
+			log.Debugf("Received message type %s", e.Type())
+			switch e.Type() {
+			case middleware.Normal:
+				cant_msg_received = append(cant_msg_received, i)
+				assert.Equal(t, uint64(2), e.Msg().val)
+				e.Ack(true)
+
+				e, err = receivers[i].Next(ctx)
+				assert.NoError(t, err)
+				assert.Equal(t, middleware.Prune, e.Type())
+				e.Ack(true)
+
+				cancel()
+			case middleware.Prune:
+				cant_msg_not_received++
+				e.Ack(true)
+
+				cancel()
+			default:
+				assert.Fail(t, "should not be here")
+				cancel()
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Second)
+		e, err := receivers[0].Next(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, middleware.EOF, e.Type())
+		e.Ack(false)
+		cancel()
+
+		for i := 0; i < int(shardCountOutput); i++ {
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			_, err := receivers[i].Next(ctx)
+			cancel()
+			assert.Error(t, err)
+		}
+
+		assert.Equal(t, []int{0}, cant_msg_received)
+		assert.Equal(t, shardCountOutput-1, cant_msg_not_received)
+
+		time.Sleep(time.Second * TIME_TO_WAIT_FOR_CRASH) // we make sure the reducer doesn't crashes.
+
+		stopMapReducer()
+		for _, handler := range handlers {
+			<-handler
+		}
+		log.Infof("All handlers finisheded YESSS")
+	})
+
 	// Recovery
 
 	t.Run("RecoveringFromCheckpoint", func(t *testing.T) {
-		init := test9container
+		init := test10container
 		assert.NoError(t, init.Err)
 
 		cid := uint64(1)
