@@ -127,6 +127,10 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 					log.Infof("Received IGNORE MSG for cid %d", cid)
 					ignoreCtx.cancel()
 					delete(ignoreCtxs, cid)
+					err := envelope.Ack(false)
+					if err != nil {
+						log.Errorf("Failed to ack envelope: %v", err)
+					}
 				}
 				if finished || !ok {
 					log.Infof("Client %d already ignored or finished, skipping", cid)
@@ -1105,7 +1109,7 @@ func verifyingQ5(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 
 func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, qReceiver chan middleware.Envelope[*model.Row], queryNumber string, expectedOutput []*model.Row, remove func([]*model.Row, *model.Row, *logger.ConsoleLogger, uint64) []*model.Row, lastQuery bool, transactionLog transaction_log.TransactionLog, rowsAlreadyReceived []transaction_log.RowWithID, ctx context.Context, removeVerification bool, ignoreClientCtx context.Context) error {
 	lastIdSent := uint64(0)
-	lastIdReceived := int64(-1)
+	// lastIdReceived := make(map[uint64]uint64, 0)
 	log.Infof("Verifying %s", queryNumber)
 	err := allQuerysToEndpointSender.Send(model.RowQueryName(queryNumber), cid, lastIdSent)
 	lastIdSent++
@@ -1113,7 +1117,7 @@ func verifyingQuery(log *logger.ConsoleLogger, allQuerysToEndpointSender middlew
 		log.Errorf("Failed to send message: %v", err)
 	}
 	for _, rowWithID := range rowsAlreadyReceived {
-		lastIdReceived = int64(rowWithID.ID)
+		// lastIdReceived = rowWithID.ID
 		err = allQuerysToEndpointSender.Send(model.RowQuery(*rowWithID.Row), cid, lastIdSent)
 		lastIdSent++
 		if removeVerification {
@@ -1182,11 +1186,11 @@ OuterLoop:
 			}
 			receivedRow := envelope.Msg()
 			idReceived := envelope.Id()
-			if int64(idReceived) <= lastIdReceived {
-				log.Infof("Received duplicate row id: %d", idReceived)
-				continue
-			}
-			lastIdReceived = int64(idReceived)
+			// if idReceived <= lastIdReceived {
+			// 	log.Infof("Received duplicate row id: %d", idReceived)
+			// 	continue
+			// }
+			// lastIdReceived = idReceived
 			err = allQuerysToEndpointSender.Send(model.RowQuery(*receivedRow), cid, lastIdSent)
 			if err != nil {
 				log.Errorf("Failed to send message: %v", err)
