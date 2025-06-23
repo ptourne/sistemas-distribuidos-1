@@ -62,7 +62,7 @@ func main() {
 	}
 	pathInsideCoordinatorDir := path.Join(dirPath, "coordinator-dir")
 
-	runCoordinator(ctx, log, connector, pathInsideCoordinatorDir, n_workers, ratingsConsumers, nil, false, true)
+	runCoordinator(ctx, log, connector, pathInsideCoordinatorDir, n_workers, ratingsConsumers, nil, true, true)
 	cancelHearbeat()
 	log.Infof("EXITING COORDINATOR")
 }
@@ -308,6 +308,7 @@ OuterLoop:
 					log.Errorf("Failed to ack envelope: %v", err)
 				}
 				log.Infof("Received IGNORE for cid %d", cid)
+				tlog.CloseAll()
 				return
 			}
 		}
@@ -449,6 +450,7 @@ OuterLoop:
 				break OuterLoop
 
 			case common.IgnoreClient:
+				tlog.CloseAll()
 				err := msgEnvelope.Ack(false)
 				if err != nil {
 					log.Errorf("Failed to ack envelope: %v", err)
@@ -1130,6 +1132,7 @@ OuterLoop:
 		case <-cancelSignal:
 			if removeVerification {
 				log.Infof("Queries | Ignoring results for cid %d", cid)
+				transactionLog.CloseAll()
 				removeVerification = false
 			}
 		case <-ctx.Done():
@@ -1192,13 +1195,13 @@ OuterLoop:
 			err = envelope.Ack(false)
 			unwrap(err, "Failed to ack message", log)
 		}
-		if removeVerification {
-			if len(expectedOutput) > 0 {
-				log.Errorf("Client %d | Query %s | Not all expected rows received 🛑. Missing %v", cid, queryNumber, expectedOutput)
-			}
-			if len(expectedOutput) == 0 {
-				log.Infof("CLIENT %d | QUERY %s | ALL EXPECTED ROWS RECEIVED 🟢", cid, queryNumber)
-			}
+	}
+	if removeVerification {
+		if len(expectedOutput) > 0 {
+			log.Errorf("Client %d | Query %s | Not all expected rows received 🛑. Missing %v", cid, queryNumber, expectedOutput)
+		}
+		if len(expectedOutput) == 0 {
+			log.Infof("CLIENT %d | QUERY %s | ALL EXPECTED ROWS RECEIVED 🟢", cid, queryNumber)
 		}
 	}
 	return nil
@@ -1222,10 +1225,10 @@ func removeQ2(slice []*model.Row, country *model.Row, log *logger.ConsoleLogger,
 		if v.Strings["country"] == country.Strings["country"] {
 			if v.Numerics["budget_sum"] == country.Numerics["budget_sum"] {
 				log.Infof("Client %d | Query Q2 | Country matched expected", cid)
-				return slices.Delete(slice, i, i+1)
 			} else {
 				log.Errorf("Client %d | Query Q2 | Budget sum not matched expected 😔: %d != %d", cid, country.Numerics["budget_sum"], v.Numerics["budget_sum"])
 			}
+			return slices.Delete(slice, i, i+1)
 		}
 	}
 	log.Errorf("Client %d | Query Q2 | Country not matched expected 🛑", cid)
@@ -1262,10 +1265,10 @@ func removeQ4(slice []*model.Row, actor *model.Row, log *logger.ConsoleLogger, c
 		if v.Strings["actor"] == actor.Strings["actor"] {
 			if v.Numerics["count"] == actor.Numerics["count"] {
 				log.Infof("Client %d | Query Q4 | Actor matched expected", cid)
-				return slices.Delete(slice, i, i+1)
 			} else {
 				log.Errorf("Count not matched expected 😔: %d != %d", actor.Numerics["count"], v.Numerics["count"])
 			}
+			return slices.Delete(slice, i, i+1)
 		}
 	}
 	log.Errorf("Client %d | Query Q4 | Actor not matched expected 🛑: %+v", cid, actor)
@@ -1277,10 +1280,10 @@ func removeQ5(expectedOutputQ5 []*model.Row, receivedSentiment *model.Row, log *
 		if v.Strings["sentiment"] == receivedSentiment.Strings["sentiment"] {
 			if v.Floats["avg_rate"]-receivedSentiment.Floats["avg_rate"] < 0.0001 {
 				log.Infof("Client %d | Query Q5 | Sentiment matched expected", cid)
-				return slices.Delete(expectedOutputQ5, i, i+1)
 			} else {
 				log.Errorf("Client %d | Query Q5 | Avg rate not matched expected 😔: %f != %f", cid, receivedSentiment.Floats["avg_rate"], v.Floats["avg_rate"])
 			}
+			return slices.Delete(expectedOutputQ5, i, i+1)
 		}
 	}
 	log.Errorf("Sentiment not matched expected 🛑")

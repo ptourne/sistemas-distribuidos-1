@@ -75,30 +75,30 @@ func (it *Iterator[T]) Next(ctx context.Context) (reducerId int, envelope middle
 	return i, asyncRes.received, asyncRes.err
 }
 
-func (it *Iterator[T]) NextFiltered(ctx context.Context) (reducerId int, envelope middleware.Envelope[T], err error) {
+func (it *Iterator[T]) NextFiltered(ctx context.Context) (reducerId int, e middleware.Envelope[T], err error) {
 	for {
-		reducerId, envelope, err = it.Next(ctx)
+		reducerId, e, err = it.Next(ctx)
 		if err != nil {
-			if envelope == nil {
+			if e == nil {
 				it.log.Errorf("Final : %d | Envelope nil: %s", reducerId, err)
 				return reducerId, nil, fmt.Errorf("envelope nil: %w", err)
 			}
-			cid := envelope.Cid()
-			if envelope.Type() == middleware.Normal {
+			cid := e.Cid()
+			if e.Type() == middleware.Normal {
 				lastMsgId, ok := it.lastNormalMsgIdsByReducerAndCid[reducerId][cid]
-				id := envelope.Id()
+				id := e.Id()
 				isDuplicate := ok && lastMsgId >= id
 				if isDuplicate {
 					it.log.Debugf("Final : %d | Duplicate message received, ignoring", cid)
-					envelope.Ack(false)
+					e.Ack(false)
 					continue
 				}
 				it.lastNormalMsgIdsByReducerAndCid[reducerId][cid] = id
-			} else if envelope.Type() == middleware.EOF {
+			} else if e.Type() == middleware.EOF {
 				delete(it.lastNormalMsgIdsByReducerAndCid[reducerId], cid)
 			}
 		}
-		return reducerId, envelope, err
+		return reducerId, e, err
 	}
 
 }
@@ -127,7 +127,7 @@ func (r *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 				r.log.Infof("final : Received SIGTERM. Shutting down gracefully...")
 				return
 			default:
-				_, e, err := iterator.Next(ctx)
+				_, e, err := iterator.Next(ctx) // TODO should use NextFiltered
 				if err != nil {
 					if (err.Error() == middleware.TimeoutErr{}.Error()) {
 						err = nil

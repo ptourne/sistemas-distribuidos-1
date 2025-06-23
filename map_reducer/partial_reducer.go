@@ -57,7 +57,7 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 					id := e.Id()
 					isDuplicate := ok && lastMsgId >= id
 					if isDuplicate {
-						r.log.Debugf("Final : %d | Duplicate message received, ignoring", cid)
+						r.log.Debugf("input : %d | Duplicate message received:\nid: %d\nMsg:\n%+v\n, ignoring", cid, id, e.Msg())
 						e.Ack(false)
 						continue
 					}

@@ -14,7 +14,7 @@ services:
             timeout: 10s
             retries: 10
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
     sentiment_server0:
         container_name: sentiment_server0
@@ -70,24 +70,6 @@ services:
             timeout: 10s
             retries: 10
 
-    sentiment_server3:
-        container_name: sentiment_server3
-        build:
-            context: .
-            dockerfile: nlp/python_server/Dockerfile
-        networks:
-            - local_net
-        environment:
-            - GRPC_PORT=50053
-            - GRPC_WORKERS=30
-            - NAME=sentiment_server3
-            - MONITOR_ADDRESSES=monitor0:9000
-        healthcheck:
-            test: ['CMD', 'sh', '-c', 'nc -z localhost 50053']
-            interval: 10s
-            timeout: 10s
-            retries: 10
-
     coordinator:
         container_name: coordinator
         build:
@@ -103,7 +85,7 @@ services:
             - NAME=coordinator
             - MONITOR_ADDRESSES=monitor0:9000
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/coordinator:/coordinator-dir
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/coordinator:/coordinator-dir
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -176,9 +158,9 @@ services:
         entrypoint: /nlp
         environment: 
             - WORKER_ID=0
-            - CONSUMER_COUNT=2
+            - CONSUMER_COUNT=3
             - N_WORKERS=3
-            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,sentiment_server3:50053,
+            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=nlp_worker0
@@ -194,8 +176,6 @@ services:
                 condition: service_healthy
             sentiment_server2:
                 condition: service_healthy
-            sentiment_server3:
-                condition: service_healthy
 
     nlp_worker1:
         container_name: nlp_worker1
@@ -205,9 +185,9 @@ services:
         entrypoint: /nlp
         environment: 
             - WORKER_ID=1
-            - CONSUMER_COUNT=2
+            - CONSUMER_COUNT=3
             - N_WORKERS=3
-            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,sentiment_server3:50053,
+            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=nlp_worker1
@@ -223,8 +203,6 @@ services:
                 condition: service_healthy
             sentiment_server2:
                 condition: service_healthy
-            sentiment_server3:
-                condition: service_healthy
 
     nlp_worker2:
         container_name: nlp_worker2
@@ -234,9 +212,9 @@ services:
         entrypoint: /nlp
         environment: 
             - WORKER_ID=2
-            - CONSUMER_COUNT=2
+            - CONSUMER_COUNT=3
             - N_WORKERS=3
-            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,sentiment_server3:50053,
+            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=nlp_worker2
@@ -252,8 +230,6 @@ services:
                 condition: service_healthy
             sentiment_server2:
                 condition: service_healthy
-            sentiment_server3:
-                condition: service_healthy
 
     joiner_credits0:
         container_name: joiner_credits0
@@ -265,7 +241,7 @@ services:
             - WORKER_ID=0
             - SERVER_PORT=1234
             - WORKER_COUNT=3
-            - CONSUMER_COUNT=2
+            - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_credits0
             - MONITOR_ADDRESSES=monitor0:9000
@@ -275,7 +251,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_credits:/joiner_credits
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
 
     joiner_credits1:
         container_name: joiner_credits1
@@ -287,7 +263,7 @@ services:
             - WORKER_ID=1
             - SERVER_PORT=1234
             - WORKER_COUNT=3
-            - CONSUMER_COUNT=2
+            - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_credits1
             - MONITOR_ADDRESSES=monitor0:9000
@@ -297,7 +273,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_credits:/joiner_credits
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
 
     joiner_credits2:
         container_name: joiner_credits2
@@ -309,7 +285,7 @@ services:
             - WORKER_ID=2
             - SERVER_PORT=1234
             - WORKER_COUNT=3
-            - CONSUMER_COUNT=2
+            - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_credits2
             - MONITOR_ADDRESSES=monitor0:9000
@@ -319,7 +295,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_credits:/joiner_credits
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
 
     joiner_rating0:
         container_name: joiner_rating0
@@ -331,7 +307,7 @@ services:
             - WORKER_ID=0
             - SERVER_PORT=1234
             - WORKER_COUNT=3
-            - CONSUMER_COUNT=2
+            - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_rating0
             - MONITOR_ADDRESSES=monitor0:9000
@@ -341,7 +317,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_ratings:/joiner_ratings
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
     joiner_rating1:
         container_name: joiner_rating1
@@ -353,7 +329,7 @@ services:
             - WORKER_ID=1
             - SERVER_PORT=1234
             - WORKER_COUNT=3
-            - CONSUMER_COUNT=2
+            - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_rating1
             - MONITOR_ADDRESSES=monitor0:9000
@@ -363,7 +339,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_ratings:/joiner_ratings
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
     joiner_rating2:
         container_name: joiner_rating2
@@ -375,7 +351,7 @@ services:
             - WORKER_ID=2
             - SERVER_PORT=1234
             - WORKER_COUNT=3
-            - CONSUMER_COUNT=2
+            - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_rating2
             - MONITOR_ADDRESSES=monitor0:9000
@@ -385,7 +361,7 @@ services:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/joiner_ratings:/joiner_ratings
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
     reduce_by_country_sum_budget0:
         container_name: reduce_by_country_sum_budget0
@@ -396,14 +372,14 @@ services:
         environment:
             - WORKER_ID=0
             - WORKER_COUNT=3
-            - WORKER_OUTPUT_COUNT=2
+            - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_country_sum_budget0
             - MONITOR_ADDRESSES=monitor0:9000
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_country_sum_budget0:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_country_sum_budget0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -417,14 +393,14 @@ services:
         environment:
             - WORKER_ID=1
             - WORKER_COUNT=3
-            - WORKER_OUTPUT_COUNT=2
+            - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_country_sum_budget1
             - MONITOR_ADDRESSES=monitor0:9000
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_country_sum_budget1:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_country_sum_budget1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -438,14 +414,14 @@ services:
         environment:
             - WORKER_ID=2
             - WORKER_COUNT=3
-            - WORKER_OUTPUT_COUNT=2
+            - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_country_sum_budget2
             - MONITOR_ADDRESSES=monitor0:9000
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_country_sum_budget2:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_country_sum_budget2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -458,7 +434,7 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=0
-            - WORKER_COUNT=2
+            - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget0
             - MONITOR_ADDRESSES=monitor0:9000
@@ -466,7 +442,7 @@ services:
         networks:
             - local_net
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_5_by_budget0:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_5_by_budget0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -479,7 +455,7 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-            - WORKER_COUNT=2
+            - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget1
             - MONITOR_ADDRESSES=monitor0:9000
@@ -487,7 +463,28 @@ services:
         networks:
             - local_net
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_5_by_budget1:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_5_by_budget1:/transaction_log
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_5_by_budget2:
+        container_name: reduce_top_5_by_budget2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_5_by_budget/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=3
+            - WORKER_OUTPUT_COUNT=1
+            - NAME=reduce_top_5_by_budget2
+            - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
+        networks:
+            - local_net
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_5_by_budget2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -500,7 +497,7 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=0
-            - WORKER_COUNT=2
+            - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating0
             - MONITOR_ADDRESSES=monitor0:9000
@@ -508,7 +505,7 @@ services:
         networks:
             - local_net
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_bottom_avg_rating0:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_bottom_avg_rating0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -521,7 +518,7 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-            - WORKER_COUNT=2
+            - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating1
             - MONITOR_ADDRESSES=monitor0:9000
@@ -529,7 +526,28 @@ services:
         networks:
             - local_net
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_top_bottom_avg_rating1:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_bottom_avg_rating1:/transaction_log
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_bottom_avg_rating2:
+        container_name: reduce_top_bottom_avg_rating2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_bottom_avg_rating/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=3
+            - WORKER_OUTPUT_COUNT=1
+            - NAME=reduce_top_bottom_avg_rating2
+            - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
+        networks:
+            - local_net
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_bottom_avg_rating2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -542,7 +560,7 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=0
-            - WORKER_COUNT=2
+            - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_sentiment0
             - MONITOR_ADDRESSES=monitor0:9000
@@ -550,7 +568,7 @@ services:
         networks:
             - local_net
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_sentiment0:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_sentiment0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -563,7 +581,7 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-            - WORKER_COUNT=2
+            - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_sentiment1
             - MONITOR_ADDRESSES=monitor0:9000
@@ -571,7 +589,28 @@ services:
         networks:
             - local_net
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_sentiment1:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_sentiment1:/transaction_log
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_sentiment2:
+        container_name: reduce_by_sentiment2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_sentiment/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=3
+            - WORKER_OUTPUT_COUNT=3
+            - NAME=reduce_by_sentiment2
+            - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
+        networks:
+            - local_net
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_sentiment2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -584,15 +623,15 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=0
-            - WORKER_COUNT=2
-            - WORKER_OUTPUT_COUNT=2
+            - WORKER_COUNT=3
+            - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_actor0
             - MONITOR_ADDRESSES=monitor0:9000
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_actor0:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_actor0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -605,15 +644,36 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-            - WORKER_COUNT=2
-            - WORKER_OUTPUT_COUNT=2
+            - WORKER_COUNT=3
+            - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_actor1
             - MONITOR_ADDRESSES=monitor0:9000
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/reducer_volumes/reduce_by_actor1:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_actor1:/transaction_log
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_by_actor2:
+        container_name: reduce_by_actor2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=3
+            - WORKER_OUTPUT_COUNT=3
+            - NAME=reduce_by_actor2
+            - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
+        networks:
+            - local_net
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_actor2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -626,7 +686,7 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=0
-            - WORKER_COUNT=2
+            - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor0
             - MONITOR_ADDRESSES=monitor0:9000
@@ -645,9 +705,28 @@ services:
         entrypoint: /map_reducer
         environment:
             - WORKER_ID=1
-            - WORKER_COUNT=2
+            - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor1
+            - MONITOR_ADDRESSES=monitor0:9000
+            - MAX_LOG_SIZE=1000
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    reduce_top_10_by_actor2:
+        container_name: reduce_top_10_by_actor2
+        build:
+            context: .
+            dockerfile: map_reducer/main/reduce_top_10_by_actor/Dockerfile
+        entrypoint: /map_reducer
+        environment:
+            - WORKER_ID=2
+            - WORKER_COUNT=3
+            - WORKER_OUTPUT_COUNT=1
+            - NAME=reduce_top_10_by_actor2
             - MONITOR_ADDRESSES=monitor0:9000
             - MAX_LOG_SIZE=1000
         networks:
@@ -871,7 +950,7 @@ services:
         depends_on:
             - endpoint
         volumes:
-            - /home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/client/datasets:/datasets
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
 
     monitor0:
         container_name: monitor0
@@ -907,6 +986,8 @@ services:
         depends_on:
             rabbitmq:
                 condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/endpoint:/endpoint-dir-ids
 
 networks:
     local_net:
