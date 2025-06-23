@@ -12,18 +12,18 @@ import (
 )
 
 type PartialReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]] struct {
-	log                   *logger.ConsoleLogger
-	MapReduce             MapReduce[I, A, R]
-	Receiver              middleware.Receiver[I]
-	ReduceBatches         map[uint64]*A
-	Sender                middleware.Sender[A]
-	connIn                middleware.Connection[I]
-	transactionLog        transaction_log.TransactionLog
-	pendingPrune          *uint64
-	pendingEOF            *uint64
-	msgsSinceLastDump     uint64
-	maxLogSize            uint64
-	lastNormalMsgIdsByCid map[uint64]uint64
+	log                              *logger.ConsoleLogger
+	MapReduce                        MapReduce[I, A, R]
+	Receiver                         middleware.Receiver[I]
+	ReduceBatches                    map[uint64]*A
+	Sender                           middleware.Sender[A]
+	connIn                           middleware.Connection[I]
+	transactionLog                   transaction_log.TransactionLog
+	pendingPrune                     *uint64
+	pendingEOF                       *uint64
+	msgsSinceLastDump                uint64
+	maxLogSize                       uint64
+	lastNormalMsgIdsByCidAndSenderId map[uint64]map[uint64]uint64 // Cid -> SenderId -> Last transaction id
 }
 
 func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
@@ -53,17 +53,13 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 				}
 				cid := e.Cid()
 				if e.Type() == middleware.Normal {
-					lastMsgId, ok := r.lastNormalMsgIdsByCid[cid]
-					id := e.Id()
-					isDuplicate := ok && lastMsgId >= id
-					if isDuplicate {
-						r.log.Debugf("input : %d | Duplicate message received:\nid: %d\nMsg:\n%+v\n, ignoring", cid, id, e.Msg())
+					if r.isDuplicate(cid, e) {
+						r.log.Debugf("input : %d | Duplicate message received:\nid: %d\nMsg:\n%+v\n, ignoring", cid, e.Id(), e.Msg())
 						e.Ack(false)
 						continue
 					}
-					r.lastNormalMsgIdsByCid[cid] = id
 				} else if e.Type() == middleware.EOF {
-					delete(r.lastNormalMsgIdsByCid, cid)
+					delete(r.lastNormalMsgIdsByCidAndSenderId, cid)
 				}
 				switch e.Type() {
 				case middleware.Normal:
@@ -155,6 +151,22 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 	return res
 }
 
+func (r *PartialReducer[I, A, R]) isDuplicate(cid uint64, e middleware.Envelope[I]) bool {
+	lastNormalMsgIdsBySenderId, ok := r.lastNormalMsgIdsByCidAndSenderId[cid]
+	if !ok {
+		r.lastNormalMsgIdsByCidAndSenderId[cid] = make(map[uint64]uint64)
+		r.lastNormalMsgIdsByCidAndSenderId[cid][e.SenderId()] = e.Id()
+		return false
+	}
+	lastMsgId, ok := lastNormalMsgIdsBySenderId[e.SenderId()]
+
+	if ok && lastMsgId >= e.Id() {
+		return true
+	}
+	r.lastNormalMsgIdsByCidAndSenderId[cid][e.SenderId()] = e.Id()
+	return false
+}
+
 func (r *PartialReducer[I, A, R]) DumpAndFlush() error {
 	r.log.Debugf("input : DumpAndFlush | Dumping transaction log")
 	data := r.Dump()
@@ -171,10 +183,11 @@ func (r *PartialReducer[I, A, R]) DumpAndFlush() error {
 func (r *PartialReducer[I, A, R]) processPrune(cid uint64) error {
 	clientBatch, ok := r.ReduceBatches[cid]
 	if ok {
-		err := r.Sender.Send(*clientBatch, cid, 0)
+		err := r.Sender.Send(*clientBatch, cid, 1)
 		if err != nil {
 			return fmt.Errorf("error sending partial result: %w", err)
 		}
+		delete(r.ReduceBatches, cid)
 	}
 	return nil
 }
