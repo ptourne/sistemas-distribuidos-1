@@ -187,7 +187,7 @@ func (r *PartialReducer[I, A, R]) processPrune(cid uint64) error {
 		if err != nil {
 			return fmt.Errorf("error sending partial result: %w", err)
 		}
-		// TODO delete the batch after sending
+		delete(r.ReduceBatches, cid)
 	}
 	return nil
 }

@@ -213,11 +213,11 @@ func (r *prune2EnvelopeRabbitmq[T]) Type() middleware.TypeMsg {
 }
 
 func (r *prune2EnvelopeRabbitmq[T]) Id() uint64 {
-	return 0 //TODO TIENE QUE TENER UN ID PROPIO?
+	return 0
 }
 
 func (r *prune2EnvelopeRabbitmq[T]) SenderId() uint64 {
-	return 0 // Prune messages don't have a specific sender ID
+	return 0
 }
 
 func (r *prune2EnvelopeRabbitmq[T]) Ack(multiple bool) error {
