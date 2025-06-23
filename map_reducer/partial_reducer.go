@@ -183,7 +183,7 @@ func (r *PartialReducer[I, A, R]) DumpAndFlush() error {
 func (r *PartialReducer[I, A, R]) processPrune(cid uint64) error {
 	clientBatch, ok := r.ReduceBatches[cid]
 	if ok {
-		err := r.Sender.Send(*clientBatch, cid, 0)
+		err := r.Sender.Send(*clientBatch, cid, 1)
 		if err != nil {
 			return fmt.Errorf("error sending partial result: %w", err)
 		}

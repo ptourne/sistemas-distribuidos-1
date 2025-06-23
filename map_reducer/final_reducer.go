@@ -238,7 +238,7 @@ func (r *FinalReducer[I, A, R]) processEof(cid uint64) error {
 	output := r.MapReduce.Output(*clientBatch)
 	for i, o := range output {
 		r.log.Infof("Final : %d | Sending partial result to output: %v", cid, o)
-		err := r.Sender.Send(o, cid, uint64(i))
+		err := r.Sender.Send(o, cid, uint64(i+1))
 		if err != nil {
 			r.log.Errorf("Final : %d | Error sending partial result: %s", cid, err)
 			return fmt.Errorf("error sending partial result: %w", err)
