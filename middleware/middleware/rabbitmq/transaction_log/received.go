@@ -9,9 +9,10 @@ import (
 )
 
 type receivedNormal struct {
-	cid  uint64
-	id   uint64
-	data []byte
+	cid      uint64
+	senderId uint64
+	id       uint64
+	data     []byte
 }
 
 func (r receivedNormal) Encode() []byte {
@@ -28,8 +29,9 @@ func (r receivedNormal) Encode() []byte {
 	buf := make([]byte, bufLen)
 	buf[0] = byte(LogType_ReceivedNormal)
 	binary.BigEndian.PutUint64(buf[1:], r.cid)
-	binary.BigEndian.PutUint64(buf[1+8:], r.id)
-	binary.BigEndian.PutUint32(buf[1+8+8:], uint32(dataLen))
+	binary.BigEndian.PutUint64(buf[1+8:], r.senderId)
+	binary.BigEndian.PutUint64(buf[1+8+8:], r.id)
+	binary.BigEndian.PutUint32(buf[1+8+8+8:], uint32(dataLen))
 	copy(buf[headerSize:], r.data)
 
 	return buf
@@ -40,6 +42,10 @@ func (r *receivedNormal) Decode(reader io.Reader) error {
 	r.cid, err = codec.Uint64Decode(reader)
 	if err != nil {
 		return fmt.Errorf("failed to read msg cid: %w", err)
+	}
+	r.senderId, err = codec.Uint64Decode(reader)
+	if err != nil {
+		return fmt.Errorf("failed to read msg senderId: %w", err)
 	}
 	r.id, err = codec.Uint64Decode(reader)
 	if err != nil {

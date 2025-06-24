@@ -51,24 +51,21 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 					}
 					return
 				}
-				cid := e.Cid()
-				if e.Type() == middleware.Normal {
-					if r.isDuplicate(cid, e) {
-						r.log.Debugf("input : %d | Duplicate message received:\nid: %d\nMsg:\n%+v\n, ignoring", cid, e.Id(), e.Msg())
-						e.Ack(false)
-						continue
-					}
-				} else if e.Type() == middleware.EOF {
-					delete(r.lastNormalMsgIdsByCidAndSenderId, cid)
-				}
+
 				switch e.Type() {
 				case middleware.Normal:
 					msg := e.Msg()
-					err = r.reduce(e.Cid(), msg)
+					var isDuplicate bool
+					isDuplicate, err = r.reduce(e.Cid(), e.SenderId(), e.Id(), msg)
 					if err != nil {
 						err = fmt.Errorf("input : %d | Error processing message: %w", e.Cid(), err)
 						e.Nack(false)
 						return
+					}
+					if isDuplicate {
+						r.log.Debugf("input : %d | Duplicate message received, ignoring", e.Cid())
+						e.Ack(false)
+						continue
 					}
 					var msgBody []byte
 					msgBody, err = msg.Encode()
@@ -77,7 +74,7 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 						e.Nack(false)
 						return
 					}
-					err = r.transactionLog.Received(e.Cid(), e.Id(), msgBody)
+					err = r.transactionLog.Received(e.Cid(), e.SenderId(), e.Id(), msgBody)
 					if err != nil {
 						err = fmt.Errorf("input : %d | Error logging transaction: %w", e.Cid(), err)
 						e.Nack(false)
@@ -110,6 +107,10 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 						err = fmt.Errorf("input : %d | Error acknowledging transaction: %w", e.Cid(), err)
 						r.log.Errorf("Input : %d | Error acknowledging transaction: %s", e.Cid(), err)
 						return
+					}
+					delete(r.lastNormalMsgIdsByCidAndSenderId[e.Cid()], e.SenderId())
+					if len(r.lastNormalMsgIdsByCidAndSenderId[e.Cid()]) == 0 { // TODO tiene sentido esto? O eliminamos todo el CID al primer EOF? IDEM final reducer
+						delete(r.lastNormalMsgIdsByCidAndSenderId, e.Cid())
 					}
 				case middleware.Prune:
 					r.log.Debugf("input : %d | Received Prune", e.Cid())
@@ -151,19 +152,19 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 	return res
 }
 
-func (r *PartialReducer[I, A, R]) isDuplicate(cid uint64, e middleware.Envelope[I]) bool {
+func (r *PartialReducer[I, A, R]) isDuplicate(cid, senderId, id uint64) bool {
 	lastNormalMsgIdsBySenderId, ok := r.lastNormalMsgIdsByCidAndSenderId[cid]
 	if !ok {
 		r.lastNormalMsgIdsByCidAndSenderId[cid] = make(map[uint64]uint64)
-		r.lastNormalMsgIdsByCidAndSenderId[cid][e.SenderId()] = e.Id()
+		r.lastNormalMsgIdsByCidAndSenderId[cid][senderId] = id
 		return false
 	}
-	lastMsgId, ok := lastNormalMsgIdsBySenderId[e.SenderId()]
+	lastMsgId, ok := lastNormalMsgIdsBySenderId[senderId]
 
-	if ok && lastMsgId >= e.Id() {
+	if ok && lastMsgId >= id {
 		return true
 	}
-	r.lastNormalMsgIdsByCidAndSenderId[cid][e.SenderId()] = e.Id()
+	r.lastNormalMsgIdsByCidAndSenderId[cid][senderId] = id
 	return false
 }
 
@@ -192,17 +193,21 @@ func (r *PartialReducer[I, A, R]) processPrune(cid uint64) error {
 	return nil
 }
 
-func (r *PartialReducer[I, A, R]) reduce(cid uint64, msg I) error {
+func (r *PartialReducer[I, A, R]) reduce(cid, senderId, id uint64, msg I) (isDuplicate bool, err error) {
 	r.log.Debugf("input : %d | Received input", cid)
+	if r.isDuplicate(cid, senderId, id) {
+		r.log.Debugf("input : %d | Duplicate message received:\nid: %d\nMsg:\n%+v\n, ignoring", cid, id, msg)
+		return true, nil
+	}
 	acc := r.MapReduce.Map(msg)
 	for _, a := range acc {
 		err := r.reduceAndStore(cid, a)
 		if err != nil {
 			r.log.Errorf("input : %d | Error reducing and sending: %v", cid, err)
-			return fmt.Errorf("error reducing and sending: %w", err)
+			return false, fmt.Errorf("error reducing and sending: %w", err)
 		}
 	}
-	return nil
+	return false, nil
 }
 
 func (r *PartialReducer[I, A, R]) reduceAndStore(cid uint64, msg A) error {
@@ -221,7 +226,7 @@ func (r *PartialReducer[I, A, R]) reduceAndStore(cid uint64, msg A) error {
 	return nil
 }
 
-func (r *PartialReducer[I, A, R]) Received(cid, id uint64, data []byte) error {
+func (r *PartialReducer[I, A, R]) Received(cid, senderId, id uint64, data []byte) error {
 	var nul I
 	msg, err := nul.Decode(data)
 	if err != nil {
@@ -229,7 +234,8 @@ func (r *PartialReducer[I, A, R]) Received(cid, id uint64, data []byte) error {
 		return fmt.Errorf("error decoding message: %w", err)
 	}
 	r.log.Debugf("input : %d | Received message: %v", cid, msg)
-	return r.reduce(cid, msg)
+	_, err = r.reduce(cid, senderId, id, msg)
+	return err
 }
 
 func (r *PartialReducer[I, A, R]) ReceivedPrune(cid uint64) error {
@@ -239,6 +245,7 @@ func (r *PartialReducer[I, A, R]) ReceivedPrune(cid uint64) error {
 
 func (r *PartialReducer[I, A, R]) ReceivedEOF(cid uint64) error {
 	r.pendingEOF = &cid
+	delete(r.lastNormalMsgIdsByCidAndSenderId, cid)
 	return nil
 }
 
