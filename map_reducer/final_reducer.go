@@ -13,17 +13,18 @@ import (
 )
 
 type FinalReducer[I codec.Serializable[I], A codec.Serializable[A], R codec.Serializable[R]] struct {
-	log               *logger.ConsoleLogger
-	MapReduce         MapReduce[I, A, R]
-	ReduceBatches     map[uint64]*A
-	connOut           middleware.Connection[R]
-	Receiver          map[string]middleware.Receiver[A] // It will be null for all but the leader
-	Sender            middleware.Sender[R]
-	transactionLog    transaction_log.TransactionLog
-	pendingPrune      *uint64
-	pendingEOF        *uint64
-	msgsSinceLastDump uint64
-	maxLogSize        uint64
+	log                              *logger.ConsoleLogger
+	MapReduce                        MapReduce[I, A, R]
+	ReduceBatches                    map[uint64]*A
+	connOut                          middleware.Connection[R]
+	Receiver                         map[string]middleware.Receiver[A] // It will be null for all but the leader
+	Sender                           middleware.Sender[R]
+	transactionLog                   transaction_log.TransactionLog
+	pendingPrune                     *uint64
+	pendingEOF                       *uint64
+	msgsSinceLastDump                uint64
+	maxLogSize                       uint64
+	lastNormalMsgIdsByCidAndSenderId map[uint64]map[uint64]uint64 // Cid -> SenderId -> Last transaction id
 }
 
 type NextAsyncRes[T codec.Serializable[T]] struct {
@@ -35,7 +36,6 @@ func (r *FinalReducer[I, A, R]) NewIterator(ctx context.Context, log *logger.Con
 	readCtx, cancelNexts := context.WithCancel(ctx)
 	cases := make([]reflect.SelectCase, len(r.Receiver))
 	j := 0
-	lastNormalMsgIdsByReducerAndCid := make(map[int]map[uint64]uint64)
 	for _, receiver := range r.Receiver {
 		handle := make(chan NextAsyncRes[A], 0)
 		cases[j] = reflect.SelectCase{
@@ -48,22 +48,19 @@ func (r *FinalReducer[I, A, R]) NewIterator(ctx context.Context, log *logger.Con
 				handle <- NextAsyncRes[A]{received, err}
 			}
 		}()
-		lastNormalMsgIdsByReducerAndCid[j] = make(map[uint64]uint64)
 		j++
 	}
 	return &Iterator[A]{
 		cases,
 		cancelNexts,
-		lastNormalMsgIdsByReducerAndCid,
 		log,
 	}
 }
 
 type Iterator[T codec.Serializable[T]] struct {
-	cases                           []reflect.SelectCase
-	cancelNexts                     context.CancelFunc
-	lastNormalMsgIdsByReducerAndCid map[int]map[uint64]uint64 // Reducer id -> Cid -> Last transaction id
-	log                             *logger.ConsoleLogger
+	cases       []reflect.SelectCase
+	cancelNexts context.CancelFunc
+	log         *logger.ConsoleLogger
 }
 
 func (it *Iterator[T]) Next(ctx context.Context) (reducerId int, envelope middleware.Envelope[T], err error) {
@@ -73,34 +70,6 @@ func (it *Iterator[T]) Next(ctx context.Context) (reducerId int, envelope middle
 	}
 	asyncRes := value.Interface().(NextAsyncRes[T])
 	return i, asyncRes.received, asyncRes.err
-}
-
-func (it *Iterator[T]) NextFiltered(ctx context.Context) (reducerId int, e middleware.Envelope[T], err error) {
-	for {
-		reducerId, e, err = it.Next(ctx)
-		if err != nil {
-			if e == nil {
-				it.log.Errorf("Final : %d | Envelope nil: %s", reducerId, err)
-				return reducerId, nil, fmt.Errorf("envelope nil: %w", err)
-			}
-			cid := e.Cid()
-			if e.Type() == middleware.Normal {
-				lastMsgId, ok := it.lastNormalMsgIdsByReducerAndCid[reducerId][cid]
-				id := e.Id()
-				isDuplicate := ok && lastMsgId >= id
-				if isDuplicate {
-					it.log.Debugf("Final : %d | Duplicate message received, ignoring", cid)
-					e.Ack(false)
-					continue
-				}
-				it.lastNormalMsgIdsByReducerAndCid[reducerId][cid] = id
-			} else if e.Type() == middleware.EOF {
-				delete(it.lastNormalMsgIdsByReducerAndCid[reducerId], cid)
-			}
-		}
-		return reducerId, e, err
-	}
-
 }
 
 func (r *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
@@ -127,7 +96,7 @@ func (r *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 				r.log.Infof("final : Received SIGTERM. Shutting down gracefully...")
 				return
 			default:
-				_, e, err := iterator.Next(ctx) // TODO should use NextFiltered
+				_, e, err := iterator.Next(ctx)
 				if err != nil {
 					if (err.Error() == middleware.TimeoutErr{}.Error()) {
 						err = nil
@@ -138,7 +107,13 @@ func (r *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 				switch e.Type() {
 				case middleware.Normal:
 					r.log.Infof("Final : %d | Saving final reduce batch", e.Cid())
-					r.reduce(e.Cid(), e.Msg())
+					isDuplicate := r.reduce(e.Cid(), e.SenderId(), e.Id(), e.Msg())
+					if isDuplicate {
+						r.log.Debugf("Final : %d | Duplicate message received, ignoring", e.Cid())
+						e.Ack(false)
+						continue
+					}
+
 					var msgBody []byte
 					msgBody, err = e.Msg().Encode()
 					if err != nil {
@@ -147,7 +122,7 @@ func (r *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 						e.Nack(false)
 						return
 					}
-					err = r.transactionLog.Received(e.Cid(), e.Id(), msgBody)
+					err = r.transactionLog.Received(e.Cid(), e.SenderId(), e.Id(), msgBody)
 					if err != nil {
 						err = fmt.Errorf("final : %d | Error logging transaction: %w", e.Cid(), err)
 						r.log.Errorf("Final : %d | Error logging transaction: %s", e.Cid(), err)
@@ -178,6 +153,10 @@ func (r *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 						err = fmt.Errorf("final : %d | Error acknowledging transaction: %w", e.Cid(), err)
 						r.log.Errorf("Final : %d | Error acknowledging transaction: %s", e.Cid(), err)
 						return
+					}
+					delete(r.lastNormalMsgIdsByCidAndSenderId[e.Cid()], e.SenderId())
+					if len(r.lastNormalMsgIdsByCidAndSenderId[e.Cid()]) == 0 {
+						delete(r.lastNormalMsgIdsByCidAndSenderId, e.Cid())
 					}
 				case middleware.Prune:
 					r.log.Infof("Final : %d | Received PRUNE", e.Cid())
@@ -261,7 +240,12 @@ func (r *FinalReducer[I, A, R]) processEof(cid uint64) error {
 	return nil
 }
 
-func (r *FinalReducer[I, A, R]) reduce(cid uint64, msg A) {
+func (r *FinalReducer[I, A, R]) reduce(cid, senderId, id uint64, msg A) (isDuplicate bool) {
+	isDuplicate = r.isDuplicate(senderId, cid, id)
+	if isDuplicate {
+		return isDuplicate
+	}
+
 	clientBatch, ok := r.ReduceBatches[cid]
 	if !ok {
 		acc := msg
@@ -271,9 +255,25 @@ func (r *FinalReducer[I, A, R]) reduce(cid uint64, msg A) {
 		reduced := r.MapReduce.Reduce(reduc)
 		r.ReduceBatches[cid] = &reduced
 	}
+	return isDuplicate
 }
 
-func (r *FinalReducer[I, A, R]) Received(cid, id uint64, data []byte) error {
+func (r *FinalReducer[I, A, R]) isDuplicate(senderId uint64, cid uint64, id uint64) bool {
+	lastNormalMsgIdsBySenderId, ok := r.lastNormalMsgIdsByCidAndSenderId[senderId]
+	if !ok {
+		r.lastNormalMsgIdsByCidAndSenderId[senderId] = make(map[uint64]uint64)
+		r.lastNormalMsgIdsByCidAndSenderId[senderId][cid] = id
+		return false
+	}
+	lastMsgId, ok := lastNormalMsgIdsBySenderId[cid]
+	if ok && lastMsgId >= id {
+		return true
+	}
+	r.lastNormalMsgIdsByCidAndSenderId[senderId][cid] = id
+	return false
+}
+
+func (r *FinalReducer[I, A, R]) Received(cid, senderId, id uint64, data []byte) error {
 	var nul A
 	msg, err := nul.Decode(data)
 	if err != nil {
@@ -281,7 +281,7 @@ func (r *FinalReducer[I, A, R]) Received(cid, id uint64, data []byte) error {
 		return fmt.Errorf("error decoding message: %w", err)
 	}
 	r.log.Debugf("input : %d | Received message: %v", cid, msg)
-	r.reduce(cid, msg)
+	r.reduce(cid, senderId, id, msg)
 	return nil
 }
 

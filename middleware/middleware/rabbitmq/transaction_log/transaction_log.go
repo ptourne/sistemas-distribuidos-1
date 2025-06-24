@@ -19,14 +19,15 @@ const (
 )
 
 type Transaction struct {
-	Cid  uint64
-	Id   uint64
-	T    ReceivedType
-	Data []byte
+	Cid      uint64
+	SenderId uint64
+	Id       uint64
+	T        ReceivedType
+	Data     []byte
 }
 
 type TransactionLog interface {
-	Received(cid, id uint64, data []byte) error
+	Received(cid, senderId, id uint64, data []byte) error
 	ReceivedPrune(cid uint64) error
 	ReceivedEOF(cid uint64) error
 	Acknowledged() error
@@ -36,7 +37,7 @@ type TransactionLog interface {
 }
 
 type A interface {
-	Received(cid, id uint64, data []byte) error
+	Received(cid, senderId, id uint64, data []byte) error
 	ReceivedPrune(cid uint64) error
 	ReceivedEOF(cid uint64) error
 	Acknowledged() error
@@ -194,7 +195,7 @@ func (l *transactionLog) CatchUpWithLog(reader io.Reader, parent A) error {
 				break
 			}
 			l.received(log)
-			parent.Received(log.cid, log.id, log.data)
+			parent.Received(log.cid, log.senderId, log.id, log.data)
 		case LogType_ReceivedEOF:
 			var log receivedEof
 			err := log.Decode(reader)
@@ -338,8 +339,8 @@ func newTransactionLog(dirPath string, idx uint64) (*transactionLog, error) {
 	}, nil
 }
 
-func (t *transactionLog) Received(cid, id uint64, data []byte) error {
-	received := receivedNormal{cid, id, data}
+func (t *transactionLog) Received(cid, senderId, id uint64, data []byte) error {
+	received := receivedNormal{cid, senderId, id, data}
 	t.received(received)
 	buf := received.Encode()
 	if err := codec.DoWrite(buf, t.logWriter); err != nil {
@@ -354,10 +355,11 @@ func (t *transactionLog) Received(cid, id uint64, data []byte) error {
 func (t *transactionLog) received(log receivedNormal) {
 	t.acknowledged()
 	t.openedTransaction = &Transaction{
-		Cid:  log.cid,
-		Id:   log.id,
-		T:    ReceivedType_Normal,
-		Data: log.data,
+		Cid:      log.cid,
+		Id:       log.id,
+		SenderId: log.senderId,
+		T:        ReceivedType_Normal,
+		Data:     log.data,
 	}
 }
 
