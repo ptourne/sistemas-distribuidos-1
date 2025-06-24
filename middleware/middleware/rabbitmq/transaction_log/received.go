@@ -22,6 +22,7 @@ func (r receivedNormal) Encode() []byte {
 	}
 	var headerSize = 1 + // log type
 		8 + // cid
+		8 + // senderId
 		8 + // id
 		4 // data length
 
