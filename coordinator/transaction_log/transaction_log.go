@@ -49,7 +49,7 @@ type TransactionLog interface {
 	CloseLog() error
 	ReadLastQueryRows() (uint8, []RowWithID, bool, error)
 	WriteBeginQuery(numberQuery uint8) error
-	WriteRowQuery(row *model.Row, idRow uint64) error
+	WriteRowQuery(row *model.Row, idRow uint64, senderId uint64) error
 	WriteEndQuery() error
 	RecoverQueryPhase() (uint8, []RowWithID, bool, error)
 	IsQueryPhase() bool
@@ -59,8 +59,9 @@ type TransactionLog interface {
 // lastRows will now be a slice of this struct
 
 type RowWithID struct {
-	ID  uint64
-	Row *model.Row
+	ID       uint64
+	Row      *model.Row
+	SenderID uint64
 }
 
 func RecoverFromLogs(dirPath string, checkpointInterval uint64) ([]TransactionLog, error) {
@@ -474,13 +475,13 @@ func (t *transactionLog) WriteBeginQuery(numberQuery uint8) error {
 	return t.writeBeginQuery(f, numberQuery)
 }
 
-func (t *transactionLog) WriteRowQuery(row *model.Row, idRow uint64) error {
+func (t *transactionLog) WriteRowQuery(row *model.Row, idRow uint64, senderId uint64) error {
 	f, err := os.OpenFile(t.queryFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open query file: %w", err)
 	}
 	defer f.Close()
-	return t.writeRowQuery(f, row, idRow)
+	return t.writeRowQuery(f, row, idRow, senderId)
 }
 
 func (t *transactionLog) WriteEndQuery() error {
@@ -507,7 +508,7 @@ func (t *transactionLog) writeBeginQuery(file *os.File, numberQuery uint8) error
 	return codec.DoWrite(buffer, file)
 }
 
-func (t *transactionLog) writeRowQuery(file *os.File, row *model.Row, idRow uint64) error {
+func (t *transactionLog) writeRowQuery(file *os.File, row *model.Row, idRow uint64, senderId uint64) error {
 	queryTypeEncode, err := codec.Uint8Encode(uint8(QUERY_ROW))
 	if err != nil {
 		return fmt.Errorf("failed to encode query type: %w", err)
@@ -520,10 +521,15 @@ func (t *transactionLog) writeRowQuery(file *os.File, row *model.Row, idRow uint
 	if err != nil {
 		return fmt.Errorf("failed to encode id row: %w", err)
 	}
-	buffer := make([]byte, len(queryTypeEncode)+len(encodeRow)+len(idRowEncode))
+	idSenderEncode, err := codec.Uint64Encode(senderId)
+	if err != nil {
+		return fmt.Errorf("failed to encode sender id: %w", err)
+	}
+	buffer := make([]byte, len(queryTypeEncode)+len(encodeRow)+len(idRowEncode)+len(idSenderEncode))
 	copy(buffer, queryTypeEncode)
 	copy(buffer[len(queryTypeEncode):], encodeRow)
 	copy(buffer[len(queryTypeEncode)+len(encodeRow):], idRowEncode)
+	copy(buffer[len(queryTypeEncode)+len(encodeRow)+len(idRowEncode):], idSenderEncode)
 	return codec.DoWrite(buffer, file)
 }
 
@@ -586,7 +592,12 @@ func (t *transactionLog) ReadLastQueryRows() (uint8, []RowWithID, bool, error) {
 				log.Errorf("failed to decode id row: %v", err)
 				break
 			}
-			lastRows = append(lastRows, RowWithID{ID: idRow, Row: row})
+			senderId, err := codec.Uint64Decode(f)
+			if err != nil {
+				log.Errorf("failed to decode sender id: %v", err)
+				break
+			}
+			lastRows = append(lastRows, RowWithID{ID: idRow, Row: row, SenderID: senderId})
 		} else if queryType == uint8(QUERY_END) {
 			queryEnded = true
 		} else {
@@ -626,7 +637,7 @@ func updateQueriesLog(t *transactionLog, lastQueryNumber uint8, lastRows []RowWi
 	if len(lastRows) > 0 {
 		for _, rowWithID := range lastRows {
 			// Escribir QUERY_ROW
-			if err := t.writeRowQuery(tempFile, rowWithID.Row, rowWithID.ID); err != nil {
+			if err := t.writeRowQuery(tempFile, rowWithID.Row, rowWithID.ID, rowWithID.SenderID); err != nil {
 				return fmt.Errorf("failed to write row to temp query file: %w", err)
 			}
 		}
@@ -689,9 +700,14 @@ func ReadQueriesRows(file *os.File) (currentQueryNumber uint8, queryRowsMap map[
 				log.Errorf("failed to decode id row: %v", err)
 				break
 			}
+			senderId, err := codec.Uint64Decode(file)
+			if err != nil {
+				log.Errorf("failed to decode sender id: %v", err)
+				break
+			}
 			// Agregar la row con id a la query actual
 			if currentQueryNumber > 0 {
-				queryRowsMap[currentQueryNumber] = append(queryRowsMap[currentQueryNumber], RowWithID{ID: idRow, Row: row})
+				queryRowsMap[currentQueryNumber] = append(queryRowsMap[currentQueryNumber], RowWithID{ID: idRow, Row: row, SenderID: senderId})
 			}
 		} else if queryType == uint8(QUERY_END) {
 			queryEnded = true
