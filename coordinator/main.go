@@ -24,6 +24,9 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/middleware/middleware/rabbitmq"
 )
 
+const TEST = false  // para que el coordinador paniquée en moviesIds importantes para las queries
+const TEST2 = false // Ver que lastidsend pertence a un movie id
+
 const CHECKPOINT_INTERVAL = uint64(1000)
 
 func main() {
@@ -728,22 +731,24 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 	for {
 		lastIdSent++
 		// comentar desde aca
-		lastIdsSentMoviesMetadata := []uint64{4697, 7972, 17762, 39395, 44923, 44953, 45427, 45447, 44428, 44251, 44284, 44680, 5472, 5187, 10640, 12207, 27019, 10740, 36031, 21753, 21102, 16927} //id uno desp de que se ejecuara para volver a enviarlo en read
-		if slices.Contains(lastIdsSentMoviesMetadata, lastIdSent) && fileName == c.MoviesMetadataName && len(read) == 0 {
-			log.Infof("lastIdSent: %d", lastIdSent)
-			panic("stop")
+		if TEST {
+			lastIdsSentMoviesMetadata := []uint64{4697, 7972, 17762, 39395, 44923, 44953, 45427, 45447, 44428, 44251, 44284, 44680, 5472, 5187, 10640, 12207, 27019, 10740, 36031, 21753, 21102, 16927} //id uno desp de que se ejecuara para volver a enviarlo en read
+			if slices.Contains(lastIdsSentMoviesMetadata, lastIdSent) && fileName == c.MoviesMetadataName && len(read) == 0 {
+				log.Infof("lastIdSent: %d", lastIdSent)
+				panic("stop")
+			}
+			lastIdsSentCredits := []uint64{5472, 5187, 10640, 12207, 27032, 10740, 36042, 21752} //id uno desp de que se ejecuara para volver a enviarlo en read
+			if slices.Contains(lastIdsSentCredits, lastIdSent) && fileName == c.CreditsName && len(read) == 0 {
+				log.Infof("lastIdSent: %d", lastIdSent)
+				panic("stop")
+			}
+			lastIdsSentRatings := []uint64{5393, 53215, 64144, 112482, 132119, 79678, 179803} //id uno desp de que se ejecuara para volver a enviarlo en read
+			if slices.Contains(lastIdsSentRatings, lastIdSent) && fileName == c.RatingsName && len(read) == 0 {
+				log.Infof("lastIdSent: %d", lastIdSent)
+				panic("stop")
+			}
+			read = []string{}
 		}
-		lastIdsSentCredits := []uint64{5472, 5187, 10640, 12207, 27032, 10740, 36042, 21752} //id uno desp de que se ejecuara para volver a enviarlo en read
-		if slices.Contains(lastIdsSentCredits, lastIdSent) && fileName == c.CreditsName && len(read) == 0 {
-			log.Infof("lastIdSent: %d", lastIdSent)
-			panic("stop")
-		}
-		lastIdsSentRatings := []uint64{5393, 53215, 64144, 112482, 132119, 79678, 179803} //id uno desp de que se ejecuara para volver a enviarlo en read
-		if slices.Contains(lastIdsSentRatings, lastIdSent) && fileName == c.RatingsName && len(read) == 0 {
-			log.Infof("lastIdSent: %d", lastIdSent)
-			panic("stop")
-		}
-		read = []string{}
 		// comentar hasta aca
 		if lastIdSent%uint64(amount) == 0 {
 			log.Infof("Processed %d lines from %s", lastIdSent, fileName)
@@ -797,15 +802,17 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 		}
 
 		//comentar desde aca
-		// if fileName == c.MoviesMetadataName && len(read) == 0 && (data[5] == "6636" || data[5] == "48596") {
-		// 	log.Infof("MOVIE ID MOVIES METADATA %s with lastIdSent: %d", data[5], lastIdSent)
-		// 	panic("stop") //todo
-		// }
-		// if fileName == c.RatingsName && len(read) == 0 && (data[1] == "6636" || data[1] == "48596") {
-		// 	log.Infof("MOVIE ID RATINGS %s with lastIdSent: %d", data[1], lastIdSent)
-		// 	panic("stop") //todo
-		// }
-		// read = []string{}
+		if TEST2 {
+			if fileName == c.MoviesMetadataName && len(read) == 0 && (data[5] == "6636" || data[5] == "48596") {
+				log.Infof("MOVIE ID MOVIES METADATA %s with lastIdSent: %d", data[5], lastIdSent)
+				panic("stop") //todo
+			}
+			if fileName == c.RatingsName && len(read) == 0 && (data[1] == "6636" || data[1] == "48596") {
+				log.Infof("MOVIE ID RATINGS %s with lastIdSent: %d", data[1], lastIdSent)
+				panic("stop") //todo
+			}
+			read = []string{}
+		}
 		//comentar hasta aca
 
 		bytesReadTotal = update(reader, bytesReadTotal, connReader, tlog, fileName, lastIdSent, data, log)
