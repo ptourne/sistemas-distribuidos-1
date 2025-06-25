@@ -1,0 +1,20 @@
+{
+    "Command": "\"python nlp.py\"",
+    "CreatedAt": "2025-06-24 10:02:55 -0300 -03",
+    "ID": "5455d0cec399",
+    "Image": "analisis-peliculas-sentiment_server0",
+    "Labels": "com.docker.compose.config-hash=3e171ccdb283a2f7f59894d5e8a40a46ed440bef47202e66296355527fe7cea4,com.docker.compose.container-number=1,com.docker.compose.depends_on=,com.docker.compose.image=sha256:43b2301dae48a473b13f750ce18dc91385494fa8a6c6ad0e7355168da809c3d3,com.docker.compose.oneoff=False,com.docker.compose.project.config_files=/home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo/docker-compose.yml,com.docker.compose.project.working_dir=/home/patriciotournepassarino/Documents/uba/distribuidos/tp-repo,com.docker.compose.project=analisis-peliculas,com.docker.compose.service=sentiment_server0,com.docker.compose.version=2.35.1",
+    "LocalVolumes": "0",
+    "Mounts": "",
+    "Names": "sentiment_server0",
+    "Networks": "local_net",
+    "Platform": {
+        "architecture": "amd64",
+        "os": "linux"
+    },
+    "Ports": "",
+    "RunningFor": "45 minutes ago",
+    "Size": "0B",
+    "State": "running",
+    "Status": "Up 45 minutes (healthy)"
+}
