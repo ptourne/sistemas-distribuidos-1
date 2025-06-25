@@ -642,7 +642,7 @@ func (t *transactionLog) ReadLastQueryRows() (uint8, []RowWithID, bool, error) {
 
 	// Si no encontramos BEGIN, no hay bloque válido
 	if !foundBegin {
-		return 0, nil, false, fmt.Errorf("no found begin")
+		return 0, nil, false, nil
 	}
 
 	// Escribir solo el último bloque BEGIN/ROW/END (o BEGIN/ROW si no hay END) en el archivo temporal
@@ -680,6 +680,20 @@ func (t *transactionLog) UpdatePhase(phase HandleClientPhase) error {
 		return fmt.Errorf("failed to save phase: %w", err)
 	}
 	t.phase = phase
+	if phase == HandleClientPhase_RecQuery {
+		//creo el archivo de querys vacio
+		tempPath := t.queryFileName + ".tmp"
+		tempFile, err := os.Create(tempPath)
+		if err != nil {
+			return fmt.Errorf("failed to create temp query file: %w", err)
+		}
+		defer tempFile.Close()
+		tempFile.Close()
+		//renombro el archivo de querys
+		if err := os.Rename(tempPath, t.queryFileName); err != nil {
+			return fmt.Errorf("failed to rename temp query file: %w", err)
+		}
+	}
 	return nil
 }
 

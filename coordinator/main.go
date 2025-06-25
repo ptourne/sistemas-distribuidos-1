@@ -156,8 +156,8 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, false)
-	// wg.Add(1)
-	// go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, false)
+	wg.Add(1)
+	go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, false)
 
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, false)
@@ -353,15 +353,15 @@ OuterLoop:
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
-		// err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
-		// if err != nil {
-		// 	if err.Error() == "context cancelled" {
-		// 		log.Infof("Context cancelled, exiting handleClient")
-		// 		return
-		// 	}
-		// 	log.Errorf("Error verifying Q2: %v", err)
-		// 	return
-		// }
+		err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
 		err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
 			if err.Error() == "context cancelled" {
@@ -400,7 +400,7 @@ func handleClientRecover(transactionLog transaction_log.TransactionLog, channels
 		return
 	}
 	log = logger.NewConsoleLogger(fmt.Sprintf("coordinator-%d", cid), logger.Info)
-	log.Infof("Recovered cid: %d\nfileName: %s\ncounter: %d\nread: %v\nlastReadNotIncluded: %v\nlastIdACK: %d", cid, fileName, counter, read, string(lastReadNotIncluded), lastIdACK)
+	log.Infof("Recovered cid: %d\nfileName: %s\ncounter: %d\nread: %v\nlastReadNotIncluded: %v\nlastIdACK: %d\nskipReceivingExactFile: %v", cid, fileName, counter, read, string(lastReadNotIncluded), lastIdACK, skipReceivingExactFile)
 	moviesMetadataSender, creditsSender, ratingsSender, allQuerysToEndpointSender, testSender := createSenderQueues(c, log)
 	defer moviesMetadataSender.Close()
 	defer creditsSender.Close()
@@ -522,15 +522,15 @@ OuterLoop:
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
-		// err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
-		// if err != nil {
-		// 	if err.Error() == "context cancelled" {
-		// 		log.Infof("Context cancelled, exiting handleClient")
-		// 		return
-		// 	}
-		// 	log.Errorf("Error verifying Q2: %v", err)
-		// 	return
-		// }
+		err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
 		err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
 			if err.Error() == "context cancelled" {
@@ -603,19 +603,19 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 		}
 		queriesRows = []transaction_log.RowWithID{}
 	}
-	// log.Infof("queryNumber4: %d", queryNumber)
-	// if queryNumber < 4 {
-	// 	err := verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
-	// 	if err != nil {
-	// 		if err.Error() == "context cancelled" {
-	// 			log.Infof("Context cancelled, exiting handleClient")
-	// 			return
-	// 		}
-	// 		log.Errorf("Error verifying Q2: %v", err)
-	// 		return
-	// 	}
-	// 	queriesRows = []transaction_log.RowWithID{}
-	// }
+	log.Infof("queryNumber4: %d", queryNumber)
+	if queryNumber < 4 {
+		err := verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
+		if err != nil {
+			if err.Error() == "context cancelled" {
+				log.Infof("Context cancelled, exiting handleClient")
+				return
+			}
+			log.Errorf("Error verifying Q2: %v", err)
+			return
+		}
+		queriesRows = []transaction_log.RowWithID{}
+	}
 	if queryNumber < 5 {
 		err := verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
@@ -728,22 +728,21 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 	for {
 		lastIdSent++
 		// comentar desde aca
-		// lastIdsSentMoviesMetadata := []uint64{4697, 7972, 17762, 39395, 44923, 44953, 45427, 45447, 44428, 44251, 44284, 44680, 5472, 5187, 10640, 12207, 27019, 10740, 36031, 21753, 21102, 16927} //id uno desp de que se ejecuara para volver a enviarlo en read
-		// if slices.Contains(lastIdsSentMoviesMetadata, lastIdSent) && fileName == c.MoviesMetadataName && len(read) == 0 {
-		// 	log.Infof("lastIdSent: %d", lastIdSent)
-		// 	panic("stop")
-		// }
-		// lastIdsSentCredits := []uint64{5472, 5187, 10640, 12207, 27032, 10740, 36042, 21752} //id uno desp de que se ejecuara para volver a enviarlo en read
-		lastIdsSentCredits := []uint64{11569}
+		lastIdsSentMoviesMetadata := []uint64{4697, 7972, 17762, 39395, 44923, 44953, 45427, 45447, 44428, 44251, 44284, 44680, 5472, 5187, 10640, 12207, 27019, 10740, 36031, 21753, 21102, 16927} //id uno desp de que se ejecuara para volver a enviarlo en read
+		if slices.Contains(lastIdsSentMoviesMetadata, lastIdSent) && fileName == c.MoviesMetadataName && len(read) == 0 {
+			log.Infof("lastIdSent: %d", lastIdSent)
+			panic("stop")
+		}
+		lastIdsSentCredits := []uint64{5472, 5187, 10640, 12207, 27032, 10740, 36042, 21752} //id uno desp de que se ejecuara para volver a enviarlo en read
 		if slices.Contains(lastIdsSentCredits, lastIdSent) && fileName == c.CreditsName && len(read) == 0 {
 			log.Infof("lastIdSent: %d", lastIdSent)
 			panic("stop")
 		}
-		// lastIdsSentRatings := []uint64{5393, 53215, 64144, 112482, 132119, 79678, 179803} //id uno desp de que se ejecuara para volver a enviarlo en read
-		// if slices.Contains(lastIdsSentRatings, lastIdSent) && fileName == c.RatingsName && len(read) == 0 {
-		// 	log.Infof("lastIdSent: %d", lastIdSent)
-		// 	panic("stop")
-		// }
+		lastIdsSentRatings := []uint64{5393, 53215, 64144, 112482, 132119, 79678, 179803} //id uno desp de que se ejecuara para volver a enviarlo en read
+		if slices.Contains(lastIdsSentRatings, lastIdSent) && fileName == c.RatingsName && len(read) == 0 {
+			log.Infof("lastIdSent: %d", lastIdSent)
+			panic("stop")
+		}
 		read = []string{}
 		// comentar hasta aca
 		if lastIdSent%uint64(amount) == 0 {
@@ -1084,30 +1083,30 @@ func (c *ChannelsCid) Close() {
 
 func verifyingQ1(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, q1Receiver chan middleware.Envelope[*model.Row], transactionLog transaction_log.TransactionLog, rowsAlreadyReceived []transaction_log.RowWithID, ctx context.Context, removeVerification bool, ignoreCtx context.Context) error {
 	expectedOutputQ1 := []*model.Row{
-		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama"}}},
-		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": []string{"Crime"}}},
-		{Strings: map[string]string{"title": "The City of No Limits"}, Arrays: map[string][]string{"genres": []string{"Thriller", "Drama"}}},
-		{Strings: map[string]string{"title": "Nicotina"}, Arrays: map[string][]string{"genres": []string{"Drama", "Action", "Comedy", "Thriller"}}},
-		{Strings: map[string]string{"title": "Lost Embrace"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "Whisky"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "The Holy Girl"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "The Aura"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Thriller"}}},
-		{Strings: map[string]string{"title": "Bombón: The Dog"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "Rolling Family"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy"}}},
-		{Strings: map[string]string{"title": "The Method"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller"}}},
-		{Strings: map[string]string{"title": "Every Stewardess Goes to Heaven"}, Arrays: map[string][]string{"genres": []string{"Drama", "Romance", "Foreign"}}},
-		{Strings: map[string]string{"title": "Tetro"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery"}}},
-		{Strings: map[string]string{"title": "The Secret in Their Eyes"}, Arrays: map[string][]string{"genres": []string{"Crime", "Drama", "Mystery", "Romance"}}},
-		{Strings: map[string]string{"title": "Liverpool"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "The Headless Woman"}, Arrays: map[string][]string{"genres": []string{"Drama", "Mystery", "Thriller"}}},
-		{Strings: map[string]string{"title": "The Last Summer of La Boyita"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "The Appeared"}, Arrays: map[string][]string{"genres": []string{"Horror", "Thriller", "Mystery"}}},
-		{Strings: map[string]string{"title": "The Fish Child"}, Arrays: map[string][]string{"genres": []string{"Drama", "Thriller", "Romance", "Foreign"}}},
-		{Strings: map[string]string{"title": "Cleopatra"}, Arrays: map[string][]string{"genres": []string{"Drama", "Comedy", "Foreign"}}},
-		{Strings: map[string]string{"title": "Roma"}, Arrays: map[string][]string{"genres": []string{"Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "Conversations with Mother"}, Arrays: map[string][]string{"genres": []string{"Comedy", "Drama", "Foreign"}}},
-		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
-		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": []string{"Drama"}}},
+		{Strings: map[string]string{"title": "La Cienaga"}, Arrays: map[string][]string{"genres": {"Comedy", "Drama"}}},
+		{Strings: map[string]string{"title": "Burnt Money"}, Arrays: map[string][]string{"genres": {"Crime"}}},
+		{Strings: map[string]string{"title": "The City of No Limits"}, Arrays: map[string][]string{"genres": {"Thriller", "Drama"}}},
+		{Strings: map[string]string{"title": "Nicotina"}, Arrays: map[string][]string{"genres": {"Drama", "Action", "Comedy", "Thriller"}}},
+		{Strings: map[string]string{"title": "Lost Embrace"}, Arrays: map[string][]string{"genres": {"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "Whisky"}, Arrays: map[string][]string{"genres": {"Comedy", "Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Holy Girl"}, Arrays: map[string][]string{"genres": {"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Aura"}, Arrays: map[string][]string{"genres": {"Crime", "Drama", "Thriller"}}},
+		{Strings: map[string]string{"title": "Bombón: The Dog"}, Arrays: map[string][]string{"genres": {"Drama"}}},
+		{Strings: map[string]string{"title": "Rolling Family"}, Arrays: map[string][]string{"genres": {"Drama", "Comedy"}}},
+		{Strings: map[string]string{"title": "The Method"}, Arrays: map[string][]string{"genres": {"Drama", "Thriller"}}},
+		{Strings: map[string]string{"title": "Every Stewardess Goes to Heaven"}, Arrays: map[string][]string{"genres": {"Drama", "Romance", "Foreign"}}},
+		{Strings: map[string]string{"title": "Tetro"}, Arrays: map[string][]string{"genres": {"Drama", "Mystery"}}},
+		{Strings: map[string]string{"title": "The Secret in Their Eyes"}, Arrays: map[string][]string{"genres": {"Crime", "Drama", "Mystery", "Romance"}}},
+		{Strings: map[string]string{"title": "Liverpool"}, Arrays: map[string][]string{"genres": {"Drama"}}},
+		{Strings: map[string]string{"title": "The Headless Woman"}, Arrays: map[string][]string{"genres": {"Drama", "Mystery", "Thriller"}}},
+		{Strings: map[string]string{"title": "The Last Summer of La Boyita"}, Arrays: map[string][]string{"genres": {"Drama"}}},
+		{Strings: map[string]string{"title": "The Appeared"}, Arrays: map[string][]string{"genres": {"Horror", "Thriller", "Mystery"}}},
+		{Strings: map[string]string{"title": "The Fish Child"}, Arrays: map[string][]string{"genres": {"Drama", "Thriller", "Romance", "Foreign"}}},
+		{Strings: map[string]string{"title": "Cleopatra"}, Arrays: map[string][]string{"genres": {"Drama", "Comedy", "Foreign"}}},
+		{Strings: map[string]string{"title": "Roma"}, Arrays: map[string][]string{"genres": {"Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "Conversations with Mother"}, Arrays: map[string][]string{"genres": {"Comedy", "Drama", "Foreign"}}},
+		{Strings: map[string]string{"title": "The Education of Fairies"}, Arrays: map[string][]string{"genres": {"Drama"}}},
+		{Strings: map[string]string{"title": "The Good Life"}, Arrays: map[string][]string{"genres": {"Drama"}}},
 	}
 	return verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q1", expectedOutputQ1, removeQ1, false, transactionLog, rowsAlreadyReceived, ctx, removeVerification, ignoreCtx)
 }
@@ -1468,7 +1467,7 @@ func (c *ConnReader) ackAllEnvelopes() error {
 }
 
 func (cr *ConnReader) Read(buff []byte) (n int, err error) {
-	// log := logger.NewConsoleLogger("coordinator", logger.Info)
+	log := logger.NewConsoleLogger("READER", logger.Info)
 	// log.Infof("LastReadInsideReader READ: %v", string(cr.lastReadInsideReader.Peek()))
 	// log.Infof("LastReadNotIncluded READ: %v", string(cr.lastReadNotIncluded))
 	capacity := cap(buff)
@@ -1490,20 +1489,21 @@ loop:
 			if !ok {
 				return 0, fmt.Errorf("channel closed")
 			}
-			if msgEnvelope == nil {
+			if msgEnvelope == nil || msgEnvelope.Msg() == nil {
 				return 0, fmt.Errorf("invalid message es NIL")
 			}
 
-			if msgEnvelope.Id() < cr.lastIdACK && (msgEnvelope.Msg() == nil || (msgEnvelope.Msg() != nil && msgEnvelope.Msg().PackageType != common.IgnoreClient)) {
+			msg := msgEnvelope.Msg()
+			data := msg.Buf.Bytes
+			t := msg.PackageType
+			if msgEnvelope.Id() <= cr.lastIdACK && t != common.IgnoreClient {
+				log.Infof("salteando envelope id: %d with cid: %d\nLastReadInsideReader READ: %v\nLastReadNotIncluded READ: %v", msgEnvelope.Id(), msgEnvelope.Cid(), string(cr.lastReadInsideReader.Peek()), string(cr.lastReadNotIncluded))
 				err := msgEnvelope.Ack(false)
 				if err != nil {
 					return 0, fmt.Errorf("failed to ack envelope: %v", err)
 				}
 				continue loop
 			}
-			msg := msgEnvelope.Msg()
-			data := msg.Buf.Bytes
-			t := msg.PackageType
 			cantCopyFromData := min(remainingCapacity, len(data))
 			switch t {
 			case common.FileData:
