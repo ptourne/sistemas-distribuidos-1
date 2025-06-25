@@ -306,6 +306,8 @@ func SaveLogSafely(path string, fileName string, counter uint64, read []string, 
 		return fmt.Errorf("error creando archivo temporal: %w", err)
 	}
 
+	defer file.Close()
+
 	errW := WriteLogFile(file, fileName, counter, read, lastReadNotIncluided, lastIdACK)
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("error cerrando archivo: %w", err)
@@ -315,6 +317,10 @@ func SaveLogSafely(path string, fileName string, counter uint64, read []string, 
 			return fmt.Errorf("error eliminando archivo temporal: %w, original error: %w", rmErr, errW)
 		}
 		return fmt.Errorf("error escribiendo en archivo temporal: %w", errW)
+	}
+
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync file: %w", err)
 	}
 
 	// if fileName == "" {
@@ -538,7 +544,13 @@ func (t *transactionLog) writeBeginQuery(file *os.File, numberQuery uint8) error
 	buffer := make([]byte, len(queryTypeEncode)+len(numberQueryEncode))
 	copy(buffer, queryTypeEncode)
 	copy(buffer[len(queryTypeEncode):], numberQueryEncode)
-	return codec.DoWrite(buffer, file)
+	if err := codec.DoWrite(buffer, file); err != nil {
+		return fmt.Errorf("failed to write buffer to file: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync file: %w", err)
+	}
+	return nil
 }
 
 func (t *transactionLog) writeRowQuery(file *os.File, row *model.Row, idRow uint64, senderId uint64) error {
@@ -563,7 +575,13 @@ func (t *transactionLog) writeRowQuery(file *os.File, row *model.Row, idRow uint
 	copy(buffer[len(queryTypeEncode):], encodeRow)
 	copy(buffer[len(queryTypeEncode)+len(encodeRow):], idRowEncode)
 	copy(buffer[len(queryTypeEncode)+len(encodeRow)+len(idRowEncode):], idSenderEncode)
-	return codec.DoWrite(buffer, file)
+	if err := codec.DoWrite(buffer, file); err != nil {
+		return fmt.Errorf("failed to write buffer to file: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync file: %w", err)
+	}
+	return nil
 }
 
 func (t *transactionLog) writeEndQuery(file *os.File) error {
@@ -573,7 +591,13 @@ func (t *transactionLog) writeEndQuery(file *os.File) error {
 	}
 	buffer := make([]byte, len(queryTypeEncode))
 	copy(buffer, queryTypeEncode)
-	return codec.DoWrite(buffer, file)
+	if err := codec.DoWrite(buffer, file); err != nil {
+		return fmt.Errorf("failed to write buffer to file: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync file: %w", err)
+	}
+	return nil
 }
 
 func (t *transactionLog) ReadLastQueryRows() (uint8, []RowWithID, bool, error) {
@@ -726,6 +750,7 @@ func savePhaseSafely(path string, phase HandleClientPhase) error {
 	if err != nil {
 		return fmt.Errorf("error creando archivo temporal: %w", err)
 	}
+	defer file.Close()
 
 	errW := codec.DoWrite(phase.Encode(), file)
 	if errW != nil {
@@ -733,6 +758,10 @@ func savePhaseSafely(path string, phase HandleClientPhase) error {
 			return fmt.Errorf("error eliminando archivo temporal: %w, original error: %w", rmErr, errW)
 		}
 		return fmt.Errorf("error escribiendo en archivo temporal: %w", errW)
+	}
+
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync file: %w", err)
 	}
 
 	// if fileName == "" {

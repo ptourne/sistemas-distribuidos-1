@@ -154,10 +154,7 @@ func (r *FinalReducer[I, A, R]) Run(ctx context.Context) chan error {
 						r.log.Errorf("Final : %d | Error acknowledging transaction: %s", e.Cid(), err)
 						return
 					}
-					delete(r.lastNormalMsgIdsByCidAndSenderId[e.Cid()], e.SenderId())
-					if len(r.lastNormalMsgIdsByCidAndSenderId[e.Cid()]) == 0 {
-						delete(r.lastNormalMsgIdsByCidAndSenderId, e.Cid())
-					}
+					delete(r.lastNormalMsgIdsByCidAndSenderId, e.Cid())
 				case middleware.Prune:
 					r.log.Infof("Final : %d | Received PRUNE", e.Cid())
 					err = r.transactionLog.ReceivedPrune(e.Cid())
@@ -207,10 +204,20 @@ func (r *FinalReducer[I, A, R]) processEof(cid uint64) error {
 	clientBatch, ok := r.ReduceBatches[cid]
 	if !ok {
 		r.log.Infof("Final : %d | Final Reduce batch not found on Prune", cid)
+		err := r.Sender.SendEOF(cid)
+		if err != nil {
+			r.log.Errorf("Final : %d | SendEOF failed: %s", cid, err)
+			return fmt.Errorf("error sending EOF: %w", err)
+		}
 		return nil
 	}
 	if clientBatch == nil {
 		r.log.Infof("Final : %d | Final Reduce batch is empty on Prune", cid)
+		err := r.Sender.SendEOF(cid)
+		if err != nil {
+			r.log.Errorf("Final : %d | SendEOF failed: %s", cid, err)
+			return fmt.Errorf("error sending EOF: %w", err)
+		}
 		return nil
 	}
 	r.log.Debugf("Final : %d | clientBatch before: %v", cid, clientBatch)

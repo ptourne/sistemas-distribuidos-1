@@ -57,8 +57,7 @@ func (f CleanCredits) ProcessAndSend(envelope middleware.Envelope[*model.Row]) e
 		// log.Infof("Prune arrived for cid: %s in %s movieID: %s", cid, f.Name(), row.Strings["movieID"])
 		err := f.taskSender.Prune(cid)
 		if err != nil {
-			log.Errorf("cid %d | Prune failed in: %s with err:%s", cid, err, f.Name())
-			envelope.Nack(true)
+			return fmt.Errorf("cid %d | Prune failed in: %s with err: %s", cid, f.Name(), err)
 		}
 		return nil
 	default:

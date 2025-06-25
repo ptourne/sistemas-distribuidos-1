@@ -606,7 +606,6 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 		}
 		queriesRows = []transaction_log.RowWithID{}
 	}
-	log.Infof("queryNumber4: %d", queryNumber)
 	if queryNumber < 4 {
 		err := verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {

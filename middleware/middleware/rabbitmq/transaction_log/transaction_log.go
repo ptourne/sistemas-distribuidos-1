@@ -292,8 +292,8 @@ func (l *transactionLog) Dump(data []byte) error {
 	return nil
 }
 
-func cleanOldFiles(newVar string, idx int) error {
-	oldLogFiles, err := os.ReadDir(newVar)
+func cleanOldFiles(directory string, idx int) error {
+	oldLogFiles, err := os.ReadDir(directory)
 	if err != nil {
 		return fmt.Errorf("failed to read directory: %w", err)
 	}
@@ -303,7 +303,7 @@ func cleanOldFiles(newVar string, idx int) error {
 			return fmt.Errorf("failed to parse file name %s: %w", file.Name(), err)
 		}
 		if fileId < idx-1 {
-			filePath := path.Join(newVar, file.Name())
+			filePath := path.Join(directory, file.Name())
 			if err := os.Remove(filePath); err != nil {
 				return fmt.Errorf("failed to remove old file %s: %w", filePath, err)
 			}

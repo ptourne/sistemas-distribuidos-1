@@ -12,7 +12,7 @@ number_of_reduce_top_10_by_actor = "3"
 number_of_reduce_top_bottom_avg_ratings = "3"
 number_of_clients = "3"
 number_of_sentiment_servers = "3"
-number_of_monitors = "1"
+number_of_monitors = "2"
 # Ejecutar el script con todas las variables en orden
 subprocess.run([
     "./generate-compose.sh",

@@ -149,12 +149,13 @@ Output:
 					panic("Failed to cast to envelope")
 				}
 
-				result := currentTask.ProcessAndSend(envelope)
-				if result != nil {
-					log.Errorf("Failed to process fileChunk: %v by task: %v", envelope, currentTask.Name())
-					continue
+				err = currentTask.ProcessAndSend(envelope)
+				if err != nil {
+					log.Errorf("Failed to process fileChunk: %v by task: %v. Error: %s", envelope, currentTask.Name(), err)
+					errNack := envelope.Nack(false)
+					unwrap(errNack, fmt.Sprintf("Failed to nack message: %v. Error: %s", envelope, err))
+					panic(fmt.Sprintf("Failed to process fileChunk: %v by task: %v. Error: %s", envelope, currentTask.Name(), err))
 				}
-				// log.Debugf("TO ACK msg %v worker", envelope.Msg())
 				err = envelope.Ack(false)
 				unwrap(err, "Failed to ack message")
 			} else {
@@ -186,10 +187,12 @@ Output:
 				if !ok {
 					panic("Failed to cast to envelope")
 				}
-				result := currentTask.ProcessAndSend(envelope)
-				if result != nil {
+				err = currentTask.ProcessAndSend(envelope)
+				if err != nil {
 					log.Errorf("Failed to process row: %v by task: %v", envelope, currentTask.Name())
-					continue
+					errNack := envelope.Nack(false)
+					unwrap(errNack, fmt.Sprintf("Failed to nack message: %v. Error: %s", envelope, err))
+					panic(fmt.Sprintf("Failed to process row: %v by task: %v. Error: %s", envelope, currentTask.Name(), err))
 				}
 				// log.Debugf("TO ACK msg %v worker", envelope.Msg())
 				err = envelope.Ack(false)

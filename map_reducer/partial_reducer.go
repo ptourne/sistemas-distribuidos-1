@@ -108,10 +108,7 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 						r.log.Errorf("Input : %d | Error acknowledging transaction: %s", e.Cid(), err)
 						return
 					}
-					delete(r.lastNormalMsgIdsByCidAndSenderId[e.Cid()], e.SenderId())
-					if len(r.lastNormalMsgIdsByCidAndSenderId[e.Cid()]) == 0 { // TODO tiene sentido esto? O eliminamos todo el CID al primer EOF? IDEM final reducer
-						delete(r.lastNormalMsgIdsByCidAndSenderId, e.Cid())
-					}
+					delete(r.lastNormalMsgIdsByCidAndSenderId, e.Cid())
 				case middleware.Prune:
 					r.log.Debugf("input : %d | Received Prune", e.Cid())
 					err = r.processPrune(e.Cid())
