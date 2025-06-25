@@ -15,7 +15,7 @@ import (
 
 var WORKER_ID = os.Getenv("WORKER_ID")
 
-var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID), logger.Info)
+var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_movieId_%s", WORKER_ID), logger.Debug)
 
 type In = *model.Rating
 type Acc struct {

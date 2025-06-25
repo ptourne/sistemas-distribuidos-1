@@ -687,7 +687,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 	switch notification.notificationType {
 	case closeNotificationFinishCidDone:
 		if r.routingKey == "0" {
-			r.Log.Debugf("%s, Finish done received for Cid %d", r.input.exchangeName, cid)
+			r.Log.Infof("%s, Finish done received for Cid %d and idWorker: %s", r.input.exchangeName, cid, notification.idWorker)
 			finishCid, exists := r.finishCids[cid]
 			if !exists {
 				finishCidNew := struct {
@@ -700,10 +700,10 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 				}
 				finishCidNew.finishDoneIds[notification.idWorker] = tag
 				r.finishCids[cid] = finishCidNew
-				r.Log.Debugf("Finish done received for non-existent Cid VAMOSS %d count: %d", cid, r.finishCids[cid].finishDonePending)
+				r.Log.Infof("Finish done received for non-existent Cid VAMOSS %d count: %d", cid, r.finishCids[cid].finishDonePending)
 				return true, false, nil, nil
 			} else {
-				r.Log.Debugf("Finish done pending for Cid before %d: %+v | Receiver okk %s", cid, r.finishCids[cid].finishDoneIds, r.input.queueName)
+				r.Log.Infof("Finish done pending for Cid before %d: %v | Receiver okk %s", cid, r.finishCids[cid].finishDoneIds, r.input.queueName)
 				// finishCid.finishDonePending--
 				// r.finishCids[cid] = finishCid
 				// r.Log.Debugf("Finish done pending for Cid %d: %d in %s", cid, r.finishCids[cid].finishDonePending, r.input.queueName)

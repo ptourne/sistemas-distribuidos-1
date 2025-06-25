@@ -15,7 +15,7 @@ import (
 )
 
 var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_actor_%s", WORKER_ID), logger.Info)
+var log = logger.NewConsoleLogger(fmt.Sprintf("reduce_by_actor_%s", WORKER_ID), logger.Debug)
 
 func main() {
 	name := os.Getenv("NAME")

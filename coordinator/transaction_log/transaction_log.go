@@ -309,23 +309,12 @@ func SaveLogSafely(path string, fileName string, counter uint64, read []string, 
 	defer file.Close()
 
 	errW := WriteLogFile(file, fileName, counter, read, lastReadNotIncluided, lastIdACK)
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("error cerrando archivo: %w", err)
-	}
 	if errW != nil {
 		if rmErr := os.Remove(tempPath); rmErr != nil {
 			return fmt.Errorf("error eliminando archivo temporal: %w, original error: %w", rmErr, errW)
 		}
 		return fmt.Errorf("error escribiendo en archivo temporal: %w", errW)
 	}
-
-	if err := file.Sync(); err != nil {
-		return fmt.Errorf("failed to sync file: %w", err)
-	}
-
-	// if fileName == "" {
-	// 	return fmt.Errorf("filename cannot be empty")
-	// } //testing
 
 	// Renombrar de forma atómica
 	if err := os.Rename(tempPath, path); err != nil {
@@ -763,11 +752,6 @@ func savePhaseSafely(path string, phase HandleClientPhase) error {
 	if err := file.Sync(); err != nil {
 		return fmt.Errorf("failed to sync file: %w", err)
 	}
-
-	// if fileName == "" {
-	// 	return fmt.Errorf("filename cannot be empty")
-	// } //testing
-
 	// Renombrar de forma atómica
 	if err := os.Rename(tempPath, path); err != nil {
 		return fmt.Errorf("error renombrando archivo: %w", err)

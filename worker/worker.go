@@ -31,7 +31,7 @@ type Worker struct {
 }
 
 var WORKER_ID = os.Getenv("WORKER_ID")
-var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Info)
+var log = logger.NewConsoleLogger(fmt.Sprintf("worker_%s", WORKER_ID), logger.Debug)
 
 type TType int
 
@@ -45,7 +45,7 @@ func (w *Worker) Run() {
 	if err != nil {
 		log.Fatalf("Failed to connect to middleware: %s", err)
 	}
-	middlewareLog := logger.NewConsoleLogger("middleware", logger.Info)
+	middlewareLog := logger.NewConsoleLogger("middleware", logger.Debug)
 	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector, middlewareLog)
 	middlewareConnectionBin := rabbitmq.NewMiddleware[*model.FileChunk](connector, middlewareLog)
 	if err != nil {
