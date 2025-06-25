@@ -10,7 +10,7 @@ number_of_reduce_by_sentiment = "3"
 number_of_reduce_by_actor = "3"
 number_of_reduce_top_10_by_actor = "3"
 number_of_reduce_top_bottom_avg_ratings = "3"
-number_of_clients = "1"
+number_of_clients = "3"
 number_of_sentiment_servers = "3"
 number_of_monitors = "1"
 # Ejecutar el script con todas las variables en orden

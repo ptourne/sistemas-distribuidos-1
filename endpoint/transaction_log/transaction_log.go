@@ -99,11 +99,11 @@ func WriteLogFile(file *os.File, counter uint64, lastIdACK uint64) error {
 func ReadLogFile(file *os.File) (counter uint64, lastIdACK uint64, err error) {
 	counter, err = codec.Uint64Decode(file)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to read filename from log file: %w", err)
+		return 0, 0, fmt.Errorf("failed to read counter from log file: %w", err)
 	}
 	lastIdACK, err = codec.Uint64Decode(file)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to read filename from log file: %w", err)
+		return 0, 0, fmt.Errorf("failed to read last id ack from log file: %w", err)
 	}
 	return counter, lastIdACK, nil
 }

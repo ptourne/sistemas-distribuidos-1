@@ -22,37 +22,41 @@ const (
 var log = logger.NewConsoleLogger("coordinator_logger", logger.Info)
 
 type transactionLog struct {
-	logFileName          string // path to the log file
-	cid                  uint64
-	fileName             string
-	counter              uint64
-	read                 []string
-	lastReadNotIncluided []byte
-	lastIdACK            uint64
-	queryFileName        string
-	isQueryPhase         bool
-	lastQueryNumber      uint8
-	lastQueryRows        []RowWithID
-	lastQueryEnded       bool
-	checkpointInterval   uint64   // cada cuántas escrituras hacer checkpoint
-	writeCount           uint64   // contador de escrituras desde el último checkpoint
-	logFile              *os.File // archivo de log mantenido abierto
+	logFileName            string // path to the log file
+	cid                    uint64
+	fileName               string
+	counter                uint64
+	read                   []string
+	lastReadNotIncluided   []byte
+	lastIdACK              uint64
+	queryFileName          string
+	phase                  HandleClientPhase
+	lastQueryNumber        uint8
+	lastQueryRows          []RowWithID
+	lastQueryEnded         bool
+	checkpointInterval     uint64   // cada cuántas escrituras hacer checkpoint
+	writeCount             uint64   // contador de escrituras desde el último checkpoint
+	logFile                *os.File // archivo de log mantenido abierto
+	phaseFileName          string   // path to the phase file, used to indicate in which phase is the transaction log
+	skipReceivingExactFile bool
 }
 
 type TransactionLog interface {
 	Update(fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64) error
-	Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64, err error)
+	Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64, skipReceivingExactFile bool, err error)
 	Cid() uint64
 	Print() string
 	RemoveAll() error
 	RemoveLog() error
 	CloseLog() error
+	CleanLog() error
 	ReadLastQueryRows() (uint8, []RowWithID, bool, error)
 	WriteBeginQuery(numberQuery uint8) error
 	WriteRowQuery(row *model.Row, idRow uint64, senderId uint64) error
 	WriteEndQuery() error
 	RecoverQueryPhase() (uint8, []RowWithID, bool, error)
-	IsQueryPhase() bool
+	UpdatePhase(phase HandleClientPhase) error
+	Phase() HandleClientPhase
 }
 
 // Define a struct to hold both id and row
@@ -80,21 +84,22 @@ func RecoverFromLogs(dirPath string, checkpointInterval uint64) ([]TransactionLo
 			panic(fmt.Errorf("expected directory for cid %s, but got file", dirCid.Name()))
 		}
 		cid := dirCid.Name()
-		logFilePath, err := logFiles(path.Join(logDirectory(dirPath), cid))
+		cidFilesInsideDir, err := logFiles(path.Join(logDirectory(dirPath), cid))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read transaction log files for cid %s: %v", cid, err)
 		}
-		if len(logFilePath) == 0 {
+		if len(cidFilesInsideDir) == 0 {
 			continue
 		}
-		verifyQueryPhase, err := verifyQueryPhase(logFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to verify query phase for cid %s: %v", cid, err)
+		var transactionLog = &transactionLog{
+			queryFileName: path.Join(logDirectory(dirPath), cid, queryFileName()),
+			logFileName:   path.Join(logDirectory(dirPath), cid, logFileName()),
+			phaseFileName: path.Join(logDirectory(dirPath), cid, phaseFileName()),
 		}
-		var transactionLog = &transactionLog{}
-		transactionLog.isQueryPhase = verifyQueryPhase
-		transactionLog.queryFileName = path.Join(logDirectory(dirPath), cid, queryFileName())
-		transactionLog.logFileName = path.Join(logDirectory(dirPath), cid, logFileName())
+		err = transactionLog.RecoverPhase()
+		if err != nil {
+			return nil, fmt.Errorf("failed to recover phase for cid %s: %v", cid, err)
+		}
 		transactionLog.checkpointInterval = checkpointInterval // valor por defecto para logs recuperados
 		transactionLog.writeCount = 0
 		cidU, err := strconv.ParseUint(cid, 10, 64)
@@ -103,33 +108,24 @@ func RecoverFromLogs(dirPath string, checkpointInterval uint64) ([]TransactionLo
 		}
 		transactionLog.cid = cidU
 
-		if verifyQueryPhase {
-			lastQueryNumber, lastQueryRows, lastQueryEnded, err := transactionLog.ReadLastQueryRows()
-			if err != nil {
-				return nil, fmt.Errorf("failed to read last query rows for cid %s: %v", cid, err)
-			}
-			transactionLog.lastQueryNumber = lastQueryNumber
-			transactionLog.lastQueryRows = lastQueryRows
-			transactionLog.lastQueryEnded = lastQueryEnded
-		} else {
+		switch transactionLog.phase {
+		case HandleClientPhase_RecInput:
 			logFile, err := os.Open(transactionLog.logFileName)
 			if err != nil {
-				return nil, fmt.Errorf("failed to open transaction log file for cid %s: %v", cid, err)
+				log.Errorf("failed to open transaction log file for cid %s: %v", cid, err)
 			}
-			fileName, counter, read, lastReadNotIncluided, lastIdACK, errF := ReadLastLogEntry(logFile)
+			fileName, counter, read, lastReadNotIncluided, lastIdACK, skipReceivingExactFile := ReadLastLogEntry(logFile)
 			if err := logFile.Close(); err != nil {
-				return nil, fmt.Errorf("failed to close transaction log file for cid %s: %v", cid, err)
+				log.Errorf("failed to close transaction log file for cid %s: %v", cid, err)
 			}
-			if errF != nil {
-				return nil, fmt.Errorf("failed to read transaction log file for cid %s: %v", cid, errF)
-			}
+			transactionLog.skipReceivingExactFile = skipReceivingExactFile
 			transactionLog.fileName = fileName
 			transactionLog.counter = counter
 			transactionLog.read = read
 			transactionLog.lastReadNotIncluided = lastReadNotIncluided
 			transactionLog.lastIdACK = lastIdACK
 
-			log.Infof("RECOVER: \n fileName: %s \n counter: %d \n read: %v \n lastReadNotIncluided: %v \n lastIdACK: %d", fileName, counter, read, lastReadNotIncluided, lastIdACK)
+			// log.Infof("RECOVER: \n fileName: %s \n counter: %d \n read: %v \n lastReadNotIncluided: %v \n lastIdACK: %d", fileName, counter, read, lastReadNotIncluided, lastIdACK)
 
 			// //actualizo el archivo de log
 			err = SaveLogSafely(transactionLog.logFileName, fileName, counter, read, lastReadNotIncluided, lastIdACK)
@@ -142,6 +138,14 @@ func RecoverFromLogs(dirPath string, checkpointInterval uint64) ([]TransactionLo
 				return nil, fmt.Errorf("failed to open log file for writing for cid %s: %v", cid, err)
 			}
 			transactionLog.logFile = logFile
+		case HandleClientPhase_RecQuery:
+			lastQueryNumber, lastQueryRows, lastQueryEnded, err := transactionLog.ReadLastQueryRows()
+			if err != nil {
+				log.Errorf("failed to read last query rows for cid %s: %v", cid, err)
+			}
+			transactionLog.lastQueryNumber = lastQueryNumber
+			transactionLog.lastQueryRows = lastQueryRows
+			transactionLog.lastQueryEnded = lastQueryEnded
 		}
 
 		transactionLogs = append(transactionLogs, transactionLog)
@@ -156,7 +160,8 @@ func NewTransactionLogForCid(dirPath string, cid uint64, checkpointInterval uint
 	}
 
 	logFileNamePath := path.Join(logCidDirectory, logFileName())
-	queryFileNamePath := path.Join(logCidDirectory, "querys")
+	queryFileNamePath := path.Join(logCidDirectory, queryFileName())
+	phaseFileNamePath := path.Join(logCidDirectory, phaseFileName())
 
 	// Abrir el archivo de log en modo append
 	logFile, err := os.OpenFile(logFileNamePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -164,32 +169,43 @@ func NewTransactionLogForCid(dirPath string, cid uint64, checkpointInterval uint
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}
 
-	return &transactionLog{
+	tlog := &transactionLog{
 		cid:                cid,
 		logFileName:        logFileNamePath,
 		queryFileName:      queryFileNamePath,
+		phaseFileName:      phaseFileNamePath,
 		checkpointInterval: checkpointInterval,
 		writeCount:         0,
 		logFile:            logFile,
-	}, nil
+	}
+
+	err = tlog.UpdatePhase(HandleClientPhase_RecInput)
+	if err != nil {
+		if closeErr := tlog.CloseLog(); closeErr != nil {
+			return nil, fmt.Errorf("failed to close log file after phase update error: %w", closeErr)
+		}
+		return nil, fmt.Errorf("failed to update phase: %w", err)
+	}
+	return tlog, nil
 }
 
 func verifyQueryPhase(logFilePath []os.DirEntry) (bool, error) {
 	//verifico si hay un archivo con el nombre "querys"
 	for _, file := range logFilePath {
-		if file.Name() == "querys" {
+		if file.Name() == queryFileName() {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func (t *transactionLog) IsQueryPhase() bool {
-	return t.isQueryPhase
+func (t *transactionLog) Phase() HandleClientPhase {
+	//verifico si hay un archivo con el nombre "querys
+	return t.phase
 }
 
 func (t *transactionLog) RecoverQueryPhase() (uint8, []RowWithID, bool, error) {
-	if !t.isQueryPhase {
+	if t.phase != HandleClientPhase_RecQuery {
 		return 0, nil, false, fmt.Errorf("not in query phase")
 	}
 	return t.lastQueryNumber, t.lastQueryRows, t.lastQueryEnded, nil
@@ -244,47 +260,40 @@ func readLogFile(file *os.File) (filename string, counter uint64, read []string,
 	}
 	counter, err = codec.Uint64Decode(file)
 	if err != nil {
-		return "", 0, nil, nil, 0, fmt.Errorf("failed to read filename from log file: %w", err)
+		return "", 0, nil, nil, 0, fmt.Errorf("failed to read counter from log file: %w", err)
 	}
 	read, err = codec.CsvRecordDecode(file)
 	if err != nil {
-		return "", 0, nil, nil, 0, fmt.Errorf("failed to read filename from log file: %w", err)
+		return "", 0, nil, nil, 0, fmt.Errorf("failed to read read from log file: %w", err)
 	}
 	lastReadNotIncluided, err = codec.BytesDecode(file)
 	if err != nil {
-		return "", 0, nil, nil, 0, fmt.Errorf("failed to read filename from log file: %w", err)
+		return "", 0, nil, nil, 0, fmt.Errorf("failed to read last read not included from log file: %w", err)
 	}
 	lastIdACK, err = codec.Uint64Decode(file)
 	if err != nil {
-		return "", 0, nil, nil, 0, fmt.Errorf("failed to read filename from log file: %w", err)
+		return "", 0, nil, nil, 0, fmt.Errorf("failed to read last id ack from log file: %w", err)
 	}
 	return filename, counter, read, lastReadNotIncluided, lastIdACK, nil
 }
 
-func ReadLastLogEntry(file *os.File) (filename string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64, err error) {
-	var lastFilename string
-	var lastCounter uint64
-	var lastRead []string
-	var lastLastReadNotIncluided []byte
-	var lastLastIdACK uint64
-
+func ReadLastLogEntry(file *os.File) (filename string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64, skipReceivingExactFile bool) {
+	skipReceivingExactFile = true
 	// Leer todas las entradas del archivo hasta encontrar un error de parseo
 	for {
 		currentFilename, currentCounter, currentRead, currentLastReadNotIncluided, currentLastIdACK, err := readLogFile(file)
 		if err != nil {
 			// Si hay error de parseo, devolver los últimos valores válidos
-			if lastFilename == "" {
-				return "", 0, nil, nil, 0, fmt.Errorf("no valid log entries found: %w", err)
-			}
-			return lastFilename, lastCounter, lastRead, lastLastReadNotIncluided, lastLastIdACK, nil
+			return filename, counter, read, lastReadNotIncluided, lastIdACK, skipReceivingExactFile
 		}
 
 		// Guardar los valores actuales como los últimos válidos
-		lastFilename = currentFilename
-		lastCounter = currentCounter
-		lastRead = currentRead
-		lastLastReadNotIncluided = currentLastReadNotIncluided
-		lastLastIdACK = currentLastIdACK
+		filename = currentFilename
+		counter = currentCounter
+		read = currentRead
+		lastReadNotIncluided = currentLastReadNotIncluided
+		lastIdACK = currentLastIdACK
+		skipReceivingExactFile = false
 	}
 }
 
@@ -321,7 +330,7 @@ func SaveLogSafely(path string, fileName string, counter uint64, read []string, 
 }
 
 func (t *transactionLog) Update(fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64) error {
-	if t.isQueryPhase {
+	if t.phase != HandleClientPhase_RecInput {
 		return fmt.Errorf("in query phase")
 	}
 	t.fileName = fileName
@@ -364,11 +373,12 @@ func (t *transactionLog) Update(fileName string, counter uint64, read []string, 
 	return nil
 }
 
-func (t *transactionLog) Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64, err error) {
-	if t.isQueryPhase {
-		return 0, "", 0, nil, nil, 0, fmt.Errorf("in query phase")
+func (t *transactionLog) Recover() (cid uint64, fileName string, counter uint64, read []string, lastReadNotIncluided []byte, lastIdACK uint64, skipReceivingExactFile bool, err error) {
+	if t.phase != HandleClientPhase_RecInput {
+		return 0, "", 0, nil, nil, 0, false, fmt.Errorf("not in receiving phase")
 	}
-	return t.cid, t.fileName, t.counter, t.read, t.lastReadNotIncluided, t.lastIdACK, nil
+
+	return t.cid, t.fileName, t.counter, t.read, t.lastReadNotIncluided, t.lastIdACK, t.skipReceivingExactFile, nil
 }
 func (t *transactionLog) Cid() uint64 {
 	return t.cid
@@ -439,6 +449,25 @@ func (t *transactionLog) CloseLog() error {
 	return nil
 }
 
+func (t *transactionLog) CleanLog() error {
+	//dejo el archivo limpio (sin ningun byte)
+	if t.logFile != nil {
+		// Truncate the file to size 0 to empty it
+		if err := t.logFile.Truncate(0); err != nil {
+			return fmt.Errorf("failed to truncate log file: %w", err)
+		}
+		// Seek to beginning of file
+		if _, err := t.logFile.Seek(0, 0); err != nil {
+			return fmt.Errorf("failed to seek to beginning of log file: %w", err)
+		}
+		// Sync to ensure changes are written to disk
+		if err := t.logFile.Sync(); err != nil {
+			return fmt.Errorf("failed to sync log file: %w", err)
+		}
+	}
+	return nil
+}
+
 func logDirectory(dirPath string) string {
 	return path.Join(dirPath, "logs")
 }
@@ -449,6 +478,10 @@ func logFileName() string {
 
 func queryFileName() string {
 	return "querys"
+}
+
+func phaseFileName() string {
+	return "phase"
 }
 
 func logFiles(path string) ([]os.DirEntry, error) {
@@ -619,6 +652,85 @@ func (t *transactionLog) ReadLastQueryRows() (uint8, []RowWithID, bool, error) {
 	}
 
 	return lastQueryNumber, lastRows, queryEnded, nil
+}
+
+type HandleClientPhase uint8
+
+const (
+	HandleClientPhase_RecInput HandleClientPhase = iota
+	HandleClientPhase_RecQuery
+	HandleClientPhase_Finished
+)
+
+func (p HandleClientPhase) Encode() []byte {
+	return []byte{byte(p)}
+}
+
+func (p *HandleClientPhase) Decode(data []byte) error {
+	if len(data) != 1 {
+		return fmt.Errorf("invalid data length for HandleClientPhase: %d", len(data))
+	}
+	*p = HandleClientPhase(data[0])
+	return nil
+}
+
+func (t *transactionLog) UpdatePhase(phase HandleClientPhase) error {
+	err := savePhaseSafely(t.phaseFileName, phase)
+	if err != nil {
+		return fmt.Errorf("failed to save phase: %w", err)
+	}
+	t.phase = phase
+	return nil
+}
+
+func (t *transactionLog) RecoverPhase() error {
+	file, err := os.Open(t.phaseFileName)
+	if err != nil {
+		if os.IsNotExist(err) {
+			t.phase = HandleClientPhase_RecInput
+			return nil // Si no existe el archivo, asumimos que estamos en la fase inicial
+		}
+		return fmt.Errorf("failed to open phase file: %w", err)
+	}
+	defer file.Close()
+	data, err := codec.DoRead(1, file)
+	if err != nil {
+		return fmt.Errorf("failed to read phase file: %w", err)
+	}
+	if err := t.phase.Decode(data); err != nil {
+		return fmt.Errorf("failed to decode phase: %w", err)
+	}
+	return nil
+
+}
+
+func savePhaseSafely(path string, phase HandleClientPhase) error {
+	tempPath := path + ".tmp"
+
+	// creo archivo temporal
+	file, err := os.Create(tempPath)
+	if err != nil {
+		return fmt.Errorf("error creando archivo temporal: %w", err)
+	}
+
+	errW := codec.DoWrite(phase.Encode(), file)
+	if errW != nil {
+		if rmErr := os.Remove(tempPath); rmErr != nil {
+			return fmt.Errorf("error eliminando archivo temporal: %w, original error: %w", rmErr, errW)
+		}
+		return fmt.Errorf("error escribiendo en archivo temporal: %w", errW)
+	}
+
+	// if fileName == "" {
+	// 	return fmt.Errorf("filename cannot be empty")
+	// } //testing
+
+	// Renombrar de forma atómica
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("error renombrando archivo: %w", err)
+	}
+
+	return nil
 }
 
 func updateQueriesLog(t *transactionLog, lastQueryNumber uint8, lastRows []RowWithID, queryEnded bool) error {

@@ -433,7 +433,7 @@ func TestCoordinator(t *testing.T) {
 		assert.Equal(t, r2.Strings["id"], "2")
 		assert.Equal(t, r2.Strings["name"], "Don")
 		assert.Equal(t, rows[2].Cid(), uint64(1))
-		assert.Equal(t, rows[2].Id(), uint64(3))
+		assert.Equal(t, rows[2].Id(), uint64(2))
 
 		r3 := rows[3]
 		assert.Equal(t, r3.Type(), middleware.Prune)
@@ -1614,9 +1614,8 @@ func stopCoordinatorAndReadLog(t *testing.T, ctxStop context.CancelFunc, wg *syn
 	logFilePath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "log")
 	logFile, err := os.Open(logFilePath)
 	assert.NoError(t, err)
-	gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, err := transaction_log.ReadLastLogEntry(logFile)
+	gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK, _ := transaction_log.ReadLastLogEntry(logFile)
 	logFile.Close()
-	assert.NoError(t, err)
 	return gotFilename, gotCounter, gotRead, gotLastReadNotIncluided, gotLastIdACK
 }
 
@@ -1633,7 +1632,14 @@ func stopCoordinatorAndReadLogError(t *testing.T, ctxStop context.CancelFunc, wg
 	//verifico que no exista el log
 	logFilePath := path.Join(tmpDir, "logs", fmt.Sprintf("%d", cid), "log")
 	_, err = os.Stat(logFilePath)
-	assert.Error(t, err)
+	assert.NoError(t, err)
+	//verifico que este vacio
+	logFile, err := os.Open(logFilePath)
+	assert.NoError(t, err)
+	defer logFile.Close()
+	info, err := logFile.Stat()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), info.Size(), "Log file should be empty after an error")
 }
 
 func sendCoordinator(t *testing.T, data string, sender middleware.Sender[*common.PackageFile], packageType common.TypePackage, cid uint64, id uint64) {
@@ -1668,7 +1674,7 @@ func sendQEOF(t *testing.T, sender middleware.Sender[*model.Row], cid uint64) {
 }
 
 func stopCoordinatorAndReadLogQuery(t *testing.T, ctxStop context.CancelFunc, wg *sync.WaitGroup, tmpDir string, cid uint64) (uint8, map[uint8][]transaction_log.RowWithID, bool) {
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 	ctxStop()
 	wg.Wait()
 

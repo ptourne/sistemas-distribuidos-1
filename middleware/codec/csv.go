@@ -32,7 +32,7 @@ func CsvRecordEncode(read []string) ([]byte, error) {
 func CsvRecordDecode(r io.Reader) ([]string, error) {
 	dataLen, err := Uint64Decode(r)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode string length: %w", err)
+		return nil, fmt.Errorf("failed to decode string length:3 %w", err)
 	}
 
 	data, err := DoRead(dataLen, r)

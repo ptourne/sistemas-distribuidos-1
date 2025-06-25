@@ -20,7 +20,7 @@ func BytesEncode(data []byte) ([]byte, error) {
 func BytesDecode(r io.Reader) ([]byte, error) {
 	dataLen, err := Uint64Decode(r)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode string length: %w", err)
+		return nil, fmt.Errorf("failed to decode string length:1 %w", err)
 	}
 
 	if dataLen == 0 {

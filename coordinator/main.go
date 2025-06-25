@@ -100,17 +100,17 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 				continue
 			}
 			cid := envelope.Cid()
+			inputChannelMapLock.Lock()
 			channelsCid, exists := inputsChannelMap[cid]
 			if !exists {
 				channelsCid = NewChannelsCid()
-				inputChannelMapLock.Lock()
 				inputsChannelMap[cid] = channelsCid
-				inputChannelMapLock.Unlock()
 				ignoreCtx := NewCtxIgnoreClient()
 				ignoreCtxs[cid] = ignoreCtx
 				wg.Add(1)
 				go handleClient(cid, channelsCid, config, &wg, ctx, queriesPhaseIncluded, removeVerification, ignoreCtx.ctx)
 			}
+			inputChannelMapLock.Unlock()
 			switch envelope.Type() {
 			case middleware.EOF:
 				panic("EOF arrived in coordinator")
@@ -156,8 +156,8 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, false)
-	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, false)
+	// wg.Add(1)
+	// go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, false)
 
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, false)
@@ -178,6 +178,7 @@ func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*Channels
 		log.Errorf("Failed to recover from logs: %v", err)
 		return
 	}
+	log.Infof("Recovered %d transaction logs", len(transactionLogs))
 
 	for _, transactionLog := range transactionLogs {
 		cid := transactionLog.Cid()
@@ -188,10 +189,13 @@ func recoverFromLogs(c *ConfigCoordinator, inputsChannelMap map[uint64]*Channels
 		ignoreCtx := NewCtxIgnoreClient()
 		ignoreCtxs[cid] = ignoreCtx
 		wg.Add(1)
-		if transactionLog.IsQueryPhase() {
-			go handleClientRecoverQueryPhase(transactionLog, channelsCid, c, wg, ctx, removeVerification, ignoreCtx.ctx)
-		} else {
+		switch transactionLog.Phase() {
+		case transaction_log.HandleClientPhase_RecInput:
 			go handleClientRecover(transactionLog, channelsCid, c, wg, ctx, queriesPhaseIncluded, removeVerification, ignoreCtx.ctx)
+		case transaction_log.HandleClientPhase_RecQuery:
+			go handleClientRecoverQueryPhase(transactionLog, channelsCid, c, wg, ctx, removeVerification, ignoreCtx.ctx)
+		case transaction_log.HandleClientPhase_Finished:
+			log.Infof("Client %d already finished, skipping recovery", cid)
 		}
 	}
 	log.Infof("Recovery from logs completed")
@@ -217,9 +221,9 @@ func nextQueue(ctx context.Context, queue middleware.Receiver[*model.Row], chann
 		cid := envelope.Cid()
 		channelsCid, exists := inputsChannelMap[cid]
 		if !exists {
-			log.Errorf("Channel not found: %v", cid)
-			continue
+			panic(fmt.Sprintf("Channel not found: %v", cid))
 		}
+
 		finished := false
 		switch envelope.Type() {
 		case middleware.EOF:
@@ -301,11 +305,17 @@ OuterLoop:
 				}
 
 			case common.AllFilesSent:
+				err = tlog.UpdatePhase(transaction_log.HandleClientPhase_RecQuery)
+				if err != nil {
+					log.Errorf("Failed to update transaction phase for cid %d: %v", cid, err)
+					return
+				}
 				err := msgEnvelope.Ack(false)
 				if err != nil {
 					log.Errorf("Failed to ack envelope: %v", err)
 				}
 				log.Infof("Received ALL FILES SENT")
+				tlog.RemoveLog()
 				break OuterLoop
 
 			case common.IgnoreClient:
@@ -343,15 +353,15 @@ OuterLoop:
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
-		err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
-		if err != nil {
-			if err.Error() == "context cancelled" {
-				log.Infof("Context cancelled, exiting handleClient")
-				return
-			}
-			log.Errorf("Error verifying Q2: %v", err)
-			return
-		}
+		// err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
+		// if err != nil {
+		// 	if err.Error() == "context cancelled" {
+		// 		log.Infof("Context cancelled, exiting handleClient")
+		// 		return
+		// 	}
+		// 	log.Errorf("Error verifying Q2: %v", err)
+		// 	return
+		// }
 		err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
 			if err.Error() == "context cancelled" {
@@ -371,7 +381,11 @@ OuterLoop:
 			return
 		}
 	}
-
+	err = tlog.UpdatePhase(transaction_log.HandleClientPhase_Finished)
+	if err != nil {
+		log.Errorf("Failed to update transaction log phase for cid %d: %v", cid, err)
+		return
+	}
 	tlog.RemoveAll()
 
 	log.Infof("finish all querys verified")
@@ -380,7 +394,7 @@ OuterLoop:
 func handleClientRecover(transactionLog transaction_log.TransactionLog, channelsCid *ChannelsCid, c *ConfigCoordinator, wg *sync.WaitGroup, ctx context.Context, queriesPhaseIncluded bool, removeVerification bool, ignoreCtx context.Context) {
 	defer wg.Done()
 	log := logger.NewConsoleLogger("coordinator", logger.Info)
-	cid, fileName, counter, read, lastReadNotIncluded, lastIdACK, err := transactionLog.Recover()
+	cid, fileName, counter, read, lastReadNotIncluded, lastIdACK, skipReceivingExactFile, err := transactionLog.Recover()
 	if err != nil {
 		log.Errorf("Failed to recover from logs: %v", err)
 		return
@@ -398,15 +412,17 @@ func handleClientRecover(transactionLog transaction_log.TransactionLog, channels
 		return
 	}
 
-	shouldReturn, shouldBreak := receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
-		ratingsSender, cid, counter, lastReadNotIncluded, lastIdACK, read, testSender, tlog, nil)
+	shouldBreak := false
+	if !skipReceivingExactFile {
+		var shouldReturn bool
+		shouldReturn, shouldBreak = receiveAndSendFileRecords(ctx, fileName, c, log, moviesMetadataSender, creditsSender, channelsCid,
+			ratingsSender, cid, counter, lastReadNotIncluded, lastIdACK, read, testSender, tlog, nil)
 
-	if shouldReturn {
-		return
+		if shouldReturn {
+			return
+		}
 	}
-
 	hasProcessedData := false
-
 OuterLoop:
 	for {
 		if shouldBreak {
@@ -446,7 +462,11 @@ OuterLoop:
 				}
 
 			case common.AllFilesSent:
-				hasProcessedData = true
+				err = tlog.UpdatePhase(transaction_log.HandleClientPhase_RecQuery)
+				if err != nil {
+					log.Errorf("Failed to update transaction phase for cid %d: %v", cid, err)
+					return
+				}
 				err := msgEnvelope.Ack(false)
 				if err != nil {
 					log.Errorf("Failed to ack envelope: %v", err)
@@ -472,6 +492,7 @@ OuterLoop:
 
 			case common.FinishFile:
 				hasProcessedData = true
+				tlog.CleanLog()
 				err := msgEnvelope.Ack(false)
 				if err != nil {
 					log.Errorf("Failed to ack envelope: %v", err)
@@ -501,15 +522,15 @@ OuterLoop:
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
-		err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
-		if err != nil {
-			if err.Error() == "context cancelled" {
-				log.Infof("Context cancelled, exiting handleClient")
-				return
-			}
-			log.Errorf("Error verifying Q2: %v", err)
-			return
-		}
+		// err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
+		// if err != nil {
+		// 	if err.Error() == "context cancelled" {
+		// 		log.Infof("Context cancelled, exiting handleClient")
+		// 		return
+		// 	}
+		// 	log.Errorf("Error verifying Q2: %v", err)
+		// 	return
+		// }
 		err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
 			if err.Error() == "context cancelled" {
@@ -530,6 +551,7 @@ OuterLoop:
 		}
 	}
 
+	transactionLog.UpdatePhase(transaction_log.HandleClientPhase_Finished)
 	tlog.RemoveAll()
 
 	log.Infof("finish all querys verified")
@@ -581,19 +603,19 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 		}
 		queriesRows = []transaction_log.RowWithID{}
 	}
-	log.Infof("queryNumber4: %d", queryNumber)
-	if queryNumber < 4 {
-		err := verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
-		if err != nil {
-			if err.Error() == "context cancelled" {
-				log.Infof("Context cancelled, exiting handleClient")
-				return
-			}
-			log.Errorf("Error verifying Q2: %v", err)
-			return
-		}
-		queriesRows = []transaction_log.RowWithID{}
-	}
+	// log.Infof("queryNumber4: %d", queryNumber)
+	// if queryNumber < 4 {
+	// 	err := verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
+	// 	if err != nil {
+	// 		if err.Error() == "context cancelled" {
+	// 			log.Infof("Context cancelled, exiting handleClient")
+	// 			return
+	// 		}
+	// 		log.Errorf("Error verifying Q2: %v", err)
+	// 		return
+	// 	}
+	// 	queriesRows = []transaction_log.RowWithID{}
+	// }
 	if queryNumber < 5 {
 		err := verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
@@ -618,6 +640,7 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 		}
 	}
 
+	transactionLog.UpdatePhase(transaction_log.HandleClientPhase_Finished)
 	transactionLog.RemoveAll()
 
 }
@@ -666,18 +689,18 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 
 	if len(read) == expectedLen && lastIdSent > 0 {
 		hasFinished = false
-		log.Infof("TO SEND READ: %v", read)
+		// log.Infof("TO SEND READ: %v", read)
 		if fileName != c.RatingsName {
 			row := create(read)
 			sender.Send(row, cid, lastIdSent)
-			lastIdSent++
+			// lastIdSent++
 		} else {
 			rating, routingKey, err := createRating(read)
 			if err != nil {
 				log.Errorf("Error creating rating from read %v: %v", read, err)
 			} else {
 				ratingsSender.SendRK(rating, cid, lastIdSent, routingKey)
-				lastIdSent++
+				// lastIdSent++
 			}
 		}
 	}
@@ -704,12 +727,25 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 	}
 	for {
 		lastIdSent++
-		//imprimo lastReadNotIncluded y lastReadInsideReader
-		// if lastIdSent == 33990 && fileName == c.CreditsName {
-		// 	log.Infof("lastReadNotIncluded: %v", string(connReader.lastReadNotIncluded))
-		// 	log.Infof("lastReadInsideReader: %v", string(connReader.lastReadInsideReader.Peek()))
-		// 	panic("stop") //todo
+		// comentar desde aca
+		// lastIdsSentMoviesMetadata := []uint64{4697, 7972, 17762, 39395, 44923, 44953, 45427, 45447, 44428, 44251, 44284, 44680, 5472, 5187, 10640, 12207, 27019, 10740, 36031, 21753, 21102, 16927} //id uno desp de que se ejecuara para volver a enviarlo en read
+		// if slices.Contains(lastIdsSentMoviesMetadata, lastIdSent) && fileName == c.MoviesMetadataName && len(read) == 0 {
+		// 	log.Infof("lastIdSent: %d", lastIdSent)
+		// 	panic("stop")
 		// }
+		// lastIdsSentCredits := []uint64{5472, 5187, 10640, 12207, 27032, 10740, 36042, 21752} //id uno desp de que se ejecuara para volver a enviarlo en read
+		lastIdsSentCredits := []uint64{11569}
+		if slices.Contains(lastIdsSentCredits, lastIdSent) && fileName == c.CreditsName && len(read) == 0 {
+			log.Infof("lastIdSent: %d", lastIdSent)
+			panic("stop")
+		}
+		// lastIdsSentRatings := []uint64{5393, 53215, 64144, 112482, 132119, 79678, 179803} //id uno desp de que se ejecuara para volver a enviarlo en read
+		// if slices.Contains(lastIdsSentRatings, lastIdSent) && fileName == c.RatingsName && len(read) == 0 {
+		// 	log.Infof("lastIdSent: %d", lastIdSent)
+		// 	panic("stop")
+		// }
+		read = []string{}
+		// comentar hasta aca
 		if lastIdSent%uint64(amount) == 0 {
 			log.Infof("Processed %d lines from %s", lastIdSent, fileName)
 		}
@@ -733,7 +769,7 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 						log.Errorf("Error sending EOF for ratings: %v", err)
 					}
 				}
-				tlog.RemoveLog()
+				tlog.CleanLog()
 				err2 := connReader.ackAllEnvelopes()
 				if err2 != nil {
 					log.Errorf("Failed to ack envelopes: %v", err2)
@@ -756,10 +792,22 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 				break
 			}
 			bytesReadTotal = update(reader, bytesReadTotal, connReader, tlog, fileName, lastIdSent, []string{}, log)
-			log.Errorf("Error reading CSV line: %v", err)
+			log.Errorf("Error reading CSV line ON LAST_ID_SENT: %d, ERROR: %v", lastIdSent, err)
 			// panic("stop") //todo
 			continue
 		}
+
+		//comentar desde aca
+		// if fileName == c.MoviesMetadataName && len(read) == 0 && (data[5] == "6636" || data[5] == "48596") {
+		// 	log.Infof("MOVIE ID MOVIES METADATA %s with lastIdSent: %d", data[5], lastIdSent)
+		// 	panic("stop") //todo
+		// }
+		// if fileName == c.RatingsName && len(read) == 0 && (data[1] == "6636" || data[1] == "48596") {
+		// 	log.Infof("MOVIE ID RATINGS %s with lastIdSent: %d", data[1], lastIdSent)
+		// 	panic("stop") //todo
+		// }
+		// read = []string{}
+		//comentar hasta aca
 
 		bytesReadTotal = update(reader, bytesReadTotal, connReader, tlog, fileName, lastIdSent, data, log)
 		if len(data) < expectedLen {
@@ -785,19 +833,29 @@ func receiveAndSendFileRecords(ctx context.Context, fileName string, c *ConfigCo
 }
 
 func update(reader *csv.Reader, bytesReadTotal int, connReader *ConnReader, tlog transaction_log.TransactionLog, fileName string, lastIdSent uint64, data []string, log *logger.ConsoleLogger) int {
-	// log.Infof("fileName: %s", fileName)
-	// log.Infof("data: %v", data)
-	// log.Infof("LastIdSent: %d", lastIdSent)
+	// if lastIdSent == 0 {
+	// 	log.Infof("fileName: %s", fileName)
+	// 	log.Infof("data: %v", data)
+	// 	log.Infof("LastIdSent: %d", lastIdSent)
+	// }
 	bytesRead := int(reader.InputOffset()) - bytesReadTotal
-	// log.Infof("bytesRead: %d", bytesRead)
+	// if lastIdSent == 0 {
+	// 	log.Infof("bytesRead: %d", bytesRead)
+	// }
 	bytesReadTotal = int(reader.InputOffset())
 	lastIdACK := connReader.LastIdAck()
-	// log.Infof("lastIdACK: %d", lastIdACK)
+	// if lastIdSent == 0 {
+	// 	log.Infof("lastIdACK: %d", lastIdACK)
+	// }
 	connReader.lastReadInsideReader.Consume(bytesRead)
 	lastReadNotIncluded := connReader.lastReadInsideReader.Peek()
-	// log.Infof("lastReadNotIncluded!!!!: %v", string(connReader.lastReadNotIncluded))
+	// if lastIdSent == 0 {
+	// 	log.Infof("lastReadNotIncluded!!!!: %v", string(connReader.lastReadNotIncluded))
+	// }
 	lastReadNotIncluded = append(lastReadNotIncluded, connReader.lastReadNotIncluded...)
-	// log.Infof("lastReadNotIncluded: %v", string(lastReadNotIncluded))
+	// if lastIdSent == 0 {
+	// 	log.Infof("lastReadNotIncluded!!!!: %v", string(lastReadNotIncluded))
+	// }
 	tlog.Update(fileName, uint64(lastIdSent), data, lastReadNotIncluded, lastIdACK)
 	err2 := connReader.ackAllEnvelopes()
 	if err2 != nil {
@@ -1187,8 +1245,11 @@ OuterLoop:
 			receivedRow := envelope.Msg()
 			idReceived := envelope.Id()
 			idSender := envelope.SenderId()
-			if idReceived <= lastIdReceived[idSender] {
+			last, ok := lastIdReceived[idSender]
+			if ok && idReceived <= last {
 				log.Infof("Received duplicate row id: %d", idReceived)
+				err = envelope.Ack(false)
+				unwrap(err, "Failed to ack message", log)
 				continue
 			}
 			lastIdReceived[idSender] = idReceived

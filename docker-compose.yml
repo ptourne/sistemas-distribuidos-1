@@ -952,6 +952,40 @@ services:
         volumes:
             - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
 
+    client1:
+        container_name: client1
+        build:
+            context: .
+            dockerfile: client/Dockerfile
+        entrypoint: /client
+        environment:
+            - SERVER_PORT=endpoint:9876
+            - NAME=client1
+            - MONITOR_ADDRESSES=monitor0:9000
+        networks:
+            - local_net
+        depends_on:
+            - endpoint
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+
+    client2:
+        container_name: client2
+        build:
+            context: .
+            dockerfile: client/Dockerfile
+        entrypoint: /client
+        environment:
+            - SERVER_PORT=endpoint:9876
+            - NAME=client2
+            - MONITOR_ADDRESSES=monitor0:9000
+        networks:
+            - local_net
+        depends_on:
+            - endpoint
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+
     monitor0:
         container_name: monitor0
         build:

@@ -87,7 +87,44 @@ func TestTransactionLog(t *testing.T) {
 		assert.Len(t, logs, 1)
 
 		recoveredLog := logs[0]
-		cidR, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, err := recoveredLog.Recover()
+		cidR, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, _, err := recoveredLog.Recover()
+		assert.NoError(t, err)
+		assert.Equal(t, cid, cidR)
+		assert.Equal(t, fileName, filenameR)
+		assert.Equal(t, counter, counterR)
+		assert.Equal(t, read, readR)
+		assert.Equal(t, lastReadNotIncluided, lastReadNotIncluidedR)
+		assert.Equal(t, lastIdACK, lastIdACKR)
+	})
+
+	t.Run("TestRecoverFromLogsEmptyRead", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cid := uint64(77)
+		tlog, err := NewTransactionLogForCid(tmpDir, cid, 10)
+		assert.NoError(t, err)
+
+		// Guardar log
+		fileName := "recoverfile"
+		counter := uint64(5)
+		read := []string{}
+		lastReadNotIncluided := []byte{5, 6}
+		lastIdACK := uint64(7)
+
+		err = tlog.Update(fileName, counter, read, lastReadNotIncluided, lastIdACK)
+		assert.NoError(t, err)
+
+		//cierro el archivo
+		err = tlog.CloseLog()
+		assert.NoError(t, err)
+
+		// Test RecoverFromLogs
+		logs, err := RecoverFromLogs(tmpDir, 10)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, logs)
+		assert.Len(t, logs, 1)
+
+		recoveredLog := logs[0]
+		cidR, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, _, err := recoveredLog.Recover()
 		assert.NoError(t, err)
 		assert.Equal(t, cid, cidR)
 		assert.Equal(t, fileName, filenameR)
@@ -743,7 +780,7 @@ func TestTransactionLogCheckpoint(t *testing.T) {
 		assert.Len(t, recoveredLogs, 1)
 
 		recoveredLog := recoveredLogs[0]
-		cidR, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, err := recoveredLog.Recover()
+		cidR, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, _, err := recoveredLog.Recover()
 		assert.NoError(t, err)
 		assert.Equal(t, cid, cidR)
 		assert.Equal(t, "file3.txt", filenameR) // Solo la última entrada
@@ -766,7 +803,7 @@ func TestTransactionLogCheckpoint(t *testing.T) {
 		assert.Len(t, recoveredLogs2, 1)
 
 		recoveredLog2 := recoveredLogs2[0]
-		_, filenameR2, counterR2, readR2, lastReadNotIncluidedR2, lastIdACKR2, err := recoveredLog2.Recover()
+		_, filenameR2, counterR2, readR2, lastReadNotIncluidedR2, lastIdACKR2, _, err := recoveredLog2.Recover()
 		assert.NoError(t, err)
 		assert.Equal(t, "file5.txt", filenameR2)
 		assert.Equal(t, uint64(5), counterR2)
@@ -784,7 +821,7 @@ func TestTransactionLogCheckpoint(t *testing.T) {
 		assert.Len(t, recoveredLogs3, 1)
 
 		recoveredLog3 := recoveredLogs3[0]
-		_, filenameR3, counterR3, readR3, lastReadNotIncluidedR3, lastIdACKR3, err := recoveredLog3.Recover()
+		_, filenameR3, counterR3, readR3, lastReadNotIncluidedR3, lastIdACKR3, _, err := recoveredLog3.Recover()
 		assert.NoError(t, err)
 		assert.Equal(t, "file6.txt", filenameR3) // Solo la última entrada del segundo checkpoint
 		assert.Equal(t, uint64(6), counterR3)
@@ -812,7 +849,7 @@ func TestTransactionLogCheckpoint(t *testing.T) {
 		assert.Len(t, recoveredLogs, 1)
 
 		recoveredLog := recoveredLogs[0]
-		_, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, err := recoveredLog.Recover()
+		_, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, _, err := recoveredLog.Recover()
 		assert.NoError(t, err)
 		assert.Equal(t, "single.txt", filenameR)
 		assert.Equal(t, uint64(1), counterR)
@@ -843,7 +880,7 @@ func TestTransactionLogCheckpoint(t *testing.T) {
 		assert.Len(t, recoveredLogs, 1)
 
 		recoveredLog := recoveredLogs[0]
-		_, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, err := recoveredLog.Recover()
+		_, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, _, err := recoveredLog.Recover()
 		assert.NoError(t, err)
 		assert.Equal(t, "file5.txt", filenameR) // Solo la última entrada válida
 		assert.Equal(t, uint64(5), counterR)
@@ -893,7 +930,7 @@ func TestTransactionLogCheckpoint(t *testing.T) {
 		assert.Len(t, recoveredLogs, 1)
 
 		recoveredLog := recoveredLogs[0]
-		_, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, err := recoveredLog.Recover()
+		_, filenameR, counterR, readR, lastReadNotIncluidedR, lastIdACKR, _, err := recoveredLog.Recover()
 		assert.NoError(t, err)
 		assert.Equal(t, "small_file.txt", filenameR) // Solo la última entrada
 		assert.Equal(t, uint64(2), counterR)
