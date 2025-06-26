@@ -2,14 +2,12 @@ package nlp
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	pb "github.com/ptourne/sistemas-distribuidos-1/nlp/proto"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -101,40 +99,25 @@ func (m *SentimentAndRateMap) reconnect() error {
 	for i := range total {
 		index := (start + i) % total
 		addr := m.addrs[index]
+		log.Debugf("Attempting to reconnect to gRPC server at addr %s", addr)
 		conn, err = grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
+			log.Errorf("Error creating new client %s", addr)
 			continue
 		}
-		err = waitConnect(conn, addr)
+		client := pb.NewSentimentAnalyzerClient(conn)
+		_, err = client.Analyze(context.Background(), &pb.SentimentRequest{Text: "ping"})
 		if err != nil {
-			log.Errorf("Failed to connect to gRPC server at %s: %v", addr, err)
-			conn.Close()
+			log.Errorf("Failed to ping gRPC server at %s: %v", addr, err)
 			continue
 		}
+
 		m.conn = conn
-		m.client = pb.NewSentimentAnalyzerClient(conn)
+		m.client = client
 		m.currentIndex = index
 		log.Infof("Reconnected to gRPC server at %s", addr)
 		break
 	}
 	return err
 
-}
-
-func waitConnect(conn *grpc.ClientConn, addr string) error {
-	conn.Connect()
-	for {
-		switch conn.GetState() {
-		case connectivity.Ready: // Ready indicates the ClientConn is ready for work.
-			return nil
-		case connectivity.Shutdown: // Shutdown indicates the ClientConn has started shutting down.
-			return fmt.Errorf("ClientConn to %s is shutting down", addr)
-		case connectivity.TransientFailure: // TransientFailure indicates the ClientConn has seen a failure but expects to recover.
-			return fmt.Errorf("ClientConn to %s is in transient failure", addr)
-		default: // Idle indicates the ClientConn is idle. // Connecting indicates the ClientConn is connecting.
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
-		conn.WaitForStateChange(ctx, conn.GetState())
-		cancel()
-	}
 }
