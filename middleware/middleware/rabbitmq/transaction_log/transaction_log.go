@@ -113,6 +113,11 @@ func newTransactionLogFromFirstLog(dirPath string, parent A) (TransactionLog, er
 		return nil, fmt.Errorf("failed to dump checkpoint: %w", err)
 	}
 
+	tlog.logWriter, err = os.Create(path.Join(tlog.logDirectory, "1"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transaction log file: %v", err)
+	}
+
 	return tlog, nil
 }
 
@@ -138,6 +143,11 @@ func newTransactionLogFromLastLogAndCheckpoint(dirPath string, lastLogFileN int,
 	err = tlog.Dump(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dump checkpoint: %w", err)
+	}
+
+	tlog.logWriter, err = os.Create(path.Join(tlog.logDirectory, fmt.Sprintf("%d", lastLogFileN+1)))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transaction log file: %v", err)
 	}
 
 	return tlog, nil
@@ -168,15 +178,15 @@ func newTransactionLogFromCheckpoint(dirPath string, lastLogFileN int, parent A)
 	}
 
 	logDirectory := LogDirectory(dirPath)
-	logFile, err := os.Create(path.Join(logDirectory, fmt.Sprintf("%d", lastLogFileN+1)))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create transaction log file: %v", err)
-	}
+	// logFile, err := os.Create(path.Join(logDirectory, fmt.Sprintf("%d", lastLogFileN+1)))
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to create transaction log file: %v", err)
+	// }
 	return &transactionLog{
 		checkpointDirectory: checkpointDirectory,
 		logDirectory:        logDirectory,
 		idx:                 uint64(lastLogFileN),
-		logWriter:           logFile,
+		logWriter:           nil,
 		openedTransaction:   nil,
 	}, nil
 }
