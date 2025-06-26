@@ -26,6 +26,7 @@ import (
 
 const TEST = false  // para que el coordinador paniquée en moviesIds importantes para las queries
 const TEST2 = false // Ver que lastidsend pertence a un movie id
+const QUERY3 = true // si se quiere ejecutar la query 3
 
 const CHECKPOINT_INTERVAL = uint64(1000)
 
@@ -356,7 +357,18 @@ OuterLoop:
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
-		err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
+		if QUERY3 {
+			err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
+			if err != nil {
+				if err.Error() == "context cancelled" {
+					log.Infof("Context cancelled, exiting handleClient")
+					return
+				}
+				log.Errorf("Error verifying Q2: %v", err)
+				return
+			}
+		}
+		err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
 			if err.Error() == "context cancelled" {
 				log.Infof("Context cancelled, exiting handleClient")
@@ -365,15 +377,6 @@ OuterLoop:
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
-		// err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
-		// if err != nil {
-		// 	if err.Error() == "context cancelled" {
-		// 		log.Infof("Context cancelled, exiting handleClient")
-		// 		return
-		// 	}
-		// 	log.Errorf("Error verifying Q2: %v", err)
-		// 	return
-		// }
 		err = verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
 			if err.Error() == "context cancelled" {
@@ -525,7 +528,18 @@ OuterLoop:
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
-		err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
+		if QUERY3 {
+			err = verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
+			if err != nil {
+				if err.Error() == "context cancelled" {
+					log.Infof("Context cancelled, exiting handleClient")
+					return
+				}
+				log.Errorf("Error verifying Q2: %v", err)
+				return
+			}
+		}
+		err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
 			if err.Error() == "context cancelled" {
 				log.Infof("Context cancelled, exiting handleClient")
@@ -534,15 +548,6 @@ OuterLoop:
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
-		// err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
-		// if err != nil {
-		// 	if err.Error() == "context cancelled" {
-		// 		log.Infof("Context cancelled, exiting handleClient")
-		// 		return
-		// 	}
-		// 	log.Errorf("Error verifying Q2: %v", err)
-		// 	return
-		// }
 		err = verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
 			if err.Error() == "context cancelled" {
@@ -606,18 +611,20 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 		}
 		queriesRows = []transaction_log.RowWithID{}
 	}
-	// if queryNumber < 4 {
-	// 	err := verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
-	// 	if err != nil {
-	// 		if err.Error() == "context cancelled" {
-	// 			log.Infof("Context cancelled, exiting handleClient")
-	// 			return
-	// 		}
-	// 		log.Errorf("Error verifying Q2: %v", err)
-	// 		return
-	// 	}
-	// 	queriesRows = []transaction_log.RowWithID{}
-	// }
+	if QUERY3 {
+		if queryNumber < 4 {
+			err := verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
+			if err != nil {
+				if err.Error() == "context cancelled" {
+					log.Infof("Context cancelled, exiting handleClient")
+					return
+				}
+				log.Errorf("Error verifying Q2: %v", err)
+				return
+			}
+			queriesRows = []transaction_log.RowWithID{}
+		}
+	}
 	if queryNumber < 5 {
 		err := verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
