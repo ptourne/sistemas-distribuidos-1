@@ -23,15 +23,15 @@ import (
 const HEADER_SIZE = 1
 const MaxUDPMessageSize = 1024
 const CHECK_INTERVAL = 250 * time.Millisecond             // ToDo: ajustar
-const TIMEOUT = 1 * time.Second                           // ToDo: ajustar
+const TIMEOUT = 500 * time.Millisecond                    // ToDo: ajustar
 const SENTIMENT_SERVER_STARTING_TIMEOUT = 1 * time.Minute // ToDo: ajustar
 const STARTING_TIMEOUT = 10 * time.Second                 // ToDo: ajustar
-const SPECIAL_TIMEOUT = 5 * time.Second
+const SPECIAL_TIMEOUT = 2 * time.Second
 const END_ELECTION_TIMEOUT = 300 * time.Millisecond // ToDo: ajustar
 const ELECTION_TIMEOUT = 100 * time.Millisecond     // ToDo: ajustar
 const HEARTBEAT_INTERVAL = 30 * time.Millisecond    // ToDo: ajustar
 const READ_TIMEOUT = 100 * time.Millisecond         // ToDo: ajustar
-const CONNECT_SLEEP = 200 * time.Millisecond        // ToDo: ajustar
+const CONNECT_SLEEP = 50 * time.Millisecond         // ToDo: ajustar
 const RESTART_ENDPOINT = false
 
 type WorkerType int
@@ -373,7 +373,9 @@ func (m *Monitor) checkServices(cli *client.Client, ctx context.Context) {
 
 func (m *Monitor) shouldRestart(isLeader bool, status ServiceStatus, id string) bool {
 	if strings.Contains(id, "endpoint") {
-		return RESTART_ENDPOINT
+		if !RESTART_ENDPOINT {
+			return false
+		}
 	}
 	isDown := m.isPeerDown(id)
 	now := time.Now()

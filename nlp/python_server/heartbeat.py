@@ -6,7 +6,7 @@ import os
 import signal
 import sys
 
-HEARTBEAT_INTERVAL = 0.3  # seconds 
+HEARTBEAT_INTERVAL = 0.1  # seconds 
 
 def get_udp_addrs(addr_list):
     addrs = []
