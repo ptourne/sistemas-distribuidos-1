@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -252,7 +251,7 @@ func (m *middlewareRabbitmq[T]) createReadQueueRK(readExchangeName string, queue
 
 	m.Log.Debugf("Creating close exchange '%s'", closeExchangeName(readExchangeName, queueName))
 
-	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), "", "fanout", "", 100)
+	closeReceiver, err := createConsumerRK[T, *CloseNotification](m, closeExchangeName(readExchangeName, queueName), routingKey, "fanout", "", 100)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +301,8 @@ func CreateProducerRK[T codec.Serializable[T], I codec.Serializable[I]](m *middl
 	if err = ch.Confirm(false); err != nil {
 		return SenderChannel[I]{}, fmt.Errorf("failed to enable publisher confirms: %v", err)
 	}
-	isCloseExchange := strings.Contains(readExchangeName, "close")
+
+	isCloseExchange := /*strings.Contains(readExchangeName, "close")*/ false
 	durable := !isCloseExchange
 	autoDeleted := isCloseExchange
 
@@ -670,7 +670,7 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 
 	}
 	if t == prune {
-		r.Log.Debugf("IGNORINGGG prune msg in %s", r.input.queueName)
+		r.Log.Debugf("prune msg in %s", r.input.queueName)
 		if tag != nil {
 			err = tag.Ack(false)
 			if err != nil {
@@ -678,7 +678,6 @@ func (r *receiverRabbitmq[T]) handleFinishNotification(ok bool, msg amqp.Deliver
 				return false, true, nil, fmt.Errorf("failed to ack prune message: %v", err)
 			}
 		}
-		r.Log.Debugf("IGNORINGGG DONE")
 		return true, false, nil, nil
 	}
 
@@ -845,7 +844,10 @@ func (m *middlewareRabbitmq[T]) createQueueRK(exchangeName string, groupName str
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to open a channel: %v", err)
 	}
-	isCloseQueue := groupName == ""
+	if groupName == "" {
+		panic("groupName cannot be empty")
+	}
+	isCloseQueue := /*groupName == ""*/ false
 	durable := !isCloseQueue
 	autoDeleted := isCloseQueue
 	exclusive := isCloseQueue

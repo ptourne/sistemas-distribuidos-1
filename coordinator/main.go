@@ -159,8 +159,8 @@ func runCoordinator(ctx context.Context, log *logger.ConsoleLogger, connector *r
 	go nextQueue(ctx, config.ReceiverQ1, config.Q1Output, log, inputsChannelMap, GetQ1, &inputChannelMapLock, &wg, false)
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ2, config.Q2Output, log, inputsChannelMap, GetQ2, &inputChannelMapLock, &wg, false)
-	wg.Add(1)
-	go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, false)
+	// wg.Add(1)
+	// go nextQueue(ctx, config.ReceiverQ3, config.Q3Output, log, inputsChannelMap, GetQ3, &inputChannelMapLock, &wg, false)
 
 	wg.Add(1)
 	go nextQueue(ctx, config.ReceiverQ4, config.Q4Output, log, inputsChannelMap, GetQ4, &inputChannelMapLock, &wg, false)
@@ -365,15 +365,15 @@ OuterLoop:
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
-		err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
-		if err != nil {
-			if err.Error() == "context cancelled" {
-				log.Infof("Context cancelled, exiting handleClient")
-				return
-			}
-			log.Errorf("Error verifying Q2: %v", err)
-			return
-		}
+		// err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
+		// if err != nil {
+		// 	if err.Error() == "context cancelled" {
+		// 		log.Infof("Context cancelled, exiting handleClient")
+		// 		return
+		// 	}
+		// 	log.Errorf("Error verifying Q2: %v", err)
+		// 	return
+		// }
 		err = verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5, tlog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
 			if err.Error() == "context cancelled" {
@@ -534,15 +534,15 @@ OuterLoop:
 			log.Errorf("Error verifying Q2: %v", err)
 			return
 		}
-		err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
-		if err != nil {
-			if err.Error() == "context cancelled" {
-				log.Infof("Context cancelled, exiting handleClient")
-				return
-			}
-			log.Errorf("Error verifying Q2: %v", err)
-			return
-		}
+		// err = verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
+		// if err != nil {
+		// 	if err.Error() == "context cancelled" {
+		// 		log.Infof("Context cancelled, exiting handleClient")
+		// 		return
+		// 	}
+		// 	log.Errorf("Error verifying Q2: %v", err)
+		// 	return
+		// }
 		err = verifyingQ5(log, allQuerysToEndpointSender, cid, channelsCid.q5, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
 			if err.Error() == "context cancelled" {
@@ -606,18 +606,18 @@ func handleClientRecoverQueryPhase(transactionLog transaction_log.TransactionLog
 		}
 		queriesRows = []transaction_log.RowWithID{}
 	}
-	if queryNumber < 4 {
-		err := verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
-		if err != nil {
-			if err.Error() == "context cancelled" {
-				log.Infof("Context cancelled, exiting handleClient")
-				return
-			}
-			log.Errorf("Error verifying Q2: %v", err)
-			return
-		}
-		queriesRows = []transaction_log.RowWithID{}
-	}
+	// if queryNumber < 4 {
+	// 	err := verifyingQ3(log, allQuerysToEndpointSender, cid, channelsCid.q3, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
+	// 	if err != nil {
+	// 		if err.Error() == "context cancelled" {
+	// 			log.Infof("Context cancelled, exiting handleClient")
+	// 			return
+	// 		}
+	// 		log.Errorf("Error verifying Q2: %v", err)
+	// 		return
+	// 	}
+	// 	queriesRows = []transaction_log.RowWithID{}
+	// }
 	if queryNumber < 5 {
 		err := verifyingQ4(log, allQuerysToEndpointSender, cid, channelsCid.q4, transactionLog, queriesRows, ctx, removeVerification, ignoreCtx)
 		if err != nil {
