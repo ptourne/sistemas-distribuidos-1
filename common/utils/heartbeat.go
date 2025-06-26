@@ -11,10 +11,10 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 )
 
-const HEATBEAT_INTERVAL = 500 * time.Millisecond // ToDo: ajustar
+const HEATBEAT_INTERVAL = 100 * time.Millisecond // ToDo: ajustar
 const HEADER_SIZE = 1
 const UDP_TIMEOUT = 1 * time.Second
-const READ_TIMEOUT = 1 * time.Second
+const READ_TIMEOUT = 100 * time.Millisecond
 
 func SendHeartbeat(id string, addrs string, log *logger.ConsoleLogger, ctx context.Context) {
 	sendHeartbeat(id, addrs, log, false, ctx)
@@ -59,6 +59,7 @@ func WriteToConn(addr string, packet []byte, conn net.Conn) error {
 	for totalSent < len(packet) {
 		sent, err := conn.Write(packet[totalSent:])
 		if err != nil {
+			conn.SetWriteDeadline(time.Time{})
 			return err
 		}
 		totalSent += sent

@@ -23,12 +23,13 @@ import (
 const HEADER_SIZE = 1
 const MaxUDPMessageSize = 1024
 const CHECK_INTERVAL = 3 * time.Second                    // ToDo: ajustar
-const TIMEOUT = 10 * time.Second                          // ToDo: ajustar
+const TIMEOUT = 3 * time.Second                           // ToDo: ajustar
 const SENTIMENT_SERVER_STARTING_TIMEOUT = 1 * time.Minute // ToDo: ajustar
 const STARTING_TIMEOUT = 20 * time.Second                 // ToDo: ajustar
-const ELECTION_TIMEOUT = 5 * time.Second                  // ToDo: ajustar
-const HEARTBEAT_INTERVAL = 500 * time.Millisecond         // ToDo: ajustar
-const READ_TIMEOUT = 1 * time.Second                      // ToDo: ajustar
+const SPECIAL_TIMEOUT = 10 * time.Second
+const ELECTION_TIMEOUT = 1 * time.Second          // ToDo: ajustar
+const HEARTBEAT_INTERVAL = 100 * time.Millisecond // ToDo: ajustar
+const READ_TIMEOUT = 1 * time.Second              // ToDo: ajustar
 
 type WorkerType int
 type Status int
@@ -37,6 +38,7 @@ const (
 	WORKER WorkerType = iota
 	CLIENT
 	MONITOR
+	SPECIAL
 	SENTIMENT_SERVER
 )
 
@@ -135,6 +137,9 @@ func getServicesData(log *logger.ConsoleLogger, id string) map[string]ServiceSta
 			if strings.Contains(service, id) {
 				continue // No incluir el monitor actual en la lista de servicios
 			}
+		}
+		if strings.Contains(service, "coordinator") || strings.Contains(service, "endpoint") {
+			serviceType = SPECIAL
 		}
 		monitorServices[service] = ServiceStatus{
 			LastSeen: time.Now(),
@@ -275,6 +280,9 @@ func (m *Monitor) listenHeartbeats(conn *net.UDPConn, ctx context.Context) {
 			id := parts[0]
 
 			serviceType := WORKER
+			if strings.Contains(id, "coordinator") || strings.Contains(id, "endpoint") {
+				serviceType = SPECIAL
+			}
 			if strings.Contains(id, "client") {
 				serviceType = CLIENT
 				m.MuServices.Lock()
@@ -350,15 +358,20 @@ func (m *Monitor) checkServices(cli *client.Client, ctx context.Context) {
 }
 
 func (m *Monitor) shouldRestart(isLeader bool, status ServiceStatus, id string) bool {
+	isDown := m.isPeerDown(id)
 	now := time.Now()
+	m.log.Infof("Checking if %s should be restarted: isLeader=%v, status=%d, type=%d, lastSeen=%s is PeerDown: %v", id, isLeader, status.Status, status.Type, status.LastSeen, isDown)
+	if status.Type == SPECIAL {
+		return isLeader && now.Sub(status.LastSeen) > SPECIAL_TIMEOUT
+	}
 	return isLeader &&
 		(status.Status == RUNNING ||
 			(status.Type == SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > SENTIMENT_SERVER_STARTING_TIMEOUT) ||
 			(status.Type != SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > STARTING_TIMEOUT) ||
-			(status.Type == MONITOR && m.isLeaderDown(id)))
+			(status.Type == MONITOR && isDown))
 }
 
-func (m *Monitor) isLeaderDown(name string) bool {
+func (m *Monitor) isPeerDown(name string) bool {
 	peer := strings.TrimPrefix(name, "monitor")
 	_, err := m.connectTo(m.Peers[peer])
 	return err != nil
@@ -424,7 +437,10 @@ func (m *Monitor) sendMsgToPeer(peer, msg string, electionMsg bool) {
 		m.log.Warnf("Could not connect to %s: %v", addr, err)
 		return
 	}
-	m.sendToPeer(peer, addr, packet, conn, electionMsg)
+	err = m.sendToPeer(peer, addr, packet, conn, electionMsg)
+	if err != nil {
+		go m.startElection()
+	}
 }
 
 func (m *Monitor) getElectionConnLock(peer string) *sync.Mutex {
@@ -713,6 +729,7 @@ func (m *Monitor) checkLeaderAlive(ctx context.Context) {
 			m.log.Infof("Stopping checkLeaderAlive")
 			return
 		case <-ticker.C:
+			m.log.Infof("Checking if leader is alive")
 			var leader string
 			var isLeader bool
 			m.MuLeader.Lock()
@@ -721,12 +738,13 @@ func (m *Monitor) checkLeaderAlive(ctx context.Context) {
 
 			m.MuLeader.Unlock()
 			if leader == "" {
-				//m.log.Infof("No leader elected yet. Starting election.")
+				m.log.Infof("No leader elected yet. Starting election.")
 				go m.startElection()
 				continue
 			}
 
 			if isLeader {
+				m.log.Infof("I am the leader (%s), no need to check myself", m.id)
 				continue
 			}
 
@@ -734,6 +752,7 @@ func (m *Monitor) checkLeaderAlive(ctx context.Context) {
 			status, ok := m.Services["monitor"+leader]
 			last_seen := time.Since(status.LastSeen)
 			m.MuServices.Unlock()
+			m.log.Infof("Leader %s last seen %s ago", leader, last_seen)
 			if !ok || last_seen > m.Timeout {
 				m.log.Warnf("Leader %s not responding.", leader)
 				go m.startElection()
