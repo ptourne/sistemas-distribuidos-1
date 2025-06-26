@@ -14,7 +14,7 @@ services:
             timeout: 10s
             retries: 10
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - /home/sofiagb/Documents/sd1/movies/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
     sentiment_server0:
         container_name: sentiment_server0
@@ -27,7 +27,7 @@ services:
             - GRPC_PORT=50050
             - GRPC_WORKERS=30
             - NAME=sentiment_server0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         healthcheck:
             test: ['CMD', 'sh', '-c', 'nc -z localhost 50050']
             interval: 10s
@@ -45,7 +45,7 @@ services:
             - GRPC_PORT=50051
             - GRPC_WORKERS=30
             - NAME=sentiment_server1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         healthcheck:
             test: ['CMD', 'sh', '-c', 'nc -z localhost 50051']
             interval: 10s
@@ -63,7 +63,7 @@ services:
             - GRPC_PORT=50052
             - GRPC_WORKERS=30
             - NAME=sentiment_server2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         healthcheck:
             test: ['CMD', 'sh', '-c', 'nc -z localhost 50052']
             interval: 10s
@@ -83,9 +83,9 @@ services:
             - N_RATINGS_CONSUMERS=10
             - PREFETCH=1 # Potential optimization
             - NAME=coordinator
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/coordinator:/coordinator-dir
+            - /home/sofiagb/Documents/sd1/movies/coordinator:/coordinator-dir
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -103,7 +103,7 @@ services:
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=worker0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
@@ -123,7 +123,7 @@ services:
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=worker1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
@@ -143,7 +143,7 @@ services:
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=worker2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
@@ -164,7 +164,7 @@ services:
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=nlp_worker0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
@@ -191,7 +191,7 @@ services:
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=nlp_worker1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
@@ -218,7 +218,7 @@ services:
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=nlp_worker2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
@@ -244,14 +244,14 @@ services:
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_credits0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
 
     joiner_credits1:
         container_name: joiner_credits1
@@ -266,14 +266,14 @@ services:
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_credits1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
 
     joiner_credits2:
         container_name: joiner_credits2
@@ -288,14 +288,14 @@ services:
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_credits2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
+            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
 
     joiner_rating0:
         container_name: joiner_rating0
@@ -310,14 +310,14 @@ services:
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_rating0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
 
     joiner_rating1:
         container_name: joiner_rating1
@@ -332,14 +332,14 @@ services:
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_rating1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
 
     joiner_rating2:
         container_name: joiner_rating2
@@ -354,14 +354,14 @@ services:
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_rating2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
 
     reduce_by_country_sum_budget0:
         container_name: reduce_by_country_sum_budget0
@@ -374,12 +374,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_country_sum_budget0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_country_sum_budget0:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_country_sum_budget0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -395,12 +395,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_country_sum_budget1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_country_sum_budget1:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_country_sum_budget1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -416,12 +416,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_country_sum_budget2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_country_sum_budget2:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_country_sum_budget2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -437,12 +437,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_5_by_budget0:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_5_by_budget0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -458,12 +458,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_5_by_budget1:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_5_by_budget1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -479,12 +479,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_5_by_budget2:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_5_by_budget2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -500,12 +500,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_bottom_avg_rating0:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_bottom_avg_rating0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -521,12 +521,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_bottom_avg_rating1:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_bottom_avg_rating1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -542,12 +542,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_bottom_avg_rating2:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_bottom_avg_rating2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -563,12 +563,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_sentiment0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_sentiment0:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_sentiment0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -584,12 +584,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_sentiment1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_sentiment1:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_sentiment1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -605,12 +605,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_sentiment2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_sentiment2:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_sentiment2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -626,12 +626,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_actor0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_actor0:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_actor0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -647,12 +647,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_actor1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_actor1:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_actor1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -668,12 +668,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_actor2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_actor2:/transaction_log
+            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_actor2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -689,7 +689,7 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -708,7 +708,7 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -727,7 +727,7 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -747,7 +747,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - PREFETCH=1
             - NAME=reduce_by_movieid0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -767,7 +767,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - PREFETCH=1
             - NAME=reduce_by_movieid1
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -787,7 +787,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - PREFETCH=1
             - NAME=reduce_by_movieid2
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -807,7 +807,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - PREFETCH=1
             - NAME=reduce_by_movieid3
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -827,7 +827,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - PREFETCH=1
             - NAME=reduce_by_movieid4
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -847,7 +847,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - PREFETCH=1
             - NAME=reduce_by_movieid5
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -867,7 +867,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - PREFETCH=1
             - NAME=reduce_by_movieid6
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -887,7 +887,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - PREFETCH=1
             - NAME=reduce_by_movieid7
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -907,7 +907,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - PREFETCH=1
             - NAME=reduce_by_movieid8
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -927,7 +927,7 @@ services:
             - WORKER_OUTPUT_COUNT=3
             - PREFETCH=1
             - NAME=reduce_by_movieid9
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -944,47 +944,13 @@ services:
         environment:
             - SERVER_PORT=endpoint:9876
             - NAME=client0
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
             - endpoint
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
-
-    client1:
-        container_name: client1
-        build:
-            context: .
-            dockerfile: client/Dockerfile
-        entrypoint: /client
-        environment:
-            - SERVER_PORT=endpoint:9876
-            - NAME=client1
-            - MONITOR_ADDRESSES=monitor0:9000
-        networks:
-            - local_net
-        depends_on:
-            - endpoint
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
-
-    client2:
-        container_name: client2
-        build:
-            context: .
-            dockerfile: client/Dockerfile
-        entrypoint: /client
-        environment:
-            - SERVER_PORT=endpoint:9876
-            - NAME=client2
-            - MONITOR_ADDRESSES=monitor0:9000
-        networks:
-            - local_net
-        depends_on:
-            - endpoint
-        volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+            - /home/sofiagb/Documents/sd1/movies/client/datasets:/datasets
 
     monitor0:
         container_name: monitor0
@@ -996,9 +962,30 @@ services:
             - local_net
         environment:
             - PORT=9000
-            - MONITOR_COUNT=1
+            - MONITOR_COUNT=2
             - MONITOR_ID=0
-            - PEERS=0:monitor0:9000
+            - PEERS=0:monitor0:9000,1:monitor1:9001
+            - SERVICES=
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+    
+    monitor1:
+        container_name: monitor1
+        build:
+            context: .
+            dockerfile: monitor/Dockerfile
+        entrypoint: /monitor
+        networks:
+            - local_net
+        environment:
+            - PORT=9001
+            - MONITOR_COUNT=2
+            - MONITOR_ID=1
+            - PEERS=0:monitor0:9000,1:monitor1:9001
+            - SERVICES=
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -1014,14 +1001,14 @@ services:
         environment:
             - ENDPOINT_PORT=9876
             - NAME=endpoint
-            - MONITOR_ADDRESSES=monitor0:9000
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/endpoint:/endpoint-dir-ids
+            - /home/sofiagb/Documents/sd1/movies/endpoint:/endpoint-dir-ids
 
 networks:
     local_net:

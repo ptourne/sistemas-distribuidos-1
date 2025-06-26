@@ -107,6 +107,7 @@ if ! [[ "$number_of_monitors" =~ ^[0-9]+$ ]] || [ "$number_of_monitors" -lt 1 ];
     exit 1
 fi
 
+NUMBER_OF_REDUCE_BY_MOVIEID=10
 MONITOR_PORT_BASE=9000
 SENTIMENT_SERVER_PORT_BASE=50050
 monitor_addresses=""
@@ -130,6 +131,66 @@ for i in $(seq 0 $((number_of_sentiment_servers-1))); do
         sentimen_server_addresses+=","
     fi
 done
+
+generate_services_list() {
+    local services=""
+
+    for i in $(seq 0 $((number_of_workers-1))); do
+        services+="worker$i,"
+    done
+
+    for i in $(seq 0 $((number_of_joiners_credits-1))); do
+        services+="joiner_credits$i,"
+    done
+
+    for i in $(seq 0 $((number_of_joiners_ratings-1))); do
+        services+="joiner_rating$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_by_country_sum_budgets-1))); do
+        services+="reduce_by_country_sum_budget$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_top_5_by_budgets-1))); do
+        services+="reduce_top_5_by_budget$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_by_actor-1))); do
+        services+="reduce_by_actor$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_top_10_by_actor-1))); do
+        services+="reduce_top_10_by_actor$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_top_bottom_avg_ratings-1))); do
+        services+="reduce_top_bottom_avg_rating$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_by_sentiment-1))); do
+        services+="reduce_by_sentiment$i,"
+    done
+
+    for i in $(seq 0 $((NUMBER_OF_REDUCE_BY_MOVIEID-1))); do
+        services+="reduce_by_movieid$i,"
+    done
+
+    for i in $(seq 0 $((number_of_nlp_workers-1))); do
+        services+="nlp_worker$i,"
+    done
+
+    for i in $(seq 0 $((number_of_sentiment_servers-1))); do
+        services+="sentiment_server$i,"
+    done
+
+    for i in $(seq 0 $((number_of_monitors-1))); do
+        services+="monitor$i,"
+    done
+
+    services+="coordinator,endpoint"
+
+    echo "$services"
+}
 
 compose_header() {
     echo "name: analisis-peliculas
@@ -155,7 +216,6 @@ compose_rabbitmq() {
 "
 }
 
-NUMBER_OF_REDUCE_BY_MOVIEID=10
 compose_coordinator() {
     echo "    coordinator:
         container_name: coordinator
@@ -492,6 +552,7 @@ compose_monitor(){
             - MONITOR_COUNT=$number_of_monitors
             - MONITOR_ID=$worker_id
             - PEERS=$monitor_peers
+            - SERVICES=$(generate_services_list)
         depends_on:
             rabbitmq:
                 condition: service_healthy
