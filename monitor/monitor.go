@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,7 +45,7 @@ const (
 	EXITED
 )
 
-type WorkerStatus struct {
+type ServiceStatus struct {
 	LastSeen time.Time
 	Type     WorkerType
 	Status   Status
@@ -52,8 +53,8 @@ type WorkerStatus struct {
 
 type Monitor struct {
 	id                   string
-	Workers              map[string]WorkerStatus
-	MuWorkers            sync.Mutex
+	Services             map[string]ServiceStatus
+	MuServices           sync.Mutex
 	Timeout              time.Duration
 	port                 string
 	LeaderID             string
@@ -83,10 +84,14 @@ func NewMonitor(id, port, rawPeers string) *Monitor {
 		}
 	}
 
+	log := logger.NewConsoleLogger(fmt.Sprintf("monitor_%s", id), logger.Info)
+
+	services := getServicesData(log, id)
+
 	return &Monitor{
 		id:                   id,
-		Workers:              make(map[string]WorkerStatus),
-		MuWorkers:            sync.Mutex{},
+		Services:             services,
+		MuServices:           sync.Mutex{},
 		Timeout:              TIMEOUT,
 		port:                 port,
 		Peers:                peers,
@@ -104,8 +109,39 @@ func NewMonitor(id, port, rawPeers string) *Monitor {
 		MuElectionConnLocks:  sync.Mutex{},
 		heartbeatConnLocks:   make(map[string]*sync.Mutex),
 		MuHeartbeatConnLocks: sync.Mutex{},
-		log:                  logger.NewConsoleLogger(fmt.Sprintf("monitor_%s", id), logger.Info),
+		log:                  log,
 	}
+}
+
+func getServicesData(log *logger.ConsoleLogger, id string) map[string]ServiceStatus {
+	monitorServices := make(map[string]ServiceStatus)
+	servicesEnv := os.Getenv("SERVICES")
+	if servicesEnv == "" {
+		return monitorServices
+	}
+	log.Infof("SERVICES: %s", servicesEnv)
+	services := strings.Split(servicesEnv, ",")
+	for _, service := range services {
+		serviceType := WORKER
+		if strings.Contains(service, "client") {
+			serviceType = CLIENT
+		}
+		if strings.Contains(service, "sentiment_server") {
+			serviceType = SENTIMENT_SERVER
+		}
+		if strings.Contains(service, "monitor") {
+			serviceType = MONITOR
+			if strings.Contains(service, id) {
+				continue // No incluir el monitor actual en la lista de servicios
+			}
+		}
+		monitorServices[service] = ServiceStatus{
+			LastSeen: time.Now(),
+			Type:     serviceType,
+			Status:   STARTING,
+		}
+	}
+	return monitorServices
 }
 
 func (m *Monitor) Start(ctx context.Context) {
@@ -146,7 +182,7 @@ func (m *Monitor) Start(ctx context.Context) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		m.checkWorkers(cli, ctx)
+		m.checkServices(cli, ctx)
 	}()
 
 	wg.Wait()
@@ -237,12 +273,12 @@ func (m *Monitor) listenHeartbeats(conn *net.UDPConn, ctx context.Context) {
 			parts := strings.Split(msg, "|")
 			id := parts[0]
 
-			workerType := WORKER
+			serviceType := WORKER
 			if strings.Contains(id, "client") {
-				workerType = CLIENT
-				m.MuWorkers.Lock()
-				client, exists := m.Workers[id]
-				m.MuWorkers.Unlock()
+				serviceType = CLIENT
+				m.MuServices.Lock()
+				client, exists := m.Services[id]
+				m.MuServices.Unlock()
 				if exists && client.Status == EXITED {
 					m.log.Infof("Client %s already marked as exited", id)
 					continue
@@ -255,55 +291,55 @@ func (m *Monitor) listenHeartbeats(conn *net.UDPConn, ctx context.Context) {
 						utils.WriteUDP(addr, m.log, packet, conn)
 					}
 					m.MuLeader.Unlock()
-					m.MuWorkers.Lock()
+					m.MuServices.Lock()
 					if exists && !(client.Status == EXITED) {
-						m.Workers[id] = WorkerStatus{LastSeen: client.LastSeen, Type: CLIENT, Status: EXITED}
+						m.Services[id] = ServiceStatus{LastSeen: client.LastSeen, Type: CLIENT, Status: EXITED}
 						m.log.Infof("%s exited", id)
 					}
-					m.MuWorkers.Unlock()
+					m.MuServices.Unlock()
 					continue
 				}
 
 			}
 			if strings.Contains(id, "sentiment_server") {
-				workerType = SENTIMENT_SERVER
+				serviceType = SENTIMENT_SERVER
 			}
 
-			m.MuWorkers.Lock()
-			m.Workers[id] = WorkerStatus{LastSeen: time.Now(), Type: workerType, Status: RUNNING}
-			m.MuWorkers.Unlock()
+			m.MuServices.Lock()
+			m.Services[id] = ServiceStatus{LastSeen: time.Now(), Type: serviceType, Status: RUNNING}
+			m.MuServices.Unlock()
 		}
 	}
 }
 
-func (m *Monitor) checkWorkers(cli *client.Client, ctx context.Context) {
+func (m *Monitor) checkServices(cli *client.Client, ctx context.Context) {
 	ticker := time.NewTicker(CHECK_INTERVAL)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			m.log.Infof("Stopping checkWorkers")
+			m.log.Infof("Stopping checkServices")
 			return
 		case <-ticker.C:
 
-			workerStatus := make(map[string]WorkerStatus)
+			serviceStatus := make(map[string]ServiceStatus)
 
-			m.MuWorkers.Lock()
-			maps.Copy(workerStatus, m.Workers)
-			m.MuWorkers.Unlock()
+			m.MuServices.Lock()
+			maps.Copy(serviceStatus, m.Services)
+			m.MuServices.Unlock()
 			now := time.Now()
 
-			for id, status := range workerStatus {
+			for id, status := range serviceStatus {
 				if now.Sub(status.LastSeen) > m.Timeout && !(status.Status == EXITED) {
 					isLeader := false
 					m.MuLeader.Lock()
 					isLeader = m.isLeader()
 					m.MuLeader.Unlock()
-					if shouldRestart(isLeader, status) {
+					if m.shouldRestart(isLeader, status, id) {
 						m.log.Infof("%s not responding", id)
-						m.MuWorkers.Lock()
-						m.Workers[id] = WorkerStatus{LastSeen: status.LastSeen, Type: status.Type, Status: STARTING}
-						m.MuWorkers.Unlock()
+						m.MuServices.Lock()
+						m.Services[id] = ServiceStatus{LastSeen: status.LastSeen, Type: status.Type, Status: STARTING}
+						m.MuServices.Unlock()
 						go m.restartContainer(cli, id)
 					}
 				}
@@ -312,9 +348,19 @@ func (m *Monitor) checkWorkers(cli *client.Client, ctx context.Context) {
 	}
 }
 
-func shouldRestart(isLeader bool, status WorkerStatus) bool {
+func (m *Monitor) shouldRestart(isLeader bool, status ServiceStatus, id string) bool {
 	now := time.Now()
-	return isLeader && (status.Status == RUNNING || (status.Status == STARTING && now.Sub(status.LastSeen) > STARTING_TIMEOUT))
+	return isLeader &&
+		(status.Status == RUNNING ||
+			(status.Type == SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > STARTING_TIMEOUT) ||
+			(status.Type != SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > CHECK_INTERVAL) ||
+			(status.Type == MONITOR && m.isLeaderDown(id)))
+}
+
+func (m *Monitor) isLeaderDown(name string) bool {
+	peer := strings.TrimPrefix(name, "monitor")
+	_, err := m.connectTo(m.Peers[peer])
+	return err != nil
 }
 
 func (m *Monitor) isLeader() bool {
@@ -428,15 +474,7 @@ func (m *Monitor) sendToPeer(peer, addr string, packet []byte, conn net.Conn, el
 }
 
 func (m *Monitor) connectToPeer(peer, addr string, electionMsg bool) (net.Conn, error) {
-	var conn net.Conn
-	var err error
-	for range 5 {
-		conn, err = net.Dial("tcp", addr)
-		if err == nil {
-			break
-		}
-		time.Sleep(500 * time.Millisecond) // ToDo: ajustar
-	}
+	conn, err := m.connectTo(addr)
 	if err == nil {
 		if electionMsg {
 			m.MuPeersConnElection.Lock()
@@ -447,6 +485,19 @@ func (m *Monitor) connectToPeer(peer, addr string, electionMsg bool) (net.Conn, 
 			m.PeersConnHeartbeat[peer] = conn
 			m.MuPeersConnHeartbeat.Unlock()
 		}
+	}
+	return conn, err
+}
+
+func (m *Monitor) connectTo(addr string) (net.Conn, error) {
+	var conn net.Conn
+	var err error
+	for range 5 {
+		conn, err = net.Dial("tcp", addr)
+		if err == nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 	return conn, err
 }
@@ -639,15 +690,15 @@ func (m *Monitor) handleConnection(conn net.Conn, ctx context.Context) {
 
 			case "HEARTBEAT":
 				//m.log.Infof("Received HEARTBEAT from %s", senderID)
-				m.MuWorkers.Lock()
-				m.Workers[sender] = WorkerStatus{LastSeen: time.Now(), Type: MONITOR, Status: RUNNING}
-				m.MuWorkers.Unlock()
+				m.MuServices.Lock()
+				m.Services[sender] = ServiceStatus{LastSeen: time.Now(), Type: MONITOR, Status: RUNNING}
+				m.MuServices.Unlock()
 				continue
 			}
-			// Update worker status if an election message is received
-			m.MuWorkers.Lock()
-			m.Workers[sender] = WorkerStatus{LastSeen: time.Now(), Type: MONITOR, Status: RUNNING}
-			m.MuWorkers.Unlock()
+			// Update service status if an election message is received
+			m.MuServices.Lock()
+			m.Services[sender] = ServiceStatus{LastSeen: time.Now(), Type: MONITOR, Status: RUNNING}
+			m.MuServices.Unlock()
 		}
 	}
 }
@@ -678,10 +729,10 @@ func (m *Monitor) checkLeaderAlive(ctx context.Context) {
 				continue
 			}
 
-			m.MuWorkers.Lock()
-			status, ok := m.Workers["monitor"+leader]
+			m.MuServices.Lock()
+			status, ok := m.Services["monitor"+leader]
 			last_seen := time.Since(status.LastSeen)
-			m.MuWorkers.Unlock()
+			m.MuServices.Unlock()
 			if !ok || last_seen > m.Timeout {
 				m.log.Warnf("Leader %s not responding.", leader)
 				go m.startElection()

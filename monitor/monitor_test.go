@@ -229,9 +229,9 @@ func waitUntilRestarting(m *Monitor, peer *Monitor) {
 	for {
 		select {
 		case <-ticker.C:
-			peer.MuWorkers.Lock()
-			status, exists := peer.Workers["monitor"+m.id]
-			peer.MuWorkers.Unlock()
+			peer.MuServices.Lock()
+			status, exists := peer.Services["monitor"+m.id]
+			peer.MuServices.Unlock()
 			if exists && status.Status == STARTING {
 				return
 			}

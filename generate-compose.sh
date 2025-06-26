@@ -131,6 +131,62 @@ for i in $(seq 0 $((number_of_sentiment_servers-1))); do
     fi
 done
 
+generate_services_list() {
+    local services=""
+
+    for i in $(seq 0 $((number_of_workers-1))); do
+        services+="worker$i,"
+    done
+
+    for i in $(seq 0 $((number_of_joiners_credits-1))); do
+        services+="joiner_credits$i,"
+    done
+
+    for i in $(seq 0 $((number_of_joiners_ratings-1))); do
+        services+="joiner_rating$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_by_country_sum_budgets-1))); do
+        services+="reduce_by_country_sum_budget$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_top_5_by_budgets-1))); do
+        services+="reduce_top_5_by_budget$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_by_actor-1))); do
+        services+="reduce_by_actor$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_top_10_by_actor-1))); do
+        services+="reduce_top_10_by_actor$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_top_bottom_avg_ratings-1))); do
+        services+="reduce_top_bottom_avg_rating$i,"
+    done
+
+    for i in $(seq 0 $((number_of_reduce_by_sentiment-1))); do
+        services+="reduce_by_sentiment$i,"
+    done
+
+    for i in $(seq 0 $((number_of_nlp_workers-1))); do
+        services+="nlp_worker$i,"
+    done
+
+    for i in $(seq 0 $((number_of_sentiment_servers-1))); do
+        services+="sentiment_server$i,"
+    done
+
+    for i in $(seq 0 $((number_of_monitors-1))); do
+        services+="monitor$i,"
+    done
+
+    services+="coordinator,endpoint"
+
+    echo "$services"
+}
+
 compose_header() {
     echo "name: analisis-peliculas
 services:"
@@ -492,6 +548,7 @@ compose_monitor(){
             - MONITOR_COUNT=$number_of_monitors
             - MONITOR_ID=$worker_id
             - PEERS=$monitor_peers
+            - SERVICES=$(generate_services_list)
         depends_on:
             rabbitmq:
                 condition: service_healthy
