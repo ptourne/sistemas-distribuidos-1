@@ -124,7 +124,12 @@ func (w *Worker) Run() {
 			result := currentTask.ProcessAndSend(envelope)
 			if result != nil {
 				log.Errorf("Failed to process row: %v by task: %v", envelope, currentTask.Name())
-				continue
+				errNack := envelope.Nack(false)
+				if errNack != nil {
+					log.Errorf("Failed to nack message")
+				}
+				panic("Nack")
+				//continue
 			}
 			// log.Debugf("TO ACK msg %v worker", envelope.Msg())
 			err = envelope.Ack(false)

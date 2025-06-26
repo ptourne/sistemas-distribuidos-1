@@ -3,6 +3,7 @@ package nlp
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/ptourne/sistemas-distribuidos-1/common/model"
 	pb "github.com/ptourne/sistemas-distribuidos-1/nlp/proto"
@@ -51,17 +52,23 @@ func NewSentimentAndRateMap(addrs []string) (*SentimentAndRateMap, error) {
 func (m *SentimentAndRateMap) Transform(row *model.Row, output *model.Row) error {
 	// Sentiment
 	overview := row.Strings["overview"]
-	resp, err := m.client.Analyze(context.Background(), &pb.SentimentRequest{Text: overview})
-	if err != nil {
-
-		// Intentar reconectar una vez
-		if recErr := m.reconnect(); recErr != nil {
-			return recErr
-		}
+	var resp *pb.SentimentResponse
+	for {
+		var err error
 		resp, err = m.client.Analyze(context.Background(), &pb.SentimentRequest{Text: overview})
-		if err != nil {
-			log.Errorf("Retry failed: %v", err)
-			return err
+		if err == nil {
+			break
+		}
+		log.Errorf("Analyze failed: %v", err)
+
+		for {
+			log.Infof("Attempting to reconnect to gRPC server...")
+			recErr := m.reconnect()
+			if recErr == nil {
+				break
+			}
+			log.Errorf("Failed to reconnect: %v", recErr)
+			time.Sleep(1 * time.Second)
 		}
 	}
 	output.Strings["sentiment"] = resp.Label
