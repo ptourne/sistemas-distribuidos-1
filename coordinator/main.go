@@ -1159,12 +1159,18 @@ func verifyingQ3(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware
 	// 	{Floats: map[string]float64{"avg_rating": 4.0}, Strings: map[string]string{"title": "The forbidden education", "movieID": "125619"}},
 	// 	{Floats: map[string]float64{"avg_rating": 1.0}, Strings: map[string]string{"title": "Left for Dead", "movieID": "128598"}},
 	// }
-	expectedOutputQ3_200k := []*model.Row{
-		{Floats: map[string]float64{"avg_rating": 4.4}, Strings: map[string]string{"title": "The Mugger", "movieID": "6636"}},
-		{Floats: map[string]float64{"avg_rating": 0.5}, Strings: map[string]string{"title": "Ana and the Others", "movieID": "48596"}},
+
+	expectedOutputQ3_50k := []*model.Row{
+		{Floats: map[string]float64{"avg_rating": 5.0}, Strings: map[string]string{"title": "The Mugger", "movieID": "6636"}},
+		{Floats: map[string]float64{"avg_rating": 3.3}, Strings: map[string]string{"title": "Don't Look Down", "movieID": "45722"}},
 	}
 
-	return verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3_200k, removeQ3, false, transactionLog, rowsAlreadyReceived, ctx, removeVerification, ignoreCtx)
+	// expectedOutputQ3_200k := []*model.Row{
+	// 	{Floats: map[string]float64{"avg_rating": 4.4}, Strings: map[string]string{"title": "The Mugger", "movieID": "6636"}},
+	// 	{Floats: map[string]float64{"avg_rating": 0.5}, Strings: map[string]string{"title": "Ana and the Others", "movieID": "48596"}},
+	// }
+
+	return verifyingQuery(log, allQuerysToEndpointSender, cid, q1Receiver, "Q3", expectedOutputQ3_50k, removeQ3, false, transactionLog, rowsAlreadyReceived, ctx, removeVerification, ignoreCtx)
 }
 
 func verifyingQ4(log *logger.ConsoleLogger, allQuerysToEndpointSender middleware.Sender[*model.Row], cid uint64, qReceiver chan middleware.Envelope[*model.Row], transactionLog transaction_log.TransactionLog, rowsAlreadyReceived []transaction_log.RowWithID, ctx context.Context, removeVerification bool, ignoreCtx context.Context) error {
