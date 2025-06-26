@@ -25,7 +25,10 @@ var WORKER_ID = GetEnv("WORKER_ID", "1")
 func main() {
 	name := os.Getenv("NAME")
 	monitor_addrs := os.Getenv("MONITOR_ADDRESSES")
+	ctxHeartbeat, cancelHearbeat := context.WithCancel(context.Background())
 	workerLogger := logger.NewConsoleLogger(fmt.Sprintf("joiner_%s", WORKER_ID), logger.Debug)
+	defer cancelHearbeat()
+	go utils.SendHeartbeat(name, monitor_addrs, workerLogger, ctxHeartbeat)
 	worker := joiner.NewCreditsWorker([]string{"reduce_by_actor"}, WORKER_ID, workerLogger)
 	connector, err := rabbitmq.Connector()
 	if err != nil {
@@ -35,9 +38,6 @@ func main() {
 	middlewareConnection := rabbitmq.NewMiddleware[*model.Row](connector, middlewareLogger)
 	defer middlewareConnection.Close()
 
-	ctxHeartbeat, cancelHearbeat := context.WithCancel(context.Background())
-	defer cancelHearbeat()
-	go utils.SendHeartbeat(name, monitor_addrs, workerLogger, ctxHeartbeat)
 	worker.Run(middlewareConnection)
 	workerLogger.Infof("worker finished")
 }

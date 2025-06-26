@@ -30,6 +30,7 @@ func NewChaosMonkey() *ChaosMonkey {
 		"client",
 		"rabbitmq",
 		"endpoint",
+		"monitor1",
 	}
 
 	return &ChaosMonkey{

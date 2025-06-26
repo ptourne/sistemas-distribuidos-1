@@ -23,15 +23,16 @@ import (
 const HEADER_SIZE = 1
 const MaxUDPMessageSize = 1024
 const CHECK_INTERVAL = 250 * time.Millisecond             // ToDo: ajustar
-const TIMEOUT = 500 * time.Millisecond                    // ToDo: ajustar
+const TIMEOUT = 1 * time.Second                           // ToDo: ajustar
 const SENTIMENT_SERVER_STARTING_TIMEOUT = 1 * time.Minute // ToDo: ajustar
 const STARTING_TIMEOUT = 10 * time.Second                 // ToDo: ajustar
-const SPECIAL_TIMEOUT = 2 * time.Second
+const SPECIAL_TIMEOUT = 5 * time.Second
 const END_ELECTION_TIMEOUT = 300 * time.Millisecond // ToDo: ajustar
 const ELECTION_TIMEOUT = 100 * time.Millisecond     // ToDo: ajustar
 const HEARTBEAT_INTERVAL = 30 * time.Millisecond    // ToDo: ajustar
 const READ_TIMEOUT = 100 * time.Millisecond         // ToDo: ajustar
-const CONNECT_SLEEP = 50 * time.Millisecond         // ToDo: ajustar
+const CONNECT_SLEEP = 200 * time.Millisecond        // ToDo: ajustar
+const RESTART_ENDPOINT = false
 
 type WorkerType int
 type Status int
@@ -327,6 +328,7 @@ func (m *Monitor) listenHeartbeats(conn *net.UDPConn, ctx context.Context) {
 			}
 
 			m.MuServices.Lock()
+			m.log.Infof("Received heartbeat from %s", id)
 			m.Services[id] = ServiceStatus{LastSeen: time.Now(), Type: serviceType, Status: RUNNING}
 			m.MuServices.Unlock()
 		}
@@ -359,7 +361,7 @@ func (m *Monitor) checkServices(cli *client.Client, ctx context.Context) {
 					if m.shouldRestart(isLeader, status, id) {
 						m.log.Infof("%s not responding", id)
 						m.MuServices.Lock()
-						m.Services[id] = ServiceStatus{LastSeen: status.LastSeen, Type: status.Type, Status: STARTING}
+						m.Services[id] = ServiceStatus{LastSeen: time.Now(), Type: status.Type, Status: STARTING}
 						m.MuServices.Unlock()
 						go m.restartContainer(cli, id)
 					}
@@ -370,15 +372,18 @@ func (m *Monitor) checkServices(cli *client.Client, ctx context.Context) {
 }
 
 func (m *Monitor) shouldRestart(isLeader bool, status ServiceStatus, id string) bool {
+	if strings.Contains(id, "endpoint") {
+		return RESTART_ENDPOINT
+	}
 	isDown := m.isPeerDown(id)
 	now := time.Now()
 	m.log.Infof("Checking if %s should be restarted: isLeader=%v, status=%d, type=%d, lastSeen=%s is PeerDown: %v", id, isLeader, status.Status, status.Type, time.Since(status.LastSeen), isDown)
-	//if status.Type == SPECIAL {
-	//	return isLeader && ((now.Sub(status.LastSeen) > SPECIAL_TIMEOUT && status.Status == RUNNING) || (now.Sub(status.LastSeen) > STARTING_TIMEOUT))
-	//}
+	if status.Type == SPECIAL {
+		return isLeader && ((now.Sub(status.LastSeen) > SPECIAL_TIMEOUT && status.Status == RUNNING) || (now.Sub(status.LastSeen) > STARTING_TIMEOUT))
+	}
 	return isLeader &&
 		(status.Status == RUNNING ||
-			(status.Type == SPECIAL && now.Sub(status.LastSeen) > SPECIAL_TIMEOUT) ||
+			//(status.Type == SPECIAL && now.Sub(status.LastSeen) > SPECIAL_TIMEOUT) ||
 			(status.Type == SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > SENTIMENT_SERVER_STARTING_TIMEOUT) ||
 			(status.Type != SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > STARTING_TIMEOUT) ||
 			(status.Type == MONITOR && isDown))
@@ -749,7 +754,7 @@ func (m *Monitor) handleConnection(conn net.Conn, ctx context.Context) {
 				}
 
 			case "HEARTBEAT":
-				//m.log.Infof("Received HEARTBEAT from %s", senderID)
+				// m.log.Infof("Received HEARTBEAT from %s", senderID)
 				m.MuServices.Lock()
 				m.Services[sender] = ServiceStatus{LastSeen: time.Now(), Type: MONITOR, Status: RUNNING}
 				m.MuServices.Unlock()

@@ -11,7 +11,7 @@ import (
 	"github.com/ptourne/sistemas-distribuidos-1/common/logger"
 )
 
-const HEATBEAT_INTERVAL = 50 * time.Millisecond // ToDo: ajustar
+const HEATBEAT_INTERVAL = 300 * time.Millisecond // ToDo: ajustar
 const HEADER_SIZE = 1
 const UDP_TIMEOUT = 1 * time.Second
 const READ_TIMEOUT = 100 * time.Millisecond
