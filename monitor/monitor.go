@@ -373,11 +373,12 @@ func (m *Monitor) shouldRestart(isLeader bool, status ServiceStatus, id string) 
 	isDown := m.isPeerDown(id)
 	now := time.Now()
 	m.log.Infof("Checking if %s should be restarted: isLeader=%v, status=%d, type=%d, lastSeen=%s is PeerDown: %v", id, isLeader, status.Status, status.Type, time.Since(status.LastSeen), isDown)
-	if status.Type == SPECIAL {
-		return isLeader && now.Sub(status.LastSeen) > SPECIAL_TIMEOUT && status.Status == RUNNING
-	}
+	//if status.Type == SPECIAL {
+	//	return isLeader && ((now.Sub(status.LastSeen) > SPECIAL_TIMEOUT && status.Status == RUNNING) || (now.Sub(status.LastSeen) > STARTING_TIMEOUT))
+	//}
 	return isLeader &&
 		(status.Status == RUNNING ||
+			(status.Type == SPECIAL && now.Sub(status.LastSeen) > SPECIAL_TIMEOUT) ||
 			(status.Type == SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > SENTIMENT_SERVER_STARTING_TIMEOUT) ||
 			(status.Type != SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > STARTING_TIMEOUT) ||
 			(status.Type == MONITOR && isDown))
