@@ -20,6 +20,7 @@ type Worker struct {
 	Tasks                 task.JoinerTask[*model.Row, *model.Row]
 	ClientsFinishedMovies map[uint64]middleware.Envelope[*model.Row]
 	ClientsPruneMovies    map[uint64]middleware.Envelope[*model.Row]
+	ClientsPruneInput     map[uint64]middleware.Envelope[*model.Row]
 	ClientsFinishedInput  map[uint64]middleware.Envelope[*model.Row]
 	ClientsFinished       map[uint64]bool
 }
@@ -113,12 +114,31 @@ func (w *Worker) Run(middlewareConnection middleware.Connection[*model.Row]) {
 				w.ClientsFinishedInput[envelope.Cid()] = envelope
 				currentTask.ProcessPendingMovies(envelope.Cid())
 			} else if envelope != nil && envelope.Type() == middleware.Prune {
-				log.Infof("Credits/Ratings: Received prune message for client %d", envelope.Cid())
-				err = envelope.Ack(false)
-				if err != nil {
-					log.Warnf("Failed to ack prune message for credits/ratings: %v", err)
+				//log.Infof("Credits/Ratings: Received prune message for client %d", envelope.Cid())
+				//err = envelope.Ack(false)
+				//if err != nil {
+				//	log.Warnf("Failed to ack prune message for credits/ratings: %v", err)
+				//}
+				//continue
+				//
+				if _, finished := w.ClientsFinished[envelope.Cid()]; finished {
+					err = envelope.Ack(false)
+					if err != nil {
+						log.Warnf("Failed to ack prune message for input: %v", err)
+					}
+					continue
 				}
-				continue
+				log.Infof("Credits/Ratings: Received prune message for client %d", envelope.Cid())
+				if id == "0" {
+					err = envelope.ResendEOFIfRedelivered()
+					if err != nil {
+						log.Warnf("Failed to resend eofcid message for input: %v", err)
+					}
+				}
+				envelope.Ack(false)
+				if err != nil {
+					log.Warnf("Failed to ack prune message for input: %v", err)
+				}
 
 			} else if !ok {
 				log.Infof("Channel closed 1, exiting...")
@@ -174,9 +194,9 @@ func (w *Worker) shutdown(middlewareConnection middleware.Connection[*model.Row]
 func (w *Worker) processEOF(envelope middleware.Envelope[*model.Row], id string, log *logger.ConsoleLogger, currentTask task.JoinerTask[*model.Row, *model.Row]) {
 	var err error
 	eofMovies, existsMovies := w.ClientsFinishedMovies[envelope.Cid()]
-	pruneMovies, existsPrune := w.ClientsPruneMovies[envelope.Cid()]
+	pruneMovies, existsPruneMovies := w.ClientsPruneMovies[envelope.Cid()]
 	eofInput, existsInput := w.ClientsFinishedInput[envelope.Cid()]
-	if existsPrune && existsInput {
+	if existsPruneMovies && existsInput {
 		log.Infof("Client %d finished", envelope.Cid())
 		if id != "0" {
 			currentTask.FinishProcessingClient(envelope.Cid(), false)
@@ -193,7 +213,6 @@ func (w *Worker) processEOF(envelope middleware.Envelope[*model.Row], id string,
 		}
 		w.ClientsFinished[envelope.Cid()] = true
 		delete(w.ClientsPruneMovies, envelope.Cid())
-
 	}
 	if existsMovies && existsInput {
 		if id == "0" {
@@ -253,6 +272,7 @@ func NewCreditsWorker(subscribers []string, id string, workerLogger *logger.Cons
 		ClientsFinishedMovies: make(map[uint64]middleware.Envelope[*model.Row]),
 		ClientsPruneMovies:    make(map[uint64]middleware.Envelope[*model.Row]),
 		ClientsFinishedInput:  make(map[uint64]middleware.Envelope[*model.Row]),
+		ClientsPruneInput:     make(map[uint64]middleware.Envelope[*model.Row]),
 		ClientsFinished:       make(map[uint64]bool),
 	}
 }
@@ -268,6 +288,7 @@ func NewRatingsWorker(subscribers []string, id string, workerLogger *logger.Cons
 		ClientsFinishedMovies: make(map[uint64]middleware.Envelope[*model.Row]),
 		ClientsPruneMovies:    make(map[uint64]middleware.Envelope[*model.Row]),
 		ClientsFinishedInput:  make(map[uint64]middleware.Envelope[*model.Row]),
+		ClientsPruneInput:     make(map[uint64]middleware.Envelope[*model.Row]),
 		ClientsFinished:       make(map[uint64]bool),
 	}
 }

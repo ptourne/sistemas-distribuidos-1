@@ -14,7 +14,7 @@ import (
 )
 
 var basePorts = map[string]int{
-	"TestMonitor/StopMonitor":               8070,
+	"TestMonitor/StopMonitor1":              8070,
 	"TestMonitor/LeaderElectionOneMonitor":  8075,
 	"TestMonitor/LeaderElectionInOrder":     8080,
 	"TestMonitor/LeaderElectionStopMonitor": 8085,
@@ -23,7 +23,7 @@ var basePorts = map[string]int{
 
 func TestMonitor(t *testing.T) {
 
-	t.Run("StopMonitor", func(t *testing.T) {
+	t.Run("StopMonitor1", func(t *testing.T) {
 
 		monitorCount := 1
 		ids, ports, peers := getConfig(t.Name(), monitorCount)
@@ -53,6 +53,7 @@ func TestMonitor(t *testing.T) {
 		leader := waitForLeader(t, "", monitor1)
 		assert.Equal(t, leader, "1", "El primer monitor debería ser el líder")
 
+		time.Sleep(1 * time.Second)
 		stopM1()
 		wg.Wait()
 
@@ -186,7 +187,7 @@ func waitForLeader(t *testing.T, previousVal string, m *Monitor) string {
 
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	timeoutChan := time.After(ELECTION_TIMEOUT * 2)
+	timeoutChan := time.After(END_ELECTION_TIMEOUT * 2)
 	for {
 		select {
 		case <-ticker.C:
@@ -222,9 +223,9 @@ func verifyLeader(t *testing.T, m *Monitor, expectedLeader string, previousVal s
 }
 
 func waitUntilRestarting(m *Monitor, peer *Monitor) {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
-	timeoutChan := time.After(TIMEOUT * 2)
+	timeoutChan := time.After(TIMEOUT * 4)
 
 	for {
 		select {
