@@ -22,12 +22,13 @@ import (
 
 const HEADER_SIZE = 1
 const MaxUDPMessageSize = 1024
-const CHECK_INTERVAL = 3 * time.Second            // ToDo: ajustar
-const TIMEOUT = 10 * time.Second                  // ToDo: ajustar
-const STARTING_TIMEOUT = 1 * time.Minute          // ToDo: ajustar
-const ELECTION_TIMEOUT = 5 * time.Second          // ToDo: ajustar
-const HEARTBEAT_INTERVAL = 500 * time.Millisecond // ToDo: ajustar
-const READ_TIMEOUT = 1 * time.Second              // ToDo: ajustar
+const CHECK_INTERVAL = 3 * time.Second                    // ToDo: ajustar
+const TIMEOUT = 10 * time.Second                          // ToDo: ajustar
+const SENTIMENT_SERVER_STARTING_TIMEOUT = 1 * time.Minute // ToDo: ajustar
+const STARTING_TIMEOUT = 20 * time.Second                 // ToDo: ajustar
+const ELECTION_TIMEOUT = 5 * time.Second                  // ToDo: ajustar
+const HEARTBEAT_INTERVAL = 500 * time.Millisecond         // ToDo: ajustar
+const READ_TIMEOUT = 1 * time.Second                      // ToDo: ajustar
 
 type WorkerType int
 type Status int
@@ -352,8 +353,8 @@ func (m *Monitor) shouldRestart(isLeader bool, status ServiceStatus, id string) 
 	now := time.Now()
 	return isLeader &&
 		(status.Status == RUNNING ||
-			(status.Type == SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > STARTING_TIMEOUT) ||
-			(status.Type != SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > CHECK_INTERVAL) ||
+			(status.Type == SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > SENTIMENT_SERVER_STARTING_TIMEOUT) ||
+			(status.Type != SENTIMENT_SERVER && status.Status == STARTING && now.Sub(status.LastSeen) > STARTING_TIMEOUT) ||
 			(status.Type == MONITOR && m.isLeaderDown(id)))
 }
 
