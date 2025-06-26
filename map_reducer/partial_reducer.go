@@ -55,6 +55,7 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 				switch e.Type() {
 				case middleware.Normal:
 					msg := e.Msg()
+					r.log.Debugf("input : %d | Received message FIRST: %v", e.Cid(), msg)
 					var isDuplicate bool
 					isDuplicate, err = r.reduce(e.Cid(), e.SenderId(), e.Id(), msg)
 					if err != nil {
@@ -63,7 +64,7 @@ func (r *PartialReducer[I, A, R]) Run(ctx context.Context) <-chan error {
 						return
 					}
 					if isDuplicate {
-						r.log.Debugf("input : %d | Duplicate message received, ignoring", e.Cid())
+						r.log.Debugf("input : %d | Duplicate message received, ignoring id: %d", e.Cid(), e.Id())
 						e.Ack(false)
 						continue
 					}
@@ -191,7 +192,7 @@ func (r *PartialReducer[I, A, R]) processPrune(cid uint64) error {
 }
 
 func (r *PartialReducer[I, A, R]) reduce(cid, senderId, id uint64, msg I) (isDuplicate bool, err error) {
-	r.log.Debugf("input : %d | Received input", cid)
+	r.log.Debugf("input : %d | Received input with id: %d", cid, id)
 	if r.isDuplicate(cid, senderId, id) {
 		r.log.Debugf("input : %d | Duplicate message received:\nid: %d\nMsg:\n%+v\n, ignoring", cid, id, msg)
 		return true, nil
