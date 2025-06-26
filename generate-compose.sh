@@ -107,6 +107,7 @@ if ! [[ "$number_of_monitors" =~ ^[0-9]+$ ]] || [ "$number_of_monitors" -lt 1 ];
     exit 1
 fi
 
+NUMBER_OF_REDUCE_BY_MOVIEID=10
 MONITOR_PORT_BASE=9000
 SENTIMENT_SERVER_PORT_BASE=50050
 monitor_addresses=""
@@ -170,6 +171,10 @@ generate_services_list() {
         services+="reduce_by_sentiment$i,"
     done
 
+    for i in $(seq 0 $((NUMBER_OF_REDUCE_BY_MOVIEID-1))); do
+        services+="reduce_by_movieid$i,"
+    done
+
     for i in $(seq 0 $((number_of_nlp_workers-1))); do
         services+="nlp_worker$i,"
     done
@@ -211,7 +216,6 @@ compose_rabbitmq() {
 "
 }
 
-NUMBER_OF_REDUCE_BY_MOVIEID=10
 compose_coordinator() {
     echo "    coordinator:
         container_name: coordinator
