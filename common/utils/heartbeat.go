@@ -32,7 +32,7 @@ func SendExit(idClient string, addrs string, log *logger.ConsoleLogger) {
 
 	for {
 
-		sendHeartbeatWithConn(idClient, addrs, log, true, ctx, conn)
+		sendHeartbeatWithConn(idClient, addrs, log, true, ctx, conn, HEATBEAT_INTERVAL)
 		log.Infof("Sent exit heartbeat to monitors")
 
 		conn.SetReadDeadline(time.Now().Add(UDP_TIMEOUT))
@@ -98,7 +98,7 @@ func getUdpAddrs(addrs string, log *logger.ConsoleLogger) []*net.UDPAddr {
 	return udpAddrs
 }
 
-func sendHeartbeatWithConn(id string, addrs string, log *logger.ConsoleLogger, exit bool, ctx context.Context, conn *net.UDPConn) {
+func sendHeartbeatWithConn(id string, addrs string, log *logger.ConsoleLogger, exit bool, ctx context.Context, conn *net.UDPConn, heartbeat_interval time.Duration) {
 	udpAddrs := getUdpAddrs(addrs, log)
 	for {
 		select {
@@ -126,7 +126,7 @@ func sendHeartbeatWithConn(id string, addrs string, log *logger.ConsoleLogger, e
 				return
 			}
 
-			time.Sleep(HEATBEAT_INTERVAL)
+			time.Sleep(heartbeat_interval)
 		}
 	}
 }
@@ -138,7 +138,17 @@ func sendHeartbeat(id string, addrs string, log *logger.ConsoleLogger, exit bool
 		log.Fatalf("Failed to open UDP socket: %v", err)
 	}
 	defer conn.Close()
-	sendHeartbeatWithConn(id, addrs, log, exit, ctx, conn)
+	sendHeartbeatWithConn(id, addrs, log, exit, ctx, conn, HEATBEAT_INTERVAL)
+}
+
+func SendMonitorHeartbeat(id string, addrs string, log *logger.ConsoleLogger, exit bool, ctx context.Context, heartbeat_interval time.Duration) {
+
+	conn, err := net.ListenUDP("udp", nil)
+	if err != nil {
+		log.Fatalf("Failed to open UDP socket: %v", err)
+	}
+	defer conn.Close()
+	sendHeartbeatWithConn(id, addrs, log, exit, ctx, conn, heartbeat_interval)
 }
 
 func ReceiveUDPMessage(conn *net.UDPConn) (string, error) {

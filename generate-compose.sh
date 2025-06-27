@@ -183,10 +183,6 @@ generate_services_list() {
         services+="sentiment_server$i,"
     done
 
-    for i in $(seq 0 $((number_of_monitors-1))); do
-        services+="monitor$i,"
-    done
-
     services+="coordinator,endpoint"
 
     echo "$services"
