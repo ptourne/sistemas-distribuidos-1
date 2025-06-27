@@ -14,7 +14,7 @@ services:
             timeout: 10s
             retries: 10
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/rabbitmq.conf
 
     sentiment_server0:
         container_name: sentiment_server0
@@ -27,7 +27,7 @@ services:
             - GRPC_PORT=50050
             - GRPC_WORKERS=30
             - NAME=sentiment_server0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         healthcheck:
             test: ['CMD', 'sh', '-c', 'nc -z localhost 50050']
             interval: 10s
@@ -45,7 +45,7 @@ services:
             - GRPC_PORT=50051
             - GRPC_WORKERS=30
             - NAME=sentiment_server1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         healthcheck:
             test: ['CMD', 'sh', '-c', 'nc -z localhost 50051']
             interval: 10s
@@ -63,9 +63,63 @@ services:
             - GRPC_PORT=50052
             - GRPC_WORKERS=30
             - NAME=sentiment_server2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         healthcheck:
             test: ['CMD', 'sh', '-c', 'nc -z localhost 50052']
+            interval: 10s
+            timeout: 10s
+            retries: 10
+
+    sentiment_server3:
+        container_name: sentiment_server3
+        build:
+            context: .
+            dockerfile: nlp/python_server/Dockerfile
+        networks:
+            - local_net
+        environment:
+            - GRPC_PORT=50053
+            - GRPC_WORKERS=30
+            - NAME=sentiment_server3
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        healthcheck:
+            test: ['CMD', 'sh', '-c', 'nc -z localhost 50053']
+            interval: 10s
+            timeout: 10s
+            retries: 10
+
+    sentiment_server4:
+        container_name: sentiment_server4
+        build:
+            context: .
+            dockerfile: nlp/python_server/Dockerfile
+        networks:
+            - local_net
+        environment:
+            - GRPC_PORT=50054
+            - GRPC_WORKERS=30
+            - NAME=sentiment_server4
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        healthcheck:
+            test: ['CMD', 'sh', '-c', 'nc -z localhost 50054']
+            interval: 10s
+            timeout: 10s
+            retries: 10
+
+    sentiment_server5:
+        container_name: sentiment_server5
+        build:
+            context: .
+            dockerfile: nlp/python_server/Dockerfile
+        networks:
+            - local_net
+        environment:
+            - GRPC_PORT=50055
+            - GRPC_WORKERS=30
+            - NAME=sentiment_server5
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        healthcheck:
+            test: ['CMD', 'sh', '-c', 'nc -z localhost 50055']
             interval: 10s
             timeout: 10s
             retries: 10
@@ -79,13 +133,13 @@ services:
         networks:
             - local_net
         environment:
-            - N_WORKERS=3
+            - N_WORKERS=4
             - N_RATINGS_CONSUMERS=10
             - PREFETCH=1 # Potential optimization
             - NAME=coordinator
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/coordinator:/coordinator-dir
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/coordinator:/coordinator-dir
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -98,12 +152,12 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=0
-            - N_WORKERS=3
+            - N_WORKERS=4
             - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=3
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=worker0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
@@ -118,12 +172,12 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=1
-            - N_WORKERS=3
+            - N_WORKERS=4
             - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=3
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=worker1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
@@ -138,12 +192,32 @@ services:
         entrypoint: /worker
         environment: 
             - WORKER_ID=2
-            - N_WORKERS=3
+            - N_WORKERS=4
             - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=3
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=worker2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+
+    worker3:
+        container_name: worker3
+        build:
+            context: .
+            dockerfile: worker/Dockerfile
+        entrypoint: /worker
+        environment: 
+            - WORKER_ID=3
+            - N_WORKERS=4
+            - N_REDUCERS_BY_COUNTRY_SUM_BUDGETS=3
+            - SERVER_PORT=1234
+            - PREFETCH=1 # Potential optimization
+            - NAME=worker3
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
@@ -159,12 +233,12 @@ services:
         environment: 
             - WORKER_ID=0
             - CONSUMER_COUNT=3
-            - N_WORKERS=3
-            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,
+            - N_WORKERS=4
+            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,sentiment_server3:50053,sentiment_server4:50054,sentiment_server5:50055,
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=nlp_worker0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
@@ -175,6 +249,12 @@ services:
             sentiment_server1:
                 condition: service_healthy
             sentiment_server2:
+                condition: service_healthy
+            sentiment_server3:
+                condition: service_healthy
+            sentiment_server4:
+                condition: service_healthy
+            sentiment_server5:
                 condition: service_healthy
 
     nlp_worker1:
@@ -186,12 +266,12 @@ services:
         environment: 
             - WORKER_ID=1
             - CONSUMER_COUNT=3
-            - N_WORKERS=3
-            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,
+            - N_WORKERS=4
+            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,sentiment_server3:50053,sentiment_server4:50054,sentiment_server5:50055,
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=nlp_worker1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
@@ -202,6 +282,12 @@ services:
             sentiment_server1:
                 condition: service_healthy
             sentiment_server2:
+                condition: service_healthy
+            sentiment_server3:
+                condition: service_healthy
+            sentiment_server4:
+                condition: service_healthy
+            sentiment_server5:
                 condition: service_healthy
 
     nlp_worker2:
@@ -213,12 +299,12 @@ services:
         environment: 
             - WORKER_ID=2
             - CONSUMER_COUNT=3
-            - N_WORKERS=3
-            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,
+            - N_WORKERS=4
+            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,sentiment_server3:50053,sentiment_server4:50054,sentiment_server5:50055,
             - SERVER_PORT=1234
             - PREFETCH=1 # Potential optimization
             - NAME=nlp_worker2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
@@ -230,6 +316,45 @@ services:
                 condition: service_healthy
             sentiment_server2:
                 condition: service_healthy
+            sentiment_server3:
+                condition: service_healthy
+            sentiment_server4:
+                condition: service_healthy
+            sentiment_server5:
+                condition: service_healthy
+
+    nlp_worker3:
+        container_name: nlp_worker3
+        build:
+            context: .
+            dockerfile: nlp/Dockerfile
+        entrypoint: /nlp
+        environment: 
+            - WORKER_ID=3
+            - CONSUMER_COUNT=3
+            - N_WORKERS=4
+            - NLP_GRPC_ADDRS=sentiment_server0:50050,sentiment_server1:50051,sentiment_server2:50052,sentiment_server3:50053,sentiment_server4:50054,sentiment_server5:50055,
+            - SERVER_PORT=1234
+            - PREFETCH=1 # Potential optimization
+            - NAME=nlp_worker3
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+            sentiment_server0:
+                condition: service_healthy
+            sentiment_server1:
+                condition: service_healthy
+            sentiment_server2:
+                condition: service_healthy
+            sentiment_server3:
+                condition: service_healthy
+            sentiment_server4:
+                condition: service_healthy
+            sentiment_server5:
+                condition: service_healthy
 
     joiner_credits0:
         container_name: joiner_credits0
@@ -240,18 +365,18 @@ services:
         environment:
             - WORKER_ID=0
             - SERVER_PORT=1234
-            - WORKER_COUNT=3
+            - WORKER_COUNT=4
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_credits0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
 
     joiner_credits1:
         container_name: joiner_credits1
@@ -262,18 +387,18 @@ services:
         environment:
             - WORKER_ID=1
             - SERVER_PORT=1234
-            - WORKER_COUNT=3
+            - WORKER_COUNT=4
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_credits1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
 
     joiner_credits2:
         container_name: joiner_credits2
@@ -284,18 +409,40 @@ services:
         environment:
             - WORKER_ID=2
             - SERVER_PORT=1234
-            - WORKER_COUNT=3
+            - WORKER_COUNT=4
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_credits2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_credits:/joiner_credits
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
+
+    joiner_credits3:
+        container_name: joiner_credits3
+        build:
+            context: .
+            dockerfile: joiners/joiner_credits_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=3
+            - SERVER_PORT=1234
+            - WORKER_COUNT=4
+            - CONSUMER_COUNT=3
+            - PREFETCH=1
+            - NAME=joiner_credits3
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_credits:/joiner_credits
 
     joiner_rating0:
         container_name: joiner_rating0
@@ -306,18 +453,18 @@ services:
         environment:
             - WORKER_ID=0
             - SERVER_PORT=1234
-            - WORKER_COUNT=3
+            - WORKER_COUNT=4
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_rating0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
     joiner_rating1:
         container_name: joiner_rating1
@@ -328,18 +475,18 @@ services:
         environment:
             - WORKER_ID=1
             - SERVER_PORT=1234
-            - WORKER_COUNT=3
+            - WORKER_COUNT=4
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_rating1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
     joiner_rating2:
         container_name: joiner_rating2
@@ -350,18 +497,40 @@ services:
         environment:
             - WORKER_ID=2
             - SERVER_PORT=1234
-            - WORKER_COUNT=3
+            - WORKER_COUNT=4
             - CONSUMER_COUNT=3
             - PREFETCH=1
             - NAME=joiner_rating2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/joiner_ratings:/joiner_ratings
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
+
+    joiner_rating3:
+        container_name: joiner_rating3
+        build:
+            context: .
+            dockerfile: joiners/joiner_ratings_worker/Dockerfile
+        entrypoint: /joiners
+        environment:
+            - WORKER_ID=3
+            - SERVER_PORT=1234
+            - WORKER_COUNT=4
+            - CONSUMER_COUNT=3
+            - PREFETCH=1
+            - NAME=joiner_rating3
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/joiner_ratings:/joiner_ratings
 
     reduce_by_country_sum_budget0:
         container_name: reduce_by_country_sum_budget0
@@ -374,12 +543,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_country_sum_budget0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_country_sum_budget0:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_country_sum_budget0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -395,12 +564,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_country_sum_budget1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_country_sum_budget1:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_country_sum_budget1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -416,12 +585,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_country_sum_budget2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_country_sum_budget2:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_country_sum_budget2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -437,12 +606,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_5_by_budget0:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_5_by_budget0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -458,12 +627,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_5_by_budget1:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_5_by_budget1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -479,12 +648,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_5_by_budget2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_5_by_budget2:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_5_by_budget2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -500,12 +669,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_bottom_avg_rating0:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_bottom_avg_rating0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -521,12 +690,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_bottom_avg_rating1:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_bottom_avg_rating1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -542,12 +711,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_bottom_avg_rating2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_top_bottom_avg_rating2:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_top_bottom_avg_rating2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -561,14 +730,14 @@ services:
         environment:
             - WORKER_ID=0
             - WORKER_COUNT=3
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - NAME=reduce_by_sentiment0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_sentiment0:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_sentiment0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -582,14 +751,14 @@ services:
         environment:
             - WORKER_ID=1
             - WORKER_COUNT=3
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - NAME=reduce_by_sentiment1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_sentiment1:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_sentiment1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -603,14 +772,14 @@ services:
         environment:
             - WORKER_ID=2
             - WORKER_COUNT=3
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - NAME=reduce_by_sentiment2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_sentiment2:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_sentiment2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -626,12 +795,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_actor0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_actor0:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_actor0:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -647,12 +816,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_actor1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_actor1:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_actor1:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -668,12 +837,12 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=3
             - NAME=reduce_by_actor2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/reducer_volumes/reduce_by_actor2:/transaction_log
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/reducer_volumes/reduce_by_actor2:/transaction_log
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -689,7 +858,7 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -708,7 +877,7 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -727,7 +896,7 @@ services:
             - WORKER_COUNT=3
             - WORKER_OUTPUT_COUNT=1
             - NAME=reduce_top_10_by_actor2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -744,10 +913,10 @@ services:
         environment:
             - WORKER_ID=0
             - WORKER_COUNT=10
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - PREFETCH=1
             - NAME=reduce_by_movieid0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -764,10 +933,10 @@ services:
         environment:
             - WORKER_ID=1
             - WORKER_COUNT=10
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - PREFETCH=1
             - NAME=reduce_by_movieid1
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -784,10 +953,10 @@ services:
         environment:
             - WORKER_ID=2
             - WORKER_COUNT=10
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - PREFETCH=1
             - NAME=reduce_by_movieid2
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -804,10 +973,10 @@ services:
         environment:
             - WORKER_ID=3
             - WORKER_COUNT=10
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - PREFETCH=1
             - NAME=reduce_by_movieid3
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -824,10 +993,10 @@ services:
         environment:
             - WORKER_ID=4
             - WORKER_COUNT=10
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - PREFETCH=1
             - NAME=reduce_by_movieid4
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -844,10 +1013,10 @@ services:
         environment:
             - WORKER_ID=5
             - WORKER_COUNT=10
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - PREFETCH=1
             - NAME=reduce_by_movieid5
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -864,10 +1033,10 @@ services:
         environment:
             - WORKER_ID=6
             - WORKER_COUNT=10
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - PREFETCH=1
             - NAME=reduce_by_movieid6
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -884,10 +1053,10 @@ services:
         environment:
             - WORKER_ID=7
             - WORKER_COUNT=10
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - PREFETCH=1
             - NAME=reduce_by_movieid7
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -904,10 +1073,10 @@ services:
         environment:
             - WORKER_ID=8
             - WORKER_COUNT=10
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - PREFETCH=1
             - NAME=reduce_by_movieid8
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -924,10 +1093,10 @@ services:
         environment:
             - WORKER_ID=9
             - WORKER_COUNT=10
-            - WORKER_OUTPUT_COUNT=3
+            - WORKER_OUTPUT_COUNT=4
             - PREFETCH=1
             - NAME=reduce_by_movieid9
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
             - MAX_LOG_SIZE=1000
         networks:
             - local_net
@@ -944,13 +1113,47 @@ services:
         environment:
             - SERVER_PORT=endpoint:9876
             - NAME=client0
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
             - endpoint
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/client/datasets:/datasets
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+
+    client1:
+        container_name: client1
+        build:
+            context: .
+            dockerfile: client/Dockerfile
+        entrypoint: /client
+        environment:
+            - SERVER_PORT=endpoint:9876
+            - NAME=client1
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            - endpoint
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
+
+    client2:
+        container_name: client2
+        build:
+            context: .
+            dockerfile: client/Dockerfile
+        entrypoint: /client
+        environment:
+            - SERVER_PORT=endpoint:9876
+            - NAME=client2
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
+        networks:
+            - local_net
+        depends_on:
+            - endpoint
+        volumes:
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/client/datasets:/datasets
 
     monitor0:
         container_name: monitor0
@@ -962,10 +1165,10 @@ services:
             - local_net
         environment:
             - PORT=9000
-            - MONITOR_COUNT=2
+            - MONITOR_COUNT=3
             - MONITOR_ID=0
-            - PEERS=0:monitor0:9000,1:monitor1:9001
-            - SERVICES=
+            - PEERS=0:monitor0:9000,1:monitor1:9001,2:monitor2:9002
+            - SERVICES=worker0,worker1,worker2,worker3,joiner_credits0,joiner_credits1,joiner_credits2,joiner_credits3,joiner_rating0,joiner_rating1,joiner_rating2,joiner_rating3,reduce_by_country_sum_budget0,reduce_by_country_sum_budget1,reduce_by_country_sum_budget2,reduce_top_5_by_budget0,reduce_top_5_by_budget1,reduce_top_5_by_budget2,reduce_by_actor0,reduce_by_actor1,reduce_by_actor2,reduce_top_10_by_actor0,reduce_top_10_by_actor1,reduce_top_10_by_actor2,reduce_top_bottom_avg_rating0,reduce_top_bottom_avg_rating1,reduce_top_bottom_avg_rating2,reduce_by_sentiment0,reduce_by_sentiment1,reduce_by_sentiment2,reduce_by_movieid0,reduce_by_movieid1,reduce_by_movieid2,reduce_by_movieid3,reduce_by_movieid4,reduce_by_movieid5,reduce_by_movieid6,reduce_by_movieid7,reduce_by_movieid8,reduce_by_movieid9,nlp_worker0,nlp_worker1,nlp_worker2,nlp_worker3,sentiment_server0,sentiment_server1,sentiment_server2,sentiment_server3,sentiment_server4,sentiment_server5,monitor0,monitor1,monitor2,coordinator,endpoint
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -982,10 +1185,30 @@ services:
             - local_net
         environment:
             - PORT=9001
-            - MONITOR_COUNT=2
+            - MONITOR_COUNT=3
             - MONITOR_ID=1
-            - PEERS=0:monitor0:9000,1:monitor1:9001
-            - SERVICES=
+            - PEERS=0:monitor0:9000,1:monitor1:9001,2:monitor2:9002
+            - SERVICES=worker0,worker1,worker2,worker3,joiner_credits0,joiner_credits1,joiner_credits2,joiner_credits3,joiner_rating0,joiner_rating1,joiner_rating2,joiner_rating3,reduce_by_country_sum_budget0,reduce_by_country_sum_budget1,reduce_by_country_sum_budget2,reduce_top_5_by_budget0,reduce_top_5_by_budget1,reduce_top_5_by_budget2,reduce_by_actor0,reduce_by_actor1,reduce_by_actor2,reduce_top_10_by_actor0,reduce_top_10_by_actor1,reduce_top_10_by_actor2,reduce_top_bottom_avg_rating0,reduce_top_bottom_avg_rating1,reduce_top_bottom_avg_rating2,reduce_by_sentiment0,reduce_by_sentiment1,reduce_by_sentiment2,reduce_by_movieid0,reduce_by_movieid1,reduce_by_movieid2,reduce_by_movieid3,reduce_by_movieid4,reduce_by_movieid5,reduce_by_movieid6,reduce_by_movieid7,reduce_by_movieid8,reduce_by_movieid9,nlp_worker0,nlp_worker1,nlp_worker2,nlp_worker3,sentiment_server0,sentiment_server1,sentiment_server2,sentiment_server3,sentiment_server4,sentiment_server5,monitor0,monitor1,monitor2,coordinator,endpoint
+        depends_on:
+            rabbitmq:
+                condition: service_healthy
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+    
+    monitor2:
+        container_name: monitor2
+        build:
+            context: .
+            dockerfile: monitor/Dockerfile
+        entrypoint: /monitor
+        networks:
+            - local_net
+        environment:
+            - PORT=9002
+            - MONITOR_COUNT=3
+            - MONITOR_ID=2
+            - PEERS=0:monitor0:9000,1:monitor1:9001,2:monitor2:9002
+            - SERVICES=worker0,worker1,worker2,worker3,joiner_credits0,joiner_credits1,joiner_credits2,joiner_credits3,joiner_rating0,joiner_rating1,joiner_rating2,joiner_rating3,reduce_by_country_sum_budget0,reduce_by_country_sum_budget1,reduce_by_country_sum_budget2,reduce_top_5_by_budget0,reduce_top_5_by_budget1,reduce_top_5_by_budget2,reduce_by_actor0,reduce_by_actor1,reduce_by_actor2,reduce_top_10_by_actor0,reduce_top_10_by_actor1,reduce_top_10_by_actor2,reduce_top_bottom_avg_rating0,reduce_top_bottom_avg_rating1,reduce_top_bottom_avg_rating2,reduce_by_sentiment0,reduce_by_sentiment1,reduce_by_sentiment2,reduce_by_movieid0,reduce_by_movieid1,reduce_by_movieid2,reduce_by_movieid3,reduce_by_movieid4,reduce_by_movieid5,reduce_by_movieid6,reduce_by_movieid7,reduce_by_movieid8,reduce_by_movieid9,nlp_worker0,nlp_worker1,nlp_worker2,nlp_worker3,sentiment_server0,sentiment_server1,sentiment_server2,sentiment_server3,sentiment_server4,sentiment_server5,monitor0,monitor1,monitor2,coordinator,endpoint
         depends_on:
             rabbitmq:
                 condition: service_healthy
@@ -1001,14 +1224,14 @@ services:
         environment:
             - ENDPOINT_PORT=9876
             - NAME=endpoint
-            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001
+            - MONITOR_ADDRESSES=monitor0:9000,monitor1:9001,monitor2:9002
         networks:
             - local_net
         depends_on:
             rabbitmq:
                 condition: service_healthy
         volumes:
-            - /home/sofiagb/Documents/sd1/movies/endpoint:/endpoint-dir-ids
+            - /Users/melinajauregui/Documents/distro-tps/tp-grupal/endpoint:/endpoint-dir-ids
 
 networks:
     local_net:
