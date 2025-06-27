@@ -30,8 +30,8 @@ const SPECIAL_TIMEOUT = 10 * time.Second
 const ELECTION_TIMEOUT = 3 * time.Second            // ToDo: ajustar
 const END_ELECTION_TIMEOUT = 300 * time.Millisecond // ToDo: ajustar
 const HEARTBEAT_INTERVAL = 100 * time.Millisecond   // ToDo: ajustar
-const READ_TIMEOUT = 1 * time.Second                // ToDo: ajustar
-const CONNECT_SLEEP = 50 * time.Millisecond         // ToDo: ajustar
+const READ_TIMEOUT = 100 * time.Millisecond         // ToDo: ajustar
+const CONNECT_SLEEP = 200 * time.Millisecond        // ToDo: ajustar
 const RESTART_ENDPOINT = false
 const MONITOR_STARTING_TIMEOUT = 1 * time.Second // ToDo: ajustar
 
@@ -373,7 +373,7 @@ func (m *Monitor) checkServices(cli *client.Client, ctx context.Context) {
 }
 
 func (m *Monitor) shouldRestart(isLeader bool, status ServiceStatus, id string) bool {
-	if strings.Contains(id, "endpoint") {
+	if strings.Contains(id, "endpoint") || strings.Contains(id, "client") {
 		if !RESTART_ENDPOINT {
 			return false
 		}
